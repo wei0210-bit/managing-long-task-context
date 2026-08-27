@@ -14,9 +14,6 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 import managing_long_task_context as context
 
 
-OBSERVED_NOW = datetime(2026, 8, 27, 5, 0, tzinfo=timezone.utc)
-
-
 def verify_file_claim(evidence, criterion, resolution):
     """Bind a resolver-passing file to this example's acceptance criterion."""
 
@@ -68,6 +65,7 @@ def run_example():
             confirmed_by="task-publisher",
             base_dir=base_dir,
         )
+        generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return context.gate(
             "DOC-EXAMPLE",
             stage="completion",
@@ -79,7 +77,7 @@ def run_example():
                             "kind": "file",
                             "locator": "result.txt#complete-artifact",
                             "artifact_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
-                            "generated_at": "2026-08-27T04:30:00Z",
+                            "generated_at": generated_at,
                             "scope": {"module": "docs-example"},
                             "covered_hops": ["artifact-created"],
                         }
@@ -88,7 +86,6 @@ def run_example():
                 }
             },
             verifiers={"file": verify_file_claim},
-            now=OBSERVED_NOW,
             base_dir=base_dir,
             emit=False,
         )

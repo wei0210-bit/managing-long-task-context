@@ -1,8 +1,8 @@
 # Strict S4-S7 final fix report
 
-Date: 2026-08-27  
-Branch: `feat/context-strict-s4-s7`  
-Base: `17bb82354693f21643349ea52a1e67ea8f8d3692`  
+Date: 2026-08-27
+Branch: `feat/context-strict-s4-s7`
+Base: `17bb82354693f21643349ea52a1e67ea8f8d3692`
 Implementation commit: `82615a02923ee0dc54e6d12e906ccf9437ee6281`
 
 ## TDD RED evidence

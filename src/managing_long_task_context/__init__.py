@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from .evidence import canonical_json_bytes, evaluate_evidence
+from .evidence import MAX_CLOCK_SKEW_SECONDS, canonical_json_bytes, evaluate_evidence
 
 try:  # Prime Agent targets macOS/Linux; keep a safe fallback for other runtimes.
     import fcntl  # type: ignore
@@ -66,6 +66,10 @@ class _EventReadError(ContextError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _trusted_utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _parse_time(value: str | None) -> datetime | None:
@@ -303,14 +307,20 @@ def _valid_age_window(value: Any) -> bool:
     return type(value) is int and value >= 0
 
 
-def _valid_explicit_utc_timestamp(value: Any) -> bool:
+def _parse_explicit_utc_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or _EXPLICIT_UTC_RFC3339_RE.fullmatch(value) is None:
-        return False
+        return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return False
-    return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _valid_explicit_utc_timestamp(value: Any) -> bool:
+    return _parse_explicit_utc_timestamp(value) is not None
 
 
 def _valid_delivery_receipt(value: Mapping[str, Any]) -> bool:
@@ -1399,6 +1409,7 @@ def _gate_core(
 
     if stage not in GATE_STAGES:
         raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
+    observed_now = (now or _trusted_utc_now()).astimezone(timezone.utc)
     paths = _paths(task_id, base_dir)
     report = _audit_core(
         task_id,
@@ -1495,7 +1506,7 @@ def _gate_core(
                         deepcopy(contract_baseline),
                         resolvers=resolvers,
                         verifiers=verifiers,
-                        now=now,
+                        now=observed_now,
                     )
                 except Exception as exc:
                     criterion_report = {
@@ -1573,7 +1584,7 @@ def _evaluate_completion_criterion(
     *,
     resolvers: Mapping[str, Any] | None,
     verifiers: Mapping[str, Any] | None,
-    now: datetime | None,
+    now: datetime,
 ) -> dict[str, Any]:
     """Derive one criterion from an immutable requirements/evidence baseline."""
 
@@ -1675,18 +1686,44 @@ def _evaluate_completion_criterion(
             )
             continue
 
-        if label == "delivery_receipt" and not _valid_delivery_receipt(source):
-            destination_results.append(
-                _malformed_completion_result(
-                    criterion_id,
-                    label,
-                    index,
-                    "MALFORMED_DELIVERY_RECEIPT",
-                    evidence_id=identifier,
-                    kind=source.get("kind"),
+        if label == "delivery_receipt":
+            if not _valid_delivery_receipt(source):
+                destination_results.append(
+                    _malformed_completion_result(
+                        criterion_id,
+                        label,
+                        index,
+                        "MALFORMED_DELIVERY_RECEIPT",
+                        evidence_id=identifier,
+                        kind=source.get("kind"),
+                    )
                 )
+                continue
+            future_fields = (
+                (field, _parse_explicit_utc_timestamp(source.get(field)))
+                for field in _DELIVERY_RECEIPT_TIME_FIELDS
             )
-            continue
+            future_field = next(
+                (
+                    field
+                    for field, timestamp in future_fields
+                    if timestamp is not None
+                    and timestamp > now + timedelta(seconds=MAX_CLOCK_SKEW_SECONDS)
+                ),
+                None,
+            )
+            if future_field is not None:
+                destination_results.append(
+                    _malformed_completion_result(
+                        criterion_id,
+                        label,
+                        index,
+                        f"FUTURE_DELIVERY_{future_field.upper()}",
+                        evidence_id=identifier,
+                        kind=source.get("kind"),
+                    )
+                )
+                continue
 
         result = evaluate_evidence(
             deepcopy(source),
@@ -1734,6 +1771,7 @@ def _evaluate_completion_criterion(
         entry,
         [*primary_sources, *receipt_sources],
         contract_baseline,
+        now,
     )
     statuses = [result.get("status", "unknown") for result in evidence_results]
     if not primary_results:
@@ -1805,9 +1843,18 @@ def _independent_validation_check(
     entry: Mapping[str, Any],
     evidence_sources: Sequence[Mapping[str, Any] | None],
     contract: Mapping[str, Any],
+    now: datetime,
 ) -> dict[str, Any]:
     if not required:
         return {"status": "pass", "codes": []}
+    validated_at_value = entry.get("validated_at")
+    if validated_at_value is None:
+        return {"status": "unknown", "codes": ["MISSING_VALIDATED_AT"]}
+    validated_at = _parse_explicit_utc_timestamp(validated_at_value)
+    if validated_at is None:
+        return {"status": "fail", "codes": ["INVALID_VALIDATED_AT"]}
+    if validated_at > now + timedelta(seconds=MAX_CLOCK_SKEW_SECONDS):
+        return {"status": "fail", "codes": ["FUTURE_VALIDATED_AT"]}
     validator = entry.get("validated_by")
     if not isinstance(validator, str) or not validator.strip():
         return {"status": "unknown", "codes": ["MISSING_INDEPENDENT_VALIDATOR"]}
@@ -1856,7 +1903,6 @@ def gate(
     documents: Sequence[str | Path] | None = None,
     resolvers: Mapping[str, Any] | None = None,
     verifiers: Mapping[str, Any] | None = None,
-    now: datetime | None = None,
     emit: bool = True,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -1870,7 +1916,7 @@ def gate(
         documents=documents,
         resolvers=resolvers,
         verifiers=verifiers,
-        now=now,
+        now=_trusted_utc_now(),
         emit=emit,
         base_dir=base_dir,
         run_probe=True,

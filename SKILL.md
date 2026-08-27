@@ -72,8 +72,6 @@ child = await rlm(brief["prompt"], name="root-cause-verifier")
 ### 5. Complete only against publisher-written criteria
 
 ```python
-from datetime import datetime, timezone
-
 def verify_file_claim(evidence, criterion, resolution):
     supported = evidence["scope"]["module"] == criterion["required_scope"]["module"]
     return {"status": "pass" if supported else "fail", "codes": []}
@@ -97,10 +95,10 @@ context.gate(
             }],
             "delivery_receipts": [],
             "validated_by": "validator-01",
+            "validated_at": "2026-08-27T05:00:00Z",
         }
     },
     verifiers={"file": verify_file_claim},
-    now=datetime(2026, 8, 27, 5, 0, tzinfo=timezone.utc),
 )
 ```
 
@@ -110,7 +108,8 @@ context.gate(
 必须写在某个实际通过的 evidence 对象自己的 `covered_hops` 中；验收映射顶层的
 旧 `covered_hops` 字段只保留兼容性，不能自行证明 hop。需要独立验证时，合同还要
 提供 `actor_roles`，且 `validated_by` 必须拥有 validator 角色并与 evidence 的
-`produced_by`/owner 分离。
+`produced_by`/owner 分离；验收映射还必须提供不晚于 gate 当前 UTC（加 300 秒时钟偏差）
+的显式 UTC RFC3339 `validated_at`。
 
 当 criterion 声明 `required_delivery_types` 时，每个 receipt 必须是带稳定
 `evidence_id` 的 `delivery-receipt` 对象，并完整提供 `delivery_type`、`channel`、
@@ -122,6 +121,9 @@ context.gate(
 UTC RFC3339（`Z` 或 `+00:00`）；只允许最多 300 秒的未来时钟偏差。Git revision
 约束使用 `required_revision` 与 `revision_match: exact|ancestor`，test report 内部
 revision 和 scope 必须匹配 criterion，而不是只与调用者 envelope 相互一致。
+
+completion gate 使用自身观测到的当前 UTC 判断 evidence、独立验证和 delivery receipt
+时间；公共 `context.gate()` 不接受调用方提供的参考时间。
 
 ## API
 

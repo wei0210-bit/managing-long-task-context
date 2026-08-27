@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -64,6 +64,9 @@ class ContextSkillTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name) / ".prime" / "context"
+        self.clock = patch.object(context, "_trusted_utc_now", return_value=NOW)
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
         self.contract = {
             "schema": 1,
             "task_id": "TASK-001",
@@ -90,6 +93,156 @@ class ContextSkillTests(unittest.TestCase):
 
     def publish(self) -> dict:
         return context.publish_contract(self.contract, confirmed_by="publisher", base_dir=self.base)
+
+    def test_public_gate_rejects_caller_supplied_now(self):
+        self.publish()
+        self.assertNotIn("now", inspect.signature(context.gate).parameters)
+        with self.assertRaises(TypeError):
+            context.gate("TASK-001", stage="release", now=NOW, base_dir=self.base, emit=False)
+
+    def test_completion_requires_validated_at_for_independent_validation(self):
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["custom"]
+        criterion["chain_hops"] = []
+        criterion["independent_validation_required"] = True
+        self.contract["actor_roles"] = {
+            "executor-01": ["executor"],
+            "validator-01": ["validator"],
+        }
+        self.publish()
+        report = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "validated_by": "validator-01",
+                    "evidence": [{
+                        "evidence_id": "EV-UNDATED",
+                        "kind": "custom",
+                        "produced_by": "executor-01",
+                    }],
+                }
+            },
+            resolvers={"custom": passing_resolver},
+            verifiers={"custom": passing_verifier},
+            base_dir=self.base,
+            emit=False,
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["criteria"]["AC-01"]["independent_validation"], {
+            "status": "unknown", "codes": ["MISSING_VALIDATED_AT"]
+        })
+
+        dated_report = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "validated_by": "validator-01",
+                    "validated_at": NOW.isoformat().replace("+00:00", "Z"),
+                    "evidence": [{
+                        "evidence_id": "EV-DATED",
+                        "kind": "custom",
+                        "produced_by": "executor-01",
+                    }],
+                }
+            },
+            resolvers={"custom": passing_resolver},
+            verifiers={"custom": passing_verifier},
+            base_dir=self.base,
+            emit=False,
+        )
+        self.assertTrue(dated_report["passed"], dated_report["errors"])
+        self.assertEqual(dated_report["criteria"]["AC-01"]["independent_validation"], {
+            "status": "pass", "codes": []
+        })
+
+    def test_completion_rejects_invalid_and_future_validated_at(self):
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["custom"]
+        criterion["chain_hops"] = []
+        criterion["independent_validation_required"] = True
+        self.contract["actor_roles"] = {
+            "executor-01": ["executor"],
+            "validator-01": ["validator"],
+        }
+        self.publish()
+        for value, code in (("not-a-time", "INVALID_VALIDATED_AT"),
+                            ("2099-01-01T00:00:00Z", "FUTURE_VALIDATED_AT")):
+            with self.subTest(value=value):
+                report = context.gate(
+                    "TASK-001",
+                    stage="completion",
+                    evidence_map={
+                        "AC-01": {
+                            "validated_by": "validator-01",
+                            "validated_at": value,
+                            "evidence": [{
+                                "evidence_id": "EV-DATED",
+                                "kind": "custom",
+                                "produced_by": "executor-01",
+                            }],
+                        }
+                    },
+                    resolvers={"custom": passing_resolver},
+                    verifiers={"custom": passing_verifier},
+                    base_dir=self.base,
+                    emit=False,
+                )
+                self.assertFalse(report["passed"])
+                independence = report["criteria"]["AC-01"]["independent_validation"]
+                self.assertEqual(independence["status"], "fail")
+                self.assertIn(code, independence["codes"])
+
+    def test_completion_rejects_future_delivery_receipt_timestamps(self):
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["custom"]
+        criterion["chain_hops"] = []
+        criterion["required_delivery_types"] = ["feishu"]
+        self.publish()
+
+        def run(sent_at, observed_at):
+            receipt = valid_delivery_receipt(
+                "EV-RECEIPT-TIME",
+                artifact_ref="EV-PRIMARY",
+                sent_at=sent_at,
+                observed_at=observed_at,
+            )
+            return context.gate(
+                "TASK-001",
+                stage="completion",
+                evidence_map={
+                    "AC-01": {
+                        "evidence": [{"evidence_id": "EV-PRIMARY", "kind": "custom"}],
+                        "delivery_receipts": [receipt],
+                    }
+                },
+                resolvers={
+                    "custom": passing_resolver,
+                    "delivery-receipt": passing_resolver,
+                },
+                verifiers={
+                    "custom": passing_verifier,
+                    "delivery-receipt": passing_verifier,
+                },
+                base_dir=self.base,
+                emit=False,
+            )
+
+        near = (NOW + timedelta(seconds=299)).isoformat().replace("+00:00", "Z")
+        far = (NOW + timedelta(seconds=301)).isoformat().replace("+00:00", "Z")
+        baseline = NOW.isoformat().replace("+00:00", "Z")
+        within_skew_report = run(near, near)
+        self.assertTrue(within_skew_report["passed"], within_skew_report["errors"])
+        for field, sent_at, observed_at, code in (
+            ("sent_at", far, baseline, "FUTURE_DELIVERY_SENT_AT"),
+            ("observed_at", baseline, far, "FUTURE_DELIVERY_OBSERVED_AT"),
+        ):
+            with self.subTest(field=field):
+                future_report = run(sent_at, observed_at)
+                self.assertFalse(future_report["passed"])
+                receipt_result = future_report["criteria"]["AC-01"]["evidence_results"][1]
+                self.assertIn(code, receipt_result["checks"]["resolve"]["codes"])
 
     def completion_file_report(self, timestamp_fields: dict) -> dict:
         workspace = Path(self.temp.name) / "workspace"
@@ -121,7 +274,6 @@ class ContextSkillTests(unittest.TestCase):
                 }
             },
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -529,7 +681,6 @@ class ContextSkillTests(unittest.TestCase):
                 }
             },
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -548,7 +699,6 @@ class ContextSkillTests(unittest.TestCase):
                 }
             },
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -566,7 +716,6 @@ class ContextSkillTests(unittest.TestCase):
                 }
             },
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -718,7 +867,6 @@ class ContextSkillTests(unittest.TestCase):
             stage="completion",
             evidence_map={"AC-01": entry},
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -730,7 +878,6 @@ class ContextSkillTests(unittest.TestCase):
             stage="completion",
             evidence_map={"AC-01": entry},
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -767,7 +914,6 @@ class ContextSkillTests(unittest.TestCase):
             },
             resolvers={"custom": permission_denied_resolver},
             verifiers={"custom": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -817,7 +963,6 @@ class ContextSkillTests(unittest.TestCase):
                 }
             },
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -838,7 +983,6 @@ class ContextSkillTests(unittest.TestCase):
                 }
             },
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -881,7 +1025,6 @@ class ContextSkillTests(unittest.TestCase):
             "TASK-001",
             stage="completion",
             evidence_map={"AC-01": entry},
-            now=NOW,
             base_dir=self.base,
             emit=False,
             **dependencies,
@@ -899,7 +1042,6 @@ class ContextSkillTests(unittest.TestCase):
             evidence_map={"AC-01": verified_entry},
             resolvers=dependencies["resolvers"],
             verifiers={"file": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -912,7 +1054,6 @@ class ContextSkillTests(unittest.TestCase):
             "TASK-001",
             stage="completion",
             evidence_map={"AC-01": verified_entry},
-            now=NOW,
             base_dir=self.base,
             emit=False,
             **dependencies,
@@ -942,7 +1083,6 @@ class ContextSkillTests(unittest.TestCase):
                             "covered_hops": ["entry", "guard", "write"],
                         }
                     },
-                    now=NOW,
                     base_dir=self.base,
                     emit=False,
                     **dependencies,
@@ -985,7 +1125,6 @@ class ContextSkillTests(unittest.TestCase):
                             "delivery_receipts": receipt_value,
                         }
                     },
-                    now=NOW,
                     base_dir=self.base,
                     emit=False,
                     **dependencies,
@@ -1042,7 +1181,6 @@ class ContextSkillTests(unittest.TestCase):
                             "delivery_receipts": [receipt],
                         }
                     },
-                    now=NOW,
                     base_dir=self.base,
                     emit=False,
                     **dependencies,
@@ -1091,7 +1229,6 @@ class ContextSkillTests(unittest.TestCase):
             },
             resolvers={"custom": passing_resolver},
             verifiers={"custom": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1147,7 +1284,6 @@ class ContextSkillTests(unittest.TestCase):
             required_item_ids=[normal["id"]],
             resolvers={"custom": passing_resolver},
             verifiers={"custom": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1194,7 +1330,6 @@ class ContextSkillTests(unittest.TestCase):
             stage="completion",
             evidence_map=evidence_map,
             required_item_ids=[superseded["id"]],
-            now=NOW,
             base_dir=self.base,
             emit=False,
             **dependencies,
@@ -1207,7 +1342,6 @@ class ContextSkillTests(unittest.TestCase):
             "TASK-001",
             stage="completion",
             evidence_map=evidence_map,
-            now=NOW,
             base_dir=self.base,
             emit=False,
             **dependencies,
@@ -1232,7 +1366,6 @@ class ContextSkillTests(unittest.TestCase):
             },
             resolvers={"custom": passing_resolver},
             verifiers={"custom": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1258,7 +1391,6 @@ class ContextSkillTests(unittest.TestCase):
             },
             resolvers={"custom": passing_resolver},
             verifiers={"custom": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1282,6 +1414,7 @@ class ContextSkillTests(unittest.TestCase):
             stage="completion",
             evidence_map={
                 "AC-01": {
+                    "validated_at": NOW.isoformat().replace("+00:00", "Z"),
                     "evidence": [
                         {
                             "evidence_id": "EV-NO-VALIDATOR",
@@ -1293,7 +1426,6 @@ class ContextSkillTests(unittest.TestCase):
             },
             resolvers={"custom": passing_resolver},
             verifiers={"custom": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1317,6 +1449,7 @@ class ContextSkillTests(unittest.TestCase):
             evidence_map={
                 "AC-01": {
                     "validated_by": "executor-01",
+                    "validated_at": NOW.isoformat().replace("+00:00", "Z"),
                     "evidence": [
                         {
                             "evidence_id": "EV-SELF-VALIDATED",
@@ -1328,7 +1461,6 @@ class ContextSkillTests(unittest.TestCase):
             },
             resolvers={"custom": passing_resolver},
             verifiers={"custom": passing_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1367,6 +1499,7 @@ class ContextSkillTests(unittest.TestCase):
             evidence_map={
                 "AC-01": {
                     "validated_by": "validator-01",
+                    "validated_at": NOW.isoformat().replace("+00:00", "Z"),
                     "evidence": [
                         {
                             "evidence_id": "EV-PRIMARY",
@@ -1385,7 +1518,6 @@ class ContextSkillTests(unittest.TestCase):
                 "custom": passing_verifier,
                 "delivery-receipt": passing_verifier,
             },
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1432,7 +1564,6 @@ class ContextSkillTests(unittest.TestCase):
             evidence_map=evidence_map,
             resolvers={"custom": malicious_resolver},
             verifiers={"custom": malicious_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1531,7 +1662,6 @@ class ContextSkillTests(unittest.TestCase):
                         }
                     },
                     verifiers={"file": passing_verifier},
-                    now=NOW,
                     base_dir=self.base,
                     emit=False,
                 )
@@ -1678,7 +1808,6 @@ class ContextSkillTests(unittest.TestCase):
                     "TASK-001",
                     stage="completion",
                     evidence_map={"AC-01": deepcopy(entry)},
-                    now=NOW,
                     base_dir=self.base,
                     emit=False,
                     **dependencies,
@@ -1715,7 +1844,6 @@ class ContextSkillTests(unittest.TestCase):
                     },
                     resolvers={"custom": raising_resolver},
                     verifiers={"custom": passing_verifier},
-                    now=NOW,
                     base_dir=self.base,
                     emit=False,
                 )
@@ -1735,7 +1863,6 @@ class ContextSkillTests(unittest.TestCase):
             },
             resolvers={"custom": passing_resolver},
             verifiers={"custom": raising_verifier},
-            now=NOW,
             base_dir=self.base,
             emit=False,
         )
@@ -1800,7 +1927,6 @@ class ContextSkillTests(unittest.TestCase):
                     "TASK-001",
                     stage="completion",
                     evidence_map={"AC-01": deepcopy(entry)},
-                    now=NOW,
                     base_dir=self.base,
                     emit=False,
                     **dependencies,
@@ -1873,7 +1999,11 @@ class ContextSkillTests(unittest.TestCase):
         namespace = {"__file__": str(example_path), "__name__": "strict_completion_example"}
         exec(compile(example_path.read_text(encoding="utf-8"), str(example_path), "exec"), namespace)
 
-        report = namespace["run_example"]()
+        self.clock.stop()
+        try:
+            report = namespace["run_example"]()
+        finally:
+            self.clock.start()
 
         self.assertTrue(report["passed"], report["errors"])
         self.assertEqual(report["criteria"]["AC-01"]["status"], "pass")
