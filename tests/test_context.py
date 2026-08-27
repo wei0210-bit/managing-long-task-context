@@ -4,6 +4,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 import sys
@@ -13,6 +14,29 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import managing_long_task_context as context
 from managing_long_task_context.evidence import canonical_json_bytes
+
+
+NOW = datetime(2026, 8, 27, 5, 0, tzinfo=timezone.utc)
+
+
+def passing_verifier(evidence, criterion, resolution):
+    return {"status": "pass", "codes": []}
+
+
+def passing_resolver(evidence, criterion, contract, now):
+    return {
+        "resolve": {"status": "pass", "codes": []},
+        "integrity_and_freshness": {"status": "pass", "codes": []},
+        "scope": {"status": "pass", "codes": []},
+    }
+
+
+def permission_denied_resolver(evidence, criterion, contract, now):
+    return {
+        "resolve": {"status": "unknown", "codes": ["PERMISSION_DENIED"]},
+        "integrity_and_freshness": {"status": "pass", "codes": []},
+        "scope": {"status": "pass", "codes": []},
+    }
 
 
 class ContextSkillTests(unittest.TestCase):
@@ -412,37 +436,346 @@ class ContextSkillTests(unittest.TestCase):
         self.assertTrue(after["passed"], after["errors"])
 
     def test_completion_requires_evidence_types_and_chain_hops(self) -> None:
+        workspace = Path(self.temp.name) / "workspace"
+        workspace.mkdir()
+        content = b"completion evidence\n"
+        (workspace / "completion.txt").write_bytes(content)
+        self.contract["workspace_root"] = str(workspace)
+        self.contract["acceptance_criteria"][0]["required_evidence"] = ["file"]
         self.publish()
+        evidence = {
+            "evidence_id": "EV-AC-01",
+            "kind": "file",
+            "locator": "completion.txt",
+            "artifact_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+            "generated_at": "2026-08-27T04:30:00Z",
+            "scope": {"task_id": "TASK-001", "criterion_id": "AC-01"},
+        }
+        malformed = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "result": "pass",
+                    "evidence": ["test:run-01"],
+                    "covered_hops": ["entry", "guard", "write"],
+                }
+            },
+            verifiers={"file": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
+        self.assertFalse(malformed["passed"])
+        self.assertEqual(
+            malformed["criteria"]["AC-01"]["evidence_results"][0]["checks"]["resolve"],
+            {"status": "fail", "codes": ["MALFORMED_EVIDENCE"]},
+        )
         incomplete = context.gate(
             "TASK-001",
             stage="completion",
             evidence_map={
                 "AC-01": {
-                    "result": "pass",
-                    "evidence": ["test:run-01"],
-                    "evidence_types": ["integration-test"],
+                    "evidence": [evidence],
                     "covered_hops": ["entry", "write"],
                 }
             },
+            verifiers={"file": passing_verifier},
+            now=NOW,
             base_dir=self.base,
             emit=False,
         )
         self.assertFalse(incomplete["passed"])
+        self.assertEqual(incomplete["criteria"]["AC-01"]["missing_hops"], ["guard"])
         complete = context.gate(
             "TASK-001",
             stage="completion",
             evidence_map={
                 "AC-01": {
-                    "result": "pass",
-                    "evidence": ["test:run-01"],
-                    "evidence_types": ["integration-test"],
+                    "evidence": [evidence],
                     "covered_hops": ["entry", "guard", "write"],
                 }
             },
+            verifiers={"file": passing_verifier},
+            now=NOW,
             base_dir=self.base,
             emit=False,
         )
         self.assertTrue(complete["passed"], complete["errors"])
+
+    def test_completion_re_resolves_deleted_evidence(self) -> None:
+        workspace = Path(self.temp.name) / "workspace"
+        workspace.mkdir()
+        artifact = workspace / "completion.txt"
+        content = b"fresh completion evidence\n"
+        artifact.write_bytes(content)
+        self.contract["workspace_root"] = str(workspace)
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion.pop("required_evidence")
+        criterion["required_evidence_types"] = ["file"]
+        self.publish()
+        evidence = {
+            "evidence_id": "EV-DELETION",
+            "kind": "file",
+            "locator": "completion.txt",
+            "artifact_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+            "generated_at": "2026-08-27T04:30:00Z",
+            "scope": {"task_id": "TASK-001", "criterion_id": "AC-01"},
+            "resolver_status": "pass",
+        }
+        entry = {
+            "result": "pass",
+            "evidence": [evidence],
+            "covered_hops": ["entry", "guard", "write"],
+        }
+
+        before = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={"AC-01": entry},
+            verifiers={"file": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
+        self.assertTrue(before["passed"], before["errors"])
+
+        artifact.unlink()
+        after = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={"AC-01": entry},
+            verifiers={"file": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
+
+        self.assertTrue(before["passed"])
+        self.assertFalse(after["passed"])
+        result = after["criteria"]["AC-01"]
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(
+            result["evidence_results"][0]["checks"]["resolve"],
+            {"status": "fail", "codes": ["NOT_FOUND"]},
+        )
+        self.assertTrue(any("AC-01" in error and "EV-DELETION" in error for error in after["errors"]))
+
+    def test_completion_rejects_unknown_required_evidence(self) -> None:
+        self.contract["acceptance_criteria"][0]["required_evidence"] = ["custom"]
+        self.publish()
+        report = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "result": "pass",
+                    "evidence": [
+                        {
+                            "evidence_id": "EV-UNKNOWN",
+                            "kind": "custom",
+                            "resolver_status": "pass",
+                        }
+                    ],
+                    "covered_hops": ["entry", "guard", "write"],
+                }
+            },
+            resolvers={"custom": permission_denied_resolver},
+            verifiers={"custom": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
+
+        self.assertFalse(report["passed"])
+        result = report["criteria"]["AC-01"]
+        self.assertEqual(result["status"], "unknown")
+        self.assertEqual(result["missing_evidence_types"], [])
+        self.assertEqual(
+            result["evidence_results"][0]["checks"]["resolve"],
+            {"status": "unknown", "codes": ["PERMISSION_DENIED"]},
+        )
+        self.assertTrue(any("AC-01" in error and "EV-UNKNOWN" in error for error in report["errors"]))
+
+    def test_completion_rejects_stale_and_scope_mismatched_evidence(self) -> None:
+        workspace = Path(self.temp.name) / "workspace"
+        workspace.mkdir()
+        content = b"scope and freshness evidence\n"
+        (workspace / "completion.txt").write_bytes(content)
+        self.contract["workspace_root"] = str(workspace)
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["file"]
+        criterion["required_scope"] = {"task_id": "TASK-001", "criterion_id": "AC-01"}
+        criterion["max_evidence_age_seconds"] = 3600
+        self.publish()
+        common = {
+            "kind": "file",
+            "locator": "completion.txt",
+            "artifact_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+        }
+
+        stale = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "evidence": [
+                        dict(
+                            common,
+                            evidence_id="EV-STALE",
+                            generated_at="2026-08-27T03:00:00Z",
+                            scope={"task_id": "TASK-001", "criterion_id": "AC-01"},
+                        )
+                    ],
+                    "covered_hops": ["entry", "guard", "write"],
+                }
+            },
+            verifiers={"file": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
+        mismatched = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "evidence": [
+                        dict(
+                            common,
+                            evidence_id="EV-SCOPE",
+                            generated_at="2026-08-27T04:30:00Z",
+                            scope={"task_id": "TASK-001"},
+                        )
+                    ],
+                    "covered_hops": ["entry", "guard", "write"],
+                }
+            },
+            verifiers={"file": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
+
+        self.assertFalse(stale["passed"])
+        self.assertEqual(stale["criteria"]["AC-01"]["status"], "fail")
+        self.assertEqual(
+            stale["criteria"]["AC-01"]["evidence_results"][0]["checks"][
+                "integrity_and_freshness"
+            ],
+            {"status": "fail", "codes": ["STALE"]},
+        )
+        self.assertFalse(mismatched["passed"])
+        self.assertEqual(mismatched["criteria"]["AC-01"]["status"], "fail")
+        self.assertEqual(
+            mismatched["criteria"]["AC-01"]["evidence_results"][0]["checks"]["scope"],
+            {"status": "fail", "codes": ["SCOPE_MISMATCH"]},
+        )
+
+    def test_completion_requires_delivery_receipt(self) -> None:
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["file"]
+        criterion["required_delivery_types"] = ["feishu"]
+        self.publish()
+        evidence = {"evidence_id": "EV-FILE", "kind": "file"}
+        entry = {
+            "evidence": [evidence],
+            "covered_hops": ["entry", "guard", "write"],
+        }
+        dependencies = {
+            "resolvers": {"file": passing_resolver, "delivery-receipt": passing_resolver},
+            "verifiers": {"file": passing_verifier, "delivery-receipt": passing_verifier},
+        }
+
+        missing = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={"AC-01": entry},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+            **dependencies,
+        )
+        self.assertFalse(missing["passed"])
+        self.assertEqual(missing["criteria"]["AC-01"]["missing_delivery_types"], ["feishu"])
+
+        verified_entry = dict(
+            entry,
+            delivery_receipts=[
+                {
+                    "evidence_id": "EV-RECEIPT",
+                    "kind": "delivery-receipt",
+                    "delivery_type": "feishu",
+                }
+            ],
+        )
+        unverified = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={"AC-01": verified_entry},
+            resolvers=dependencies["resolvers"],
+            verifiers={"file": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
+        self.assertFalse(unverified["passed"])
+        unverified_result = unverified["criteria"]["AC-01"]
+        self.assertEqual(unverified_result["missing_delivery_types"], ["feishu"])
+        self.assertEqual(unverified_result["evidence_results"][1]["status"], "unknown")
+
+        verified = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={"AC-01": verified_entry},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+            **dependencies,
+        )
+        self.assertTrue(verified["passed"], verified["errors"])
+        self.assertEqual(verified["criteria"]["AC-01"]["missing_delivery_types"], [])
+
+    def test_completion_keeps_conflicted_items_blocking(self) -> None:
+        self.contract["acceptance_criteria"][0]["required_evidence"] = ["custom"]
+        self.publish()
+        item = context.record(
+            "TASK-001",
+            statement="Observed completion state is disputed",
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-01"},
+            base_dir=self.base,
+        )
+        context.update_item(
+            "TASK-001",
+            item["id"],
+            actor="validator",
+            status="conflicted",
+            conflicts_with=["EV-OTHER"],
+            conflict_reason="Independent probe disagrees",
+            base_dir=self.base,
+        )
+
+        report = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "evidence": [{"evidence_id": "EV-COMPLETE", "kind": "custom"}],
+                    "covered_hops": ["entry", "guard", "write"],
+                }
+            },
+            resolvers={"custom": passing_resolver},
+            verifiers={"custom": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertIn(f"required context item is conflicted: {item['id']}", report["errors"])
+        self.assertEqual(report["criteria"]["AC-01"]["status"], "pass")
 
     def test_audit_self_probe_and_counts_are_explicit(self) -> None:
         self.publish()

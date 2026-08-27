@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from .evidence import canonical_json_bytes
+from .evidence import canonical_json_bytes, evaluate_evidence
 
 try:  # Prime Agent targets macOS/Linux; keep a safe fallback for other runtimes.
     import fcntl  # type: ignore
@@ -177,9 +177,14 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
             seen.add(criterion_id)
         if not isinstance(criterion.get("criterion"), str) or not criterion["criterion"].strip():
             errors.append(f"{prefix}.criterion must be a non-empty string")
-        required_evidence = criterion.get("required_evidence")
+        evidence_key = (
+            "required_evidence_types"
+            if "required_evidence_types" in criterion
+            else "required_evidence"
+        )
+        required_evidence = criterion.get(evidence_key)
         if not isinstance(required_evidence, list) or not required_evidence:
-            errors.append(f"{prefix}.required_evidence must be a non-empty list")
+            errors.append(f"{prefix}.{evidence_key} must be a non-empty list")
         hops = criterion.get("chain_hops", [])
         if not isinstance(hops, list):
             errors.append(f"{prefix}.chain_hops must be a list when present")
@@ -1044,6 +1049,9 @@ def gate(
     evidence_map: Mapping[str, Mapping[str, Any]] | None = None,
     required_item_ids: Sequence[str] | None = None,
     documents: Sequence[str | Path] | None = None,
+    resolvers: Mapping[str, Any] | None = None,
+    verifiers: Mapping[str, Any] | None = None,
+    now: datetime | None = None,
     emit: bool = True,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -1055,6 +1063,7 @@ def gate(
     report = audit(task_id, documents=documents, emit=False, base_dir=base_dir)
     errors = list(report["errors"])
     warnings = list(report["warnings"])
+    criterion_reports: dict[str, Any] = {}
     contract: dict[str, Any] = {}
     snapshot = _empty_snapshot(task_id)
     try:
@@ -1096,31 +1105,47 @@ def gate(
                     continue
                 criterion_id = criterion.get("id")
                 evidence_entry = evidence_map.get(criterion_id) if isinstance(criterion_id, str) else None
+                criterion_report = _evaluate_completion_criterion(
+                    criterion,
+                    evidence_entry,
+                    contract,
+                    resolvers=resolvers,
+                    verifiers=verifiers,
+                    now=now,
+                )
+                criterion_reports[str(criterion_id)] = criterion_report
                 if not isinstance(evidence_entry, Mapping):
                     errors.append(f"missing completion evidence for {criterion_id}")
-                    continue
-                if evidence_entry.get("result") != "pass":
-                    errors.append(f"criterion {criterion_id} is not passed")
-                if not evidence_entry.get("evidence"):
-                    errors.append(f"criterion {criterion_id} has no evidence pointers")
-                required_types = set(str(item) for item in criterion.get("required_evidence", []))
-                supplied_types = set(str(item) for item in evidence_entry.get("evidence_types", []))
-                missing_types = required_types - supplied_types
-                if missing_types:
+                for evidence_result in criterion_report["evidence_results"]:
+                    if evidence_result["status"] != "pass":
+                        errors.append(
+                            f"criterion {criterion_id} evidence "
+                            f"{evidence_result['evidence_id']} is {evidence_result['status']}"
+                        )
+                if not isinstance(evidence_entry, Mapping) or not evidence_entry.get("evidence"):
+                    errors.append(f"criterion {criterion_id} has no evidence")
+                if criterion_report["missing_evidence_types"]:
                     errors.append(
-                        f"criterion {criterion_id} missing required evidence types: {sorted(missing_types)}"
+                        f"criterion {criterion_id} missing required evidence types: "
+                        f"{criterion_report['missing_evidence_types']}"
                     )
-                required_hops = set(str(item) for item in criterion.get("chain_hops", []))
-                covered_hops = set(str(item) for item in evidence_entry.get("covered_hops", []))
-                missing_hops = required_hops - covered_hops
-                if missing_hops:
-                    errors.append(f"criterion {criterion_id} missing chain-hop coverage: {sorted(missing_hops)}")
+                if criterion_report["missing_hops"]:
+                    errors.append(
+                        f"criterion {criterion_id} missing chain-hop coverage: "
+                        f"{criterion_report['missing_hops']}"
+                    )
+                if criterion_report["missing_delivery_types"]:
+                    errors.append(
+                        f"criterion {criterion_id} missing required delivery types: "
+                        f"{criterion_report['missing_delivery_types']}"
+                    )
 
     final = {
         "stage": stage,
         "passed": not errors,
         "errors": errors,
         "warnings": warnings,
+        "criteria": criterion_reports,
         "stats": {
             **report["stats"],
             "checked": report["stats"].get("checked", 0),
@@ -1130,6 +1155,132 @@ def gate(
     if emit:
         _emit_report(final)
     return final
+
+
+def _evaluate_completion_criterion(
+    criterion: Mapping[str, Any],
+    evidence_entry: Any,
+    contract: Mapping[str, Any],
+    *,
+    resolvers: Mapping[str, Any] | None,
+    verifiers: Mapping[str, Any] | None,
+    now: datetime | None,
+) -> dict[str, Any]:
+    """Derive one completion criterion solely from freshly resolved evidence."""
+
+    criterion_id = str(criterion.get("id"))
+    entry = evidence_entry if isinstance(evidence_entry, Mapping) else {}
+
+    def evaluate_candidates(
+        raw_value: Any, label: str
+    ) -> tuple[list[dict[str, Any]], list[Mapping[str, Any] | None]]:
+        candidates = raw_value if isinstance(raw_value, list) else [raw_value]
+        results: list[dict[str, Any]] = []
+        sources: list[Mapping[str, Any] | None] = []
+        for index, candidate in enumerate(candidates):
+            if not isinstance(candidate, Mapping):
+                sources.append(None)
+                results.append(
+                    {
+                        "evidence_id": f"{criterion_id}:{label}[{index}]",
+                        "kind": "",
+                        "status": "fail",
+                        "checks": {
+                            "resolve": {"status": "fail", "codes": ["MALFORMED_EVIDENCE"]},
+                            "integrity_and_freshness": {
+                                "status": "unknown",
+                                "codes": ["MALFORMED_EVIDENCE"],
+                            },
+                            "scope": {"status": "unknown", "codes": ["MALFORMED_EVIDENCE"]},
+                            "claim": {"status": "unknown", "codes": ["MALFORMED_EVIDENCE"]},
+                        },
+                    }
+                )
+                continue
+            sources.append(candidate)
+            results.append(
+                evaluate_evidence(
+                    candidate,
+                    criterion,
+                    contract,
+                    resolvers=resolvers,
+                    verifiers=verifiers,
+                    now=now,
+                )
+            )
+        return results, sources
+
+    primary_results, _ = evaluate_candidates(entry.get("evidence", []), "evidence")
+    receipt_results, receipt_sources = evaluate_candidates(
+        entry.get("delivery_receipts", []), "delivery_receipt"
+    )
+    evidence_result_count = len(primary_results)
+    evidence_results = [*primary_results, *receipt_results]
+
+    required_types_value = criterion.get(
+        "required_evidence_types", criterion.get("required_evidence", [])
+    )
+    required_types = (
+        {str(item) for item in required_types_value}
+        if isinstance(required_types_value, list)
+        else set()
+    )
+    supplied_types = {
+        result["kind"] for result in evidence_results[:evidence_result_count] if result["kind"]
+    }
+    missing_types = sorted(required_types - supplied_types)
+    required_hops_value = criterion.get("chain_hops", [])
+    required_hops = (
+        {str(item) for item in required_hops_value}
+        if isinstance(required_hops_value, list)
+        else set()
+    )
+    covered_hops_value = entry.get("covered_hops", [])
+    covered_hops = (
+        {str(item) for item in covered_hops_value}
+        if isinstance(covered_hops_value, list)
+        else set()
+    )
+    missing_hops = sorted(required_hops - covered_hops)
+    required_delivery_value = criterion.get("required_delivery_types", [])
+    required_delivery_types = (
+        {str(item) for item in required_delivery_value}
+        if isinstance(required_delivery_value, list)
+        else set()
+    )
+    verified_delivery_types = {
+        str(receipt.get("delivery_type"))
+        for receipt, result in zip(
+            receipt_sources,
+            evidence_results[evidence_result_count:],
+        )
+        if receipt is not None
+        and receipt.get("kind") == "delivery-receipt"
+        and result["status"] == "pass"
+        and receipt.get("delivery_type") in required_delivery_types
+    }
+    missing_delivery_types = sorted(required_delivery_types - verified_delivery_types)
+
+    statuses = [result["status"] for result in evidence_results]
+    if (
+        evidence_result_count == 0
+        or missing_types
+        or missing_hops
+        or missing_delivery_types
+        or "fail" in statuses
+    ):
+        status = "fail"
+    elif "unknown" in statuses:
+        status = "unknown"
+    else:
+        status = "pass"
+    return {
+        "status": status,
+        "evidence_results": evidence_results,
+        "missing_evidence_types": missing_types,
+        "missing_hops": missing_hops,
+        "missing_delivery_types": missing_delivery_types,
+    }
 
 
 def workspace_observation(path: str | Path = ".") -> dict[str, Any]:
