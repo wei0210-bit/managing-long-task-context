@@ -209,6 +209,85 @@ class ContextSkillTests(unittest.TestCase):
         self.assertIn("## Constraints", prompt)
         self.assertIn("- keep public API", prompt)
 
+    def test_brief_budget_prefers_required_conflict_and_decision(self) -> None:
+        self.publish()
+        assumption = context.record(
+            "TASK-001",
+            statement="A" * 900,
+            item_type="assumption",
+            actor="executor",
+            source={"kind": "agent-inference", "ref": "review-01"},
+            base_dir=self.base,
+        )
+        decision = context.record(
+            "TASK-001",
+            statement="D" * 900,
+            item_type="decision",
+            actor="publisher",
+            source={"kind": "task-contract", "ref": "decision-01"},
+            metadata={"severity": "high"},
+            base_dir=self.base,
+        )
+        required = context.record(
+            "TASK-001",
+            statement="R" * 900,
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-01"},
+            metadata={"required": True, "severity": "critical"},
+            base_dir=self.base,
+        )
+        conflict_candidate = context.record(
+            "TASK-001",
+            statement="C" * 900,
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-02"},
+            base_dir=self.base,
+        )
+        conflicted = context.update_item(
+            "TASK-001",
+            conflict_candidate["id"],
+            actor="validator-01",
+            status="conflicted",
+            conflicts_with=[required["id"]],
+            conflict_reason="Probe results disagree",
+            base_dir=self.base,
+        )
+
+        packet = context.brief("TASK-001", max_chars=5000, base_dir=self.base)
+        selected_ids = {
+            item["id"]
+            for key in ("facts", "observations", "assumptions", "decisions", "questions")
+            for item in packet[key]
+        }
+
+        self.assertIn(required["id"], selected_ids)
+        self.assertIn(conflicted["id"], selected_ids)
+        self.assertIn(decision["id"], selected_ids)
+        self.assertNotIn(assumption["id"], selected_ids)
+        self.assertLessEqual(len(packet["prompt"]), 5000)
+
+    def test_brief_rejects_required_items_that_exceed_budget(self) -> None:
+        self.publish()
+        context.record(
+            "TASK-001",
+            statement="R" * 9000,
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-oversized"},
+            metadata={"required": True},
+            base_dir=self.base,
+        )
+
+        with self.assertRaisesRegex(context.ContextError, "BRIEF_REQUIRED_OVERFLOW"):
+            context.brief("TASK-001", max_chars=8000, base_dir=self.base)
+
+    def test_brief_rejects_non_positive_character_budget(self) -> None:
+        self.publish()
+        with self.assertRaisesRegex(ValueError, "max_chars must be positive"):
+            context.brief("TASK-001", max_chars=0, base_dir=self.base)
+
     def test_handoff_requires_checkpoint(self) -> None:
         self.publish()
         before = context.gate("TASK-001", stage="handoff", base_dir=self.base, emit=False)

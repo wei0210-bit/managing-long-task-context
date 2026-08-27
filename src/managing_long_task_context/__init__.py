@@ -662,17 +662,107 @@ def _item_is_stale(item: Mapping[str, Any]) -> bool:
     return datetime.now(timezone.utc) > verified + timedelta(hours=float(ttl))
 
 
+_BRIEF_SEVERITY = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def _brief_priority(item: Mapping[str, Any]) -> int:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    if metadata.get("required") is True:
+        return 0
+    if item.get("status") == "conflicted":
+        return 1
+    if metadata.get("blocker") is True:
+        return 2
+    return {
+        "decision": 3,
+        "verified-fact": 4,
+        "assumption": 5,
+        "observation": 6,
+        "question": 7,
+    }.get(str(item.get("type")), 8)
+
+
+def _brief_sort_key(item: Mapping[str, Any]) -> tuple[int, int, int, float, str]:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    severity = _BRIEF_SEVERITY.get(str(metadata.get("severity", "")).lower(), len(_BRIEF_SEVERITY))
+    updated_at = item.get("updated_at")
+    parsed = _parse_time(updated_at) if isinstance(updated_at, str) else None
+    if parsed is None:
+        return (_brief_priority(item), severity, 1, 0.0, str(item.get("id", "")))
+    return (_brief_priority(item), severity, 0, -parsed.timestamp(), str(item.get("id", "")))
+
+
+def _brief_selection_packet(items: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    selected = [dict(item) for item in items]
+    return {
+        "task_id": "",
+        "contract_version": None,
+        "objective": "",
+        "scope": [],
+        "out_of_scope": [],
+        "constraints": [],
+        "acceptance_criteria": [],
+        "phase": None,
+        "facts": [item for item in selected if item.get("type") == "verified-fact"],
+        "observations": [item for item in selected if item.get("type") == "observation"],
+        "assumptions": [item for item in selected if item.get("type") == "assumption"],
+        "decisions": [item for item in selected if item.get("type") == "decision"],
+        "questions": [item for item in selected if item.get("type") == "question"],
+        "conflicts": [item for item in selected if item.get("status") == "conflicted"],
+        "latest_checkpoint": None,
+    }
+
+
+def _brief_is_mandatory(item: Mapping[str, Any]) -> bool:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    return metadata.get("required") is True or item.get("status") == "conflicted"
+
+
+def _select_brief_items(
+    items: Sequence[Mapping[str, Any]], *, max_chars: int, max_items: int | None
+) -> list[dict[str, Any]]:
+    """Select ordered items only when the fully rendered candidate still fits."""
+
+    if max_chars <= 0:
+        raise ValueError("max_chars must be positive")
+    if max_items is not None and max_items < 1:
+        raise ValueError("max_items must be positive")
+
+    ordered = sorted((dict(item) for item in items), key=_brief_sort_key)
+    mandatory_count = sum(_brief_is_mandatory(item) for item in ordered)
+    if max_items is not None and mandatory_count > max_items:
+        raise ContextError("BRIEF_REQUIRED_OVERFLOW: max_items would omit a mandatory item")
+
+    selected: list[dict[str, Any]] = []
+    for item in ordered:
+        mandatory = _brief_is_mandatory(item)
+        if max_items is not None and len(selected) >= max_items:
+            if mandatory:
+                raise ContextError("BRIEF_REQUIRED_OVERFLOW: max_items would omit a mandatory item")
+            continue
+        candidate = [*selected, item]
+        candidate_prompt = _brief_to_markdown(_brief_selection_packet(candidate))
+        if len(candidate_prompt) <= max_chars:
+            selected = candidate
+        elif mandatory:
+            raise ContextError("BRIEF_REQUIRED_OVERFLOW: mandatory items exceed max_chars")
+    return selected
+
+
 def brief(
     task_id: str,
     *,
     phase: str | None = None,
     include: Sequence[str] | None = None,
-    max_items: int = 50,
+    max_items: int | None = None,
+    max_chars: int = 8000,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Generate a minimal active-context/handoff packet from controlled state."""
 
-    if max_items < 1:
+    if max_chars <= 0:
+        raise ValueError("max_chars must be positive")
+    if max_items is not None and max_items < 1:
         raise ValueError("max_items must be positive")
     paths = _paths(task_id, base_dir)
     contract = _read_json(paths["contract"])
@@ -683,7 +773,7 @@ def brief(
     all_items = snapshot.get("items", {})
     if not isinstance(all_items, dict):
         all_items = {}
-    selected: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
     include_set = set(include or [])
     for identifier, raw in sorted(all_items.items()):
         if not isinstance(raw, dict):
@@ -692,31 +782,50 @@ def brief(
             continue
         if raw.get("status") == "superseded":
             continue
-        selected.append(deepcopy(raw))
-        if len(selected) >= max_items:
-            break
+        candidates.append(deepcopy(raw))
 
-    packet = {
-        "task_id": task_id,
-        "contract_version": contract.get("version"),
-        "contract_digest": contract.get("seal", {}).get("digest"),
-        "objective": contract.get("objective"),
-        "scope": contract.get("scope", []),
-        "out_of_scope": contract.get("out_of_scope", []),
-        "constraints": contract.get("constraints", []),
-        "acceptance_criteria": contract.get("acceptance_criteria", []),
-        "phase": phase or (snapshot.get("latest_checkpoint") or {}).get("phase"),
-        "facts": [item for item in selected if item.get("type") == "verified-fact"],
-        "observations": [item for item in selected if item.get("type") == "observation"],
-        "assumptions": [item for item in selected if item.get("type") == "assumption"],
-        "decisions": [item for item in selected if item.get("type") == "decision"],
-        "questions": [item for item in selected if item.get("type") == "question"],
-        "conflicts": [item for item in selected if item.get("status") == "conflicted"],
-        "stale_items": [item["id"] for item in selected if _item_is_stale(item)],
-        "latest_checkpoint": snapshot.get("latest_checkpoint"),
-        "context_version": snapshot.get("event_count", 0),
-    }
+    def build_packet(selected: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        selected_items = [dict(item) for item in selected]
+        return {
+            "task_id": task_id,
+            "contract_version": contract.get("version"),
+            "contract_digest": contract.get("seal", {}).get("digest"),
+            "objective": contract.get("objective"),
+            "scope": contract.get("scope", []),
+            "out_of_scope": contract.get("out_of_scope", []),
+            "constraints": contract.get("constraints", []),
+            "acceptance_criteria": contract.get("acceptance_criteria", []),
+            "phase": phase or (snapshot.get("latest_checkpoint") or {}).get("phase"),
+            "facts": [item for item in selected_items if item.get("type") == "verified-fact"],
+            "observations": [item for item in selected_items if item.get("type") == "observation"],
+            "assumptions": [item for item in selected_items if item.get("type") == "assumption"],
+            "decisions": [item for item in selected_items if item.get("type") == "decision"],
+            "questions": [item for item in selected_items if item.get("type") == "question"],
+            "conflicts": [item for item in selected_items if item.get("status") == "conflicted"],
+            "stale_items": [item["id"] for item in selected_items if _item_is_stale(item)],
+            "latest_checkpoint": snapshot.get("latest_checkpoint"),
+            "context_version": snapshot.get("event_count", 0),
+        }
+
+    empty_packet = build_packet([])
+    empty_selection_packet = _brief_selection_packet([])
+    # Selection changes only the item sections.  Account for the real
+    # contract/checkpoint wrapper once, while keeping candidate rendering in
+    # _select_brief_items deterministic and independent of task I/O.
+    fixed_length = len(_brief_to_markdown(empty_packet)) - len(_brief_to_markdown(empty_selection_packet))
+    selection_budget = max_chars - fixed_length
+    if selection_budget <= 0:
+        raise ContextError("BRIEF_REQUIRED_OVERFLOW: fixed brief content exceeds max_chars")
+
+    selected = _select_brief_items(
+        candidates,
+        max_chars=selection_budget,
+        max_items=max_items,
+    )
+    packet = build_packet(selected)
     packet["prompt"] = _brief_to_markdown(packet)
+    if len(packet["prompt"]) > max_chars:
+        raise ContextError("BRIEF_REQUIRED_OVERFLOW: brief content exceeds max_chars")
     return packet
 
 
