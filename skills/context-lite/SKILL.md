@@ -112,8 +112,8 @@ work begins.
 **Hard stop:** this restores only persisted task context. It never restores hidden
 reasoning, prior messages, credentials, processes, permissions, connections,
 executor state, or a previous turn. It never auto-retries an in-flight action;
-re-execution requires clear evidence it did not run and that it is safe, or explicit
-new user authorization.
+re-execution requires clear evidence it did not run and either that it is safe to
+retry or explicit new user authorization.
 
 ## finish
 
