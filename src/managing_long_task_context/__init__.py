@@ -16,7 +16,6 @@ import subprocess
 import tempfile
 import uuid
 from contextlib import contextmanager
-from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -38,11 +37,31 @@ _POINTER_RE = re.compile(
     r"(?:详见|参见|见|see)\s*[`'\"]([^`'\"]+\.(?:md|txt|json|ya?ml))[`'\"]",
     re.IGNORECASE,
 )
-_INTERNAL_BAD_SAMPLE_PROBE = ContextVar("_INTERNAL_BAD_SAMPLE_PROBE", default=False)
+_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
+_EXPLICIT_UTC_RFC3339_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)\Z"
+)
+_DELIVERY_RECEIPT_STRING_FIELDS = (
+    "delivery_type",
+    "channel",
+    "target_id",
+    "artifact_ref",
+    "external_id",
+    "verification_method",
+)
+_DELIVERY_RECEIPT_TIME_FIELDS = ("sent_at", "observed_at")
 
 
 class ContextError(RuntimeError):
     """Raised when a context quality rule blocks an operation."""
+
+
+class _EventReadError(ContextError):
+    """Internal JSONL error carrying the number of attempted event records."""
+
+    def __init__(self, message: str, *, attempted: int) -> None:
+        super().__init__(message)
+        self.attempted = attempted
 
 
 def _now() -> str:
@@ -160,10 +179,32 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
         value = contract.get(field)
         if not isinstance(value, list):
             errors.append(f"contract.{field} must be a list")
+    authorized_approvers = contract.get("authorized_approvers")
+    if not _valid_string_list(authorized_approvers, allow_empty=True):
+        errors.append(
+            "contract.authorized_approvers must be a unique list of non-empty actor IDs"
+        )
     criteria = contract.get("acceptance_criteria")
     if not isinstance(criteria, list) or not criteria:
         errors.append("contract.acceptance_criteria must contain publisher-written criteria")
         return errors
+
+    actor_roles = contract.get("actor_roles")
+    if actor_roles is not None:
+        if not isinstance(actor_roles, Mapping):
+            errors.append("contract.actor_roles must map actor IDs to role lists")
+        else:
+            allowed_roles = {"publisher", "executor", "validator"}
+            for actor, roles in actor_roles.items():
+                if not isinstance(actor, str) or not actor.strip():
+                    errors.append("contract.actor_roles keys must be non-empty actor IDs")
+                    continue
+                if not isinstance(roles, list) or not roles or not all(
+                    isinstance(role, str) and role in allowed_roles for role in roles
+                ):
+                    errors.append(
+                        f"contract.actor_roles[{actor!r}] must be a non-empty list of publisher/executor/validator roles"
+                    )
 
     seen: set[str] = set()
     for index, criterion in enumerate(criteria):
@@ -180,17 +221,149 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
             seen.add(criterion_id)
         if not isinstance(criterion.get("criterion"), str) or not criterion["criterion"].strip():
             errors.append(f"{prefix}.criterion must be a non-empty string")
+        required_evidence = criterion.get("required_evidence_types")
+        compatibility_evidence = criterion.get("required_evidence")
+        if required_evidence is not None and compatibility_evidence is not None:
+            if required_evidence != compatibility_evidence:
+                errors.append(
+                    f"{prefix}.required_evidence_types conflicts with compatibility alias required_evidence"
+                )
         evidence_key = (
             "required_evidence_types"
-            if "required_evidence_types" in criterion
+            if required_evidence is not None
             else "required_evidence"
         )
-        required_evidence = criterion.get(evidence_key)
-        if not isinstance(required_evidence, list) or not required_evidence:
-            errors.append(f"{prefix}.{evidence_key} must be a non-empty list")
-        hops = criterion.get("chain_hops", [])
-        if not isinstance(hops, list):
-            errors.append(f"{prefix}.chain_hops must be a list when present")
+        evidence_value = required_evidence if required_evidence is not None else compatibility_evidence
+        if not _valid_string_list(evidence_value, allow_empty=False):
+            errors.append(f"{prefix}.{evidence_key} must be a non-empty list of non-empty strings")
+
+        required_hops = criterion.get("required_hops")
+        compatibility_hops = criterion.get("chain_hops")
+        if required_hops is not None and compatibility_hops is not None:
+            if required_hops != compatibility_hops:
+                errors.append(
+                    f"{prefix}.required_hops conflicts with compatibility alias chain_hops"
+                )
+        hops_value = required_hops if required_hops is not None else compatibility_hops
+        if hops_value is not None and not _valid_string_list(hops_value, allow_empty=True):
+            errors.append(f"{prefix}.required_hops must be a list of non-empty strings")
+
+        delivery_types = criterion.get("required_delivery_types")
+        if delivery_types is not None and not _valid_string_list(delivery_types, allow_empty=True):
+            errors.append(f"{prefix}.required_delivery_types must be a list of non-empty strings")
+
+        required_scope = criterion.get("required_scope")
+        if required_scope is not None and not isinstance(required_scope, Mapping):
+            errors.append(f"{prefix}.required_scope must be an object when present")
+
+        maximum = criterion.get("max_evidence_age_seconds")
+        if maximum is not None and not _valid_age_window(maximum):
+            errors.append(f"{prefix}.max_evidence_age_seconds must be a non-negative integer")
+        overrides = criterion.get("evidence_freshness_by_type")
+        if overrides is not None:
+            if not isinstance(overrides, Mapping):
+                errors.append(f"{prefix}.evidence_freshness_by_type must be an object")
+            else:
+                for kind, window in overrides.items():
+                    if not isinstance(kind, str) or not kind.strip() or not _valid_age_window(window):
+                        errors.append(
+                            f"{prefix}.evidence_freshness_by_type entries require non-empty kinds and non-negative integer windows"
+                        )
+
+        independent = criterion.get("independent_validation_required")
+        if independent is not None and not isinstance(independent, bool):
+            errors.append(f"{prefix}.independent_validation_required must be a boolean")
+        if independent is True:
+            validators = []
+            if isinstance(actor_roles, Mapping):
+                validators = [
+                    actor
+                    for actor, roles in actor_roles.items()
+                    if isinstance(roles, list) and "validator" in roles
+                ]
+            if not validators:
+                errors.append(
+                    f"{prefix}.independent_validation_required needs contract.actor_roles with a validator"
+                )
+
+        errors.extend(_criterion_revision_shape_errors(criterion, prefix))
+    return errors
+
+
+def _valid_string_list(value: Any, *, allow_empty: bool) -> bool:
+    return (
+        isinstance(value, list)
+        and (allow_empty or bool(value))
+        and all(isinstance(item, str) and bool(item.strip()) for item in value)
+        and len(value) == len(set(value))
+    )
+
+
+def _valid_age_window(value: Any) -> bool:
+    return type(value) is int and value >= 0
+
+
+def _valid_explicit_utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or _EXPLICIT_UTC_RFC3339_RE.fullmatch(value) is None:
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
+
+
+def _valid_delivery_receipt(value: Mapping[str, Any]) -> bool:
+    return (
+        value.get("kind") == "delivery-receipt"
+        and all(
+            isinstance(value.get(field), str) and bool(str(value[field]).strip())
+            for field in _DELIVERY_RECEIPT_STRING_FIELDS
+        )
+        and all(
+            _valid_explicit_utc_timestamp(value.get(field))
+            for field in _DELIVERY_RECEIPT_TIME_FIELDS
+        )
+    )
+
+
+def _criterion_revision_shape_errors(criterion: Mapping[str, Any], prefix: str) -> list[str]:
+    errors: list[str] = []
+    scope = criterion.get("required_scope")
+    scope_value = scope if isinstance(scope, Mapping) else {}
+    revisions = [
+        value
+        for value in (
+            criterion.get("required_revision"),
+            criterion.get("required_repo_revision"),
+            scope_value.get("repo_revision"),
+            scope_value.get("revision"),
+        )
+        if value is not None
+    ]
+    normalized_revisions = {str(value) for value in revisions}
+    if len(normalized_revisions) > 1:
+        errors.append(f"{prefix} has conflicting revision requirements")
+    if any(not isinstance(value, str) or _COMMIT_RE.fullmatch(value) is None for value in revisions):
+        errors.append(f"{prefix}.required_revision must be a 40-hex Git commit")
+
+    modes = [
+        value
+        for value in (
+            criterion.get("revision_match"),
+            criterion.get("revision_mode"),
+            scope_value.get("revision_match"),
+            scope_value.get("revision_mode"),
+        )
+        if value is not None
+    ]
+    normalized_modes = {str(value) for value in modes}
+    if len(normalized_modes) > 1:
+        errors.append(f"{prefix} has conflicting revision match modes")
+    if any(value not in {"exact", "ancestor"} for value in modes):
+        errors.append(f"{prefix}.revision_match must be exact or ancestor")
+    if modes and not revisions:
+        errors.append(f"{prefix}.revision_match requires required_revision")
     return errors
 
 
@@ -232,19 +405,52 @@ def _empty_snapshot(task_id: str) -> dict[str, Any]:
 
 
 def _read_events(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
     events: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line_no, line in enumerate(handle, start=1):
-            if not line.strip():
+    attempted = 0
+    try:
+        if not path.exists():
+            return []
+        handle = path.open("rb")
+    except OSError as exc:
+        raise _EventReadError(
+            f"cannot read event log {path}: {exc}",
+            attempted=0,
+        ) from exc
+    with handle:
+        line_no = 0
+        while True:
+            try:
+                raw_line = handle.readline()
+            except OSError as exc:
+                raise _EventReadError(
+                    f"cannot read event log {path}: {exc}",
+                    attempted=attempted + 1,
+                ) from exc
+            if not raw_line:
+                break
+            line_no += 1
+            if not raw_line.strip():
                 continue
+            attempted += 1
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise _EventReadError(
+                    f"invalid UTF-8 in event log at {path}:{line_no}: {exc}",
+                    attempted=attempted,
+                ) from exc
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ContextError(f"invalid JSONL at {path}:{line_no}: {exc}") from exc
+                raise _EventReadError(
+                    f"invalid JSONL at {path}:{line_no}: {exc}",
+                    attempted=attempted,
+                ) from exc
             if not isinstance(event, dict):
-                raise ContextError(f"event at {path}:{line_no} is not an object")
+                raise _EventReadError(
+                    f"event at {path}:{line_no} is not an object",
+                    attempted=attempted,
+                )
             events.append(event)
     return events
 
@@ -414,12 +620,16 @@ def publish_contract(
     Updating an existing contract requires a greater version and a fresh seal.
     """
 
-    value = _json_clone(dict(contract))
+    value = deepcopy(dict(contract))
     value.setdefault("schema", SCHEMA_VERSION)
     value.setdefault("authorized_approvers", [])
     errors = _validate_contract_shape(value)
     if errors:
         raise ContextError("contract rejected: " + "; ".join(errors))
+    try:
+        value = _json_clone(value)
+    except (TypeError, ValueError) as exc:
+        raise ContextError(f"contract rejected: contract must be JSON-compatible: {exc}") from exc
     authorized = {str(value["issued_by"])} | {str(item) for item in value.get("authorized_approvers", [])}
     if confirmed_by not in authorized:
         raise ContextError("confirmed_by must be the task publisher or an authorized approver")
@@ -701,6 +911,7 @@ def _brief_selection_packet(items: Sequence[Mapping[str, Any]]) -> dict[str, Any
         "scope": [],
         "out_of_scope": [],
         "constraints": [],
+        "actor_roles": {},
         "acceptance_criteria": [],
         "phase": None,
         "facts": [item for item in selected if item.get("type") == "verified-fact"],
@@ -792,6 +1003,7 @@ def brief(
             "scope": contract.get("scope", []),
             "out_of_scope": contract.get("out_of_scope", []),
             "constraints": contract.get("constraints", []),
+            "actor_roles": deepcopy(contract.get("actor_roles", {})),
             "acceptance_criteria": contract.get("acceptance_criteria", []),
             "phase": phase or (snapshot.get("latest_checkpoint") or {}).get("phase"),
             "facts": [item for item in selected_items if item.get("type") == "verified-fact"],
@@ -854,10 +1066,26 @@ def _brief_item_to_markdown(item: Mapping[str, Any]) -> str:
 def _brief_acceptance_to_markdown(criterion: Mapping[str, Any]) -> str:
     text = criterion.get("criterion") or criterion.get("statement") or _brief_json(dict(criterion))
     fields = [f"- {criterion.get('id', '')}: {text}"]
-    if "required_evidence" in criterion:
-        fields.append(f"required_evidence={_brief_json(criterion['required_evidence'])}")
-    if "chain_hops" in criterion:
-        fields.append(f"chain_hops={_brief_json(criterion['chain_hops'])}")
+    for field in (
+        "required_evidence_types",
+        "required_evidence",
+        "required_hops",
+        "chain_hops",
+        "required_delivery_types",
+        "required_scope",
+        "max_evidence_age_seconds",
+        "evidence_freshness_by_type",
+        "required_revision",
+        "required_repo_revision",
+        "revision_match",
+        "revision_mode",
+        "independent_validation_required",
+    ):
+        if field not in criterion:
+            continue
+        value = criterion[field]
+        rendered = value if isinstance(value, str) else _brief_json(value)
+        fields.append(f"{field}={rendered}")
     return " | ".join(fields)
 
 
@@ -871,6 +1099,9 @@ def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
         "Use only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently.",
         "Do not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes.",
     ]
+    actor_roles = packet.get("actor_roles")
+    if isinstance(actor_roles, Mapping) and actor_roles:
+        lines.extend(["", "## Actor Roles", f"- actor_roles={_brief_json(actor_roles)}"])
     for heading, key in (
         ("Scope", "scope"),
         ("Out of Scope", "out_of_scope"),
@@ -970,35 +1201,32 @@ def _run_bad_sample_probe() -> dict[str, Any]:
             ],
         }
         publish_contract(contract, confirmed_by="audit-probe", base_dir=probe_base_dir)
-        probe_context = _INTERNAL_BAD_SAMPLE_PROBE.set(True)
-        try:
-            report = gate(
-                probe_id,
-                stage="completion",
-                evidence_map={},
-                emit=False,
-                base_dir=probe_base_dir,
-                _run_probe=False,
-            )
-        finally:
-            _INTERNAL_BAD_SAMPLE_PROBE.reset(probe_context)
+        report = _gate_core(
+            probe_id,
+            stage="completion",
+            evidence_map={},
+            emit=False,
+            base_dir=probe_base_dir,
+            run_probe=False,
+        )
+        scanned = int(report.get("stats", {}).get("criteria_checked", 0))
     return {
         "id": probe_id,
-        "scanned": 1,
+        "scanned": scanned,
         "expected": "reject",
         "actual": "reject" if not report["passed"] else "pass",
         "status": "pass" if not report["passed"] else "fail",
     }
 
 
-def audit(
+def _audit_core(
     task_id: str,
     *,
     documents: Sequence[str | Path] | None = None,
     max_pointer_lag_seconds: float = 0,
     emit: bool = True,
     base_dir: str | Path | None = None,
-    _run_probe: bool = True,
+    run_probe: bool,
 ) -> dict[str, Any]:
     """Audit contract, event/snapshot consistency, item quality, staleness, and pointers."""
 
@@ -1016,38 +1244,62 @@ def audit(
         "id": "PROBE-COMPLETION-EMPTY-EVIDENCE",
         "scanned": 0,
         "expected": "reject",
-        "actual": "reject",
-        "status": "fail",
+        "actual": "not-run",
+        "status": "not-run",
     }
-    if _run_probe:
-        probe = _run_bad_sample_probe()
-        scan_counts["probes_checked"] = probe["scanned"]
+    if run_probe:
+        try:
+            probe = _run_bad_sample_probe()
+        except Exception as exc:
+            probe = {
+                "id": "PROBE-COMPLETION-EMPTY-EVIDENCE",
+                "scanned": 0,
+                "expected": "reject",
+                "actual": "error",
+                "status": "fail",
+            }
+            errors.append(f"completion bad-sample probe raised {type(exc).__name__}")
+        scan_counts["probes_checked"] = 1
         if probe["status"] != "pass":
             errors.append(
                 f"completion bad-sample probe {probe['id']} failed: "
                 f"expected {probe['expected']}, got {probe['actual']}"
             )
-    elif not _INTERNAL_BAD_SAMPLE_PROBE.get():
-        errors.append("external callers cannot skip the audit bad-sample probe")
 
+    scan_counts["contracts_checked"] = 1
     try:
         contract = _read_json(paths["contract"])
-        scan_counts["contracts_checked"] = 1
         errors.extend(_validate_sealed_contract(contract))
     except ContextError as exc:
         contract = {}
         errors.append(str(exc))
 
+    events_valid = True
     try:
-        snapshot = _load_snapshot(task_id, paths)
         events = _read_events(paths["events"])
         scan_counts["events_checked"] = len(events)
-        rebuilt = _rebuild_snapshot(task_id, paths["events"])
+    except _EventReadError as exc:
+        events_valid = False
+        events = []
+        scan_counts["events_checked"] = exc.attempted
+        errors.append(str(exc))
+    except ContextError as exc:
+        events_valid = False
+        events = []
+        errors.append(str(exc))
+
+    if events_valid:
+        rebuilt = _empty_snapshot(task_id)
+        for event in events:
+            rebuilt = _apply_event(rebuilt, event)
+        try:
+            snapshot = _read_json(paths["snapshot"])
+        except ContextError:
+            snapshot = deepcopy(rebuilt)
         if snapshot != rebuilt:
             errors.append("snapshot differs from append-only event log; rebuild required")
-    except ContextError as exc:
+    else:
         snapshot = _empty_snapshot(task_id)
-        errors.append(str(exc))
 
     items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
     scan_counts["items_checked"] = len(items)
@@ -1067,7 +1319,10 @@ def audit(
             conflict_count += 1
         if _item_is_stale(item):
             stale_count += 1
-        for ref in [item.get("source", {}).get("ref")] + list(item.get("evidence") or []):
+        source = item.get("source") if isinstance(item.get("source"), Mapping) else {}
+        raw_evidence_refs = item.get("evidence")
+        evidence_refs = raw_evidence_refs if isinstance(raw_evidence_refs, list) else []
+        for ref in [source.get("ref"), *evidence_refs]:
             if isinstance(ref, str) and ref.startswith("file:"):
                 file_path = Path(ref[5:]).expanduser()
                 if not file_path.is_absolute():
@@ -1106,7 +1361,27 @@ def audit(
     return report
 
 
-def gate(
+def audit(
+    task_id: str,
+    *,
+    documents: Sequence[str | Path] | None = None,
+    max_pointer_lag_seconds: float = 0,
+    emit: bool = True,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Audit a task and always execute the isolated production-path probe."""
+
+    return _audit_core(
+        task_id,
+        documents=documents,
+        max_pointer_lag_seconds=max_pointer_lag_seconds,
+        emit=emit,
+        base_dir=base_dir,
+        run_probe=True,
+    )
+
+
+def _gate_core(
     task_id: str,
     *,
     stage: str,
@@ -1118,23 +1393,26 @@ def gate(
     now: datetime | None = None,
     emit: bool = True,
     base_dir: str | Path | None = None,
-    _run_probe: bool = True,
+    run_probe: bool,
 ) -> dict[str, Any]:
     """Run a release, resume, handoff, or completion quality gate."""
 
     if stage not in GATE_STAGES:
         raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
     paths = _paths(task_id, base_dir)
-    report = audit(
+    report = _audit_core(
         task_id,
         documents=documents,
         emit=False,
         base_dir=base_dir,
-        _run_probe=_run_probe,
+        max_pointer_lag_seconds=0,
+        run_probe=run_probe,
     )
     errors = list(report["errors"])
     warnings = list(report["warnings"])
     criterion_reports: dict[str, Any] = {}
+    criteria_checked = 0
+    evidence_attempts = 0
     contract: dict[str, Any] = {}
     snapshot = _empty_snapshot(task_id)
     try:
@@ -1146,18 +1424,46 @@ def gate(
 
     if stage in {"resume", "handoff", "completion"}:
         items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
-        targets = set(required_item_ids or items.keys())
+        globally_blocked: set[str] = set()
+        if stage == "completion":
+            for identifier, item in sorted(items.items()):
+                if not isinstance(item, Mapping) or item.get("status") == "superseded":
+                    continue
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+                if item.get("status") == "conflicted":
+                    errors.append(f"required context item is conflicted: {identifier}")
+                    globally_blocked.add(identifier)
+                if metadata.get("blocking") is True or metadata.get("blocker") is True:
+                    errors.append(f"blocking context item remains: {identifier}")
+                    globally_blocked.add(identifier)
+
+        targets = (
+            {
+                identifier
+                for identifier, item in items.items()
+                if not isinstance(item, Mapping) or item.get("status") != "superseded"
+            }
+            if required_item_ids is None
+            else set(required_item_ids)
+        )
         for identifier in sorted(targets):
             item = items.get(identifier)
             if not isinstance(item, dict):
                 errors.append(f"required context item missing: {identifier}")
                 continue
-            if item.get("status") == "conflicted":
+            if item.get("status") == "superseded":
+                errors.append(f"required context item is superseded: {identifier}")
+                continue
+            if item.get("status") == "conflicted" and identifier not in globally_blocked:
                 errors.append(f"required context item is conflicted: {identifier}")
             if _item_is_stale(item):
                 errors.append(f"required mutable fact is stale: {identifier}")
-            if item.get("metadata", {}).get("blocking") and item.get("type") in {"assumption", "question"}:
-                errors.append(f"blocking unverified item remains: {identifier}")
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+            if (
+                identifier not in globally_blocked
+                and (metadata.get("blocking") is True or metadata.get("blocker") is True)
+            ):
+                errors.append(f"blocking context item remains: {identifier}")
 
     if stage == "handoff":
         checkpoint_value = snapshot.get("latest_checkpoint")
@@ -1170,46 +1476,75 @@ def gate(
         if not isinstance(evidence_map, Mapping):
             errors.append("completion gate requires evidence_map")
         else:
-            criteria = contract.get("acceptance_criteria", [])
+            criteria = deepcopy(contract.get("acceptance_criteria", []))
+            contract_baseline = deepcopy(contract)
             for criterion in criteria if isinstance(criteria, list) else []:
                 if not isinstance(criterion, dict):
                     continue
+                criteria_checked += 1
                 criterion_id = criterion.get("id")
-                evidence_entry = evidence_map.get(criterion_id) if isinstance(criterion_id, str) else None
-                criterion_report = _evaluate_completion_criterion(
-                    criterion,
-                    evidence_entry,
-                    contract,
-                    resolvers=resolvers,
-                    verifiers=verifiers,
-                    now=now,
+                evidence_entry = (
+                    deepcopy(evidence_map.get(criterion_id))
+                    if isinstance(criterion_id, str)
+                    else None
                 )
-                criterion_reports[str(criterion_id)] = criterion_report
-                if criterion_report["status"] != "pass":
-                    errors.append(
-                        f"criterion {criterion_id} status is {criterion_report['status']}"
+                try:
+                    criterion_report = _evaluate_completion_criterion(
+                        deepcopy(criterion),
+                        evidence_entry,
+                        deepcopy(contract_baseline),
+                        resolvers=resolvers,
+                        verifiers=verifiers,
+                        now=now,
                     )
-                    for evidence_result in criterion_report["evidence_results"]:
-                        if evidence_result["status"] == "pass":
+                except Exception as exc:
+                    criterion_report = {
+                        "status": "unknown",
+                        "evidence_results": [],
+                        "missing_evidence_types": [],
+                        "missing_hops": [],
+                        "missing_delivery_types": [],
+                        "independent_validation": {
+                            "status": "unknown",
+                            "codes": ["CRITERION_EVALUATION_ERROR"],
+                        },
+                    }
+                    warnings.append(
+                        f"criterion {criterion_id} evaluation raised {type(exc).__name__}"
+                    )
+                evidence_attempts += len(criterion_report.get("evidence_results", []))
+                criterion_reports[str(criterion_id)] = criterion_report
+                if criterion_report.get("status") != "pass":
+                    errors.append(
+                        f"criterion {criterion_id} status is {criterion_report.get('status', 'unknown')}"
+                    )
+                    for evidence_result in criterion_report.get("evidence_results", []):
+                        if evidence_result.get("status") == "pass":
                             continue
                         errors.append(
                             f"criterion {criterion_id} evidence "
-                            f"{evidence_result['evidence_id']} is {evidence_result['status']}"
+                            f"{evidence_result.get('evidence_id')} is {evidence_result.get('status', 'unknown')}"
                         )
-                    if criterion_report["missing_evidence_types"]:
+                    if criterion_report.get("missing_evidence_types"):
                         errors.append(
                             f"criterion {criterion_id} missing required evidence types: "
-                            f"{criterion_report['missing_evidence_types']}"
+                            f"{criterion_report.get('missing_evidence_types')}"
                         )
-                    if criterion_report["missing_hops"]:
+                    if criterion_report.get("missing_hops"):
                         errors.append(
                             f"criterion {criterion_id} missing chain-hop coverage: "
-                            f"{criterion_report['missing_hops']}"
+                            f"{criterion_report.get('missing_hops')}"
                         )
-                    if criterion_report["missing_delivery_types"]:
+                    if criterion_report.get("missing_delivery_types"):
                         errors.append(
                             f"criterion {criterion_id} missing required delivery types: "
-                            f"{criterion_report['missing_delivery_types']}"
+                            f"{criterion_report.get('missing_delivery_types')}"
+                        )
+                    independence = criterion_report.get("independent_validation")
+                    if isinstance(independence, Mapping) and independence.get("status") != "pass":
+                        errors.append(
+                            f"criterion {criterion_id} independent validation is "
+                            f"{independence.get('status')}: {independence.get('codes', [])}"
                         )
 
     final = {
@@ -1221,6 +1556,8 @@ def gate(
         "stats": {
             **report["stats"],
             "checked": report["stats"].get("checked", 0),
+            "criteria_checked": criteria_checked,
+            "evidence_attempts": evidence_attempts,
         },
         "contract_version": contract.get("version"),
     }
@@ -1238,123 +1575,306 @@ def _evaluate_completion_criterion(
     verifiers: Mapping[str, Any] | None,
     now: datetime | None,
 ) -> dict[str, Any]:
-    """Derive one completion criterion solely from freshly resolved evidence."""
+    """Derive one criterion from an immutable requirements/evidence baseline."""
 
-    criterion_id = str(criterion.get("id"))
-    entry = evidence_entry if isinstance(evidence_entry, Mapping) else {}
+    criterion_baseline = deepcopy(dict(criterion))
+    contract_baseline = deepcopy(dict(contract))
+    criterion_id = str(criterion_baseline.get("id"))
+    entry_is_malformed = evidence_entry is not None and not isinstance(evidence_entry, Mapping)
+    entry = deepcopy(dict(evidence_entry)) if isinstance(evidence_entry, Mapping) else {}
 
-    def malformed_result(label: str, index: int) -> dict[str, Any]:
-        return {
-            "evidence_id": f"{criterion_id}:{label}[{index}]",
-            "kind": "",
-            "status": "fail",
-            "checks": {
-                "resolve": {"status": "fail", "codes": ["MALFORMED_EVIDENCE"]},
-                "integrity_and_freshness": {
-                    "status": "unknown",
-                    "codes": ["MALFORMED_EVIDENCE"],
-                },
-                "scope": {"status": "unknown", "codes": ["MALFORMED_EVIDENCE"]},
-                "claim": {"status": "unknown", "codes": ["MALFORMED_EVIDENCE"]},
-            },
-        }
+    required_types = _criterion_string_set(
+        criterion_baseline,
+        "required_evidence_types",
+        "required_evidence",
+    )
+    required_hops = _criterion_string_set(
+        criterion_baseline,
+        "required_hops",
+        "chain_hops",
+    )
+    required_delivery_types = _criterion_string_set(
+        criterion_baseline,
+        "required_delivery_types",
+        None,
+    )
+    independent_required = criterion_baseline.get("independent_validation_required") is True
 
-    def evaluate_candidates(
-        raw_value: Any, label: str
-    ) -> tuple[list[dict[str, Any]], list[Mapping[str, Any] | None]]:
-        if not isinstance(raw_value, list):
-            return [malformed_result(label, 0)], [None]
-        results: list[dict[str, Any]] = []
-        sources: list[Mapping[str, Any] | None] = []
-        for index, candidate in enumerate(raw_value):
-            if not isinstance(candidate, Mapping):
-                sources.append(None)
-                results.append(malformed_result(label, index))
-                continue
-            sources.append(candidate)
-            results.append(
-                evaluate_evidence(
-                    candidate,
-                    criterion,
-                    contract,
-                    resolvers=resolvers,
-                    verifiers=verifiers,
-                    now=now,
+    if entry_is_malformed:
+        primary_candidates: list[Any] = [None]
+        receipt_candidates: list[Any] = []
+        entry_error_code = "MALFORMED_EVIDENCE_ENTRY"
+    else:
+        raw_primary = entry.get("evidence", [])
+        raw_receipts = entry.get("delivery_receipts", [])
+        primary_candidates = deepcopy(raw_primary) if isinstance(raw_primary, list) else [None]
+        receipt_candidates = deepcopy(raw_receipts) if isinstance(raw_receipts, list) else [None]
+        entry_error_code = "MALFORMED_EVIDENCE"
+
+    records: list[tuple[str, int, Any]] = [
+        *(('evidence', index, candidate) for index, candidate in enumerate(primary_candidates)),
+        *(
+            ('delivery_receipt', index, candidate)
+            for index, candidate in enumerate(receipt_candidates)
+        ),
+    ]
+    identifier_counts: dict[str, int] = {}
+    invalid_identity = any(not isinstance(candidate, Mapping) for _, _, candidate in records)
+    for _, _, candidate in records:
+        if not isinstance(candidate, Mapping):
+            continue
+        identifier = candidate.get("evidence_id")
+        if not isinstance(identifier, str) or not identifier.strip():
+            invalid_identity = True
+            continue
+        identifier_counts[identifier] = identifier_counts.get(identifier, 0) + 1
+    duplicate_ids = sorted(
+        identifier for identifier, count in identifier_counts.items() if count > 1
+    )
+    identity_preflight_failed = invalid_identity or bool(duplicate_ids)
+
+    primary_results: list[dict[str, Any]] = []
+    primary_sources: list[Mapping[str, Any] | None] = []
+    receipt_results: list[dict[str, Any]] = []
+    receipt_sources: list[Mapping[str, Any] | None] = []
+
+    for label, index, candidate in records:
+        destination_results = primary_results if label == "evidence" else receipt_results
+        destination_sources = primary_sources if label == "evidence" else receipt_sources
+        if not isinstance(candidate, Mapping):
+            destination_sources.append(None)
+            destination_results.append(
+                _malformed_completion_result(
+                    criterion_id,
+                    label,
+                    index,
+                    entry_error_code,
                 )
             )
-        return results, sources
+            continue
 
-    primary_results, _ = evaluate_candidates(entry.get("evidence", []), "evidence")
-    receipt_results, receipt_sources = evaluate_candidates(
-        entry.get("delivery_receipts", []), "delivery_receipt"
-    )
-    evidence_result_count = len(primary_results)
+        source = deepcopy(dict(candidate))
+        destination_sources.append(source)
+        identifier = source.get("evidence_id")
+        if identity_preflight_failed:
+            if not isinstance(identifier, str) or not identifier.strip():
+                code = "MALFORMED_EVIDENCE_ID"
+            elif identifier in duplicate_ids:
+                code = "DUPLICATE_EVIDENCE_ID"
+            else:
+                code = "EVIDENCE_ID_PREFLIGHT_FAILED"
+            destination_results.append(
+                _malformed_completion_result(
+                    criterion_id,
+                    label,
+                    index,
+                    code,
+                    evidence_id=identifier,
+                    kind=source.get("kind"),
+                )
+            )
+            continue
+
+        if label == "delivery_receipt" and not _valid_delivery_receipt(source):
+            destination_results.append(
+                _malformed_completion_result(
+                    criterion_id,
+                    label,
+                    index,
+                    "MALFORMED_DELIVERY_RECEIPT",
+                    evidence_id=identifier,
+                    kind=source.get("kind"),
+                )
+            )
+            continue
+
+        result = evaluate_evidence(
+            deepcopy(source),
+            deepcopy(criterion_baseline),
+            deepcopy(contract_baseline),
+            resolvers=resolvers,
+            verifiers=verifiers,
+            now=now,
+        )
+        if label == "evidence" and "covered_hops" in source and not _valid_string_list(
+            source.get("covered_hops"), allow_empty=True
+        ):
+            result = _fail_completion_result(result, "MALFORMED_HOP_BINDING")
+        destination_results.append(result)
+
     evidence_results = [*primary_results, *receipt_results]
-
-    required_types_value = criterion.get(
-        "required_evidence_types", criterion.get("required_evidence", [])
-    )
-    required_types = (
-        {str(item) for item in required_types_value}
-        if isinstance(required_types_value, list)
-        else set()
-    )
     supplied_types = {
-        result["kind"] for result in evidence_results[:evidence_result_count] if result["kind"]
+        str(source.get("kind"))
+        for source in primary_sources
+        if isinstance(source, Mapping) and isinstance(source.get("kind"), str)
     }
     missing_types = sorted(required_types - supplied_types)
-    required_hops_value = criterion.get("chain_hops", [])
-    required_hops = (
-        {str(item) for item in required_hops_value}
-        if isinstance(required_hops_value, list)
-        else set()
-    )
-    covered_hops_value = entry.get("covered_hops", [])
-    covered_hops = (
-        {str(item) for item in covered_hops_value}
-        if isinstance(covered_hops_value, list)
-        else set()
-    )
-    missing_hops = sorted(required_hops - covered_hops)
-    required_delivery_value = criterion.get("required_delivery_types", [])
-    required_delivery_types = (
-        {str(item) for item in required_delivery_value}
-        if isinstance(required_delivery_value, list)
-        else set()
-    )
+
+    verified_hops: set[str] = set()
+    for source, result in zip(primary_sources, primary_results):
+        if not isinstance(source, Mapping) or result.get("status") != "pass":
+            continue
+        bound_hops = source.get("covered_hops", [])
+        if _valid_string_list(bound_hops, allow_empty=True):
+            verified_hops.update(bound_hops)
+    missing_hops = sorted(required_hops - verified_hops)
+
     verified_delivery_types = {
-        str(receipt.get("delivery_type"))
-        for receipt, result in zip(
-            receipt_sources,
-            evidence_results[evidence_result_count:],
-        )
-        if receipt is not None
-        and receipt.get("kind") == "delivery-receipt"
-        and result["status"] == "pass"
-        and receipt.get("delivery_type") in required_delivery_types
+        str(source.get("delivery_type"))
+        for source, result in zip(receipt_sources, receipt_results)
+        if isinstance(source, Mapping)
+        and source.get("kind") == "delivery-receipt"
+        and result.get("status") == "pass"
+        and source.get("delivery_type") in required_delivery_types
     }
     missing_delivery_types = sorted(required_delivery_types - verified_delivery_types)
 
-    statuses = [result["status"] for result in evidence_results]
-    if (
-        evidence_result_count == 0
-        or missing_types
-        or missing_hops
-        or missing_delivery_types
-        or "fail" in statuses
-    ):
-        status = "fail"
-    elif "unknown" in statuses:
-        status = "unknown"
-    else:
-        status = "pass"
+    independence = _independent_validation_check(
+        independent_required,
+        entry,
+        [*primary_sources, *receipt_sources],
+        contract_baseline,
+    )
+    statuses = [result.get("status", "unknown") for result in evidence_results]
+    if not primary_results:
+        statuses.append("unknown")
+    if missing_types or missing_hops or missing_delivery_types:
+        statuses.append("unknown")
+    if independence["status"] != "pass":
+        statuses.append(independence["status"])
+    status = "fail" if "fail" in statuses else "unknown" if "unknown" in statuses else "pass"
     return {
         "status": status,
         "evidence_results": evidence_results,
         "missing_evidence_types": missing_types,
         "missing_hops": missing_hops,
         "missing_delivery_types": missing_delivery_types,
+        "independent_validation": independence,
+        "duplicate_evidence_ids": duplicate_ids,
     }
+
+
+def _criterion_string_set(
+    criterion: Mapping[str, Any], canonical: str, compatibility: str | None
+) -> set[str]:
+    value = criterion.get(canonical)
+    if value is None and compatibility is not None:
+        value = criterion.get(compatibility)
+    return {item for item in value if isinstance(item, str)} if isinstance(value, list) else set()
+
+
+def _malformed_completion_result(
+    criterion_id: str,
+    label: str,
+    index: int,
+    code: str,
+    *,
+    evidence_id: Any = None,
+    kind: Any = "",
+) -> dict[str, Any]:
+    identifier = evidence_id if evidence_id is not None else f"{criterion_id}:{label}[{index}]"
+    return {
+        "evidence_id": identifier,
+        "kind": kind if isinstance(kind, str) else "",
+        "status": "fail",
+        "checks": {
+            "resolve": {"status": "fail", "codes": [code]},
+            "integrity_and_freshness": {"status": "unknown", "codes": [code]},
+            "scope": {"status": "unknown", "codes": [code]},
+            "claim": {"status": "unknown", "codes": [code]},
+        },
+    }
+
+
+def _fail_completion_result(result: Mapping[str, Any], code: str) -> dict[str, Any]:
+    failed = deepcopy(dict(result))
+    checks = failed.get("checks") if isinstance(failed.get("checks"), Mapping) else {}
+    checks = deepcopy(dict(checks))
+    resolution = checks.get("resolve") if isinstance(checks.get("resolve"), Mapping) else {}
+    codes = list(resolution.get("codes", [])) if isinstance(resolution.get("codes"), list) else []
+    if code not in codes:
+        codes.append(code)
+    checks["resolve"] = {"status": "fail", "codes": codes}
+    failed["checks"] = checks
+    failed["status"] = "fail"
+    return failed
+
+
+def _independent_validation_check(
+    required: bool,
+    entry: Mapping[str, Any],
+    evidence_sources: Sequence[Mapping[str, Any] | None],
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not required:
+        return {"status": "pass", "codes": []}
+    validator = entry.get("validated_by")
+    if not isinstance(validator, str) or not validator.strip():
+        return {"status": "unknown", "codes": ["MISSING_INDEPENDENT_VALIDATOR"]}
+
+    actor_roles = contract.get("actor_roles")
+    if not isinstance(actor_roles, Mapping):
+        return {"status": "fail", "codes": ["VALIDATOR_ROLE_UNENFORCEABLE"]}
+    validator_roles = actor_roles.get(validator)
+    if not isinstance(validator_roles, list) or "validator" not in validator_roles:
+        return {"status": "fail", "codes": ["VALIDATOR_ROLE_REQUIRED"]}
+
+    producer_fields = ("produced_by", "submitted_by", "owner", "executor", "actor")
+    producers: set[str] = set()
+    missing_producer = False
+    for source in evidence_sources:
+        if not isinstance(source, Mapping):
+            continue
+        identities = {
+            str(source.get(field))
+            for field in producer_fields
+            if isinstance(source.get(field), str) and str(source.get(field)).strip()
+        }
+        if not identities:
+            missing_producer = True
+        producers.update(identities)
+    for field in ("producer", "owner", "executor"):
+        if isinstance(entry.get(field), str) and str(entry.get(field)).strip():
+            producers.add(str(entry.get(field)))
+
+    if validator in producers:
+        return {"status": "fail", "codes": ["VALIDATOR_NOT_INDEPENDENT"]}
+    unknown_producers = [producer for producer in producers if producer not in actor_roles]
+    if missing_producer:
+        return {"status": "unknown", "codes": ["MISSING_EVIDENCE_PRODUCER"]}
+    if unknown_producers:
+        return {"status": "unknown", "codes": ["PRODUCER_ROLE_UNKNOWN"]}
+    return {"status": "pass", "codes": []}
+
+
+def gate(
+    task_id: str,
+    *,
+    stage: str,
+    evidence_map: Mapping[str, Mapping[str, Any]] | None = None,
+    required_item_ids: Sequence[str] | None = None,
+    documents: Sequence[str | Path] | None = None,
+    resolvers: Mapping[str, Any] | None = None,
+    verifiers: Mapping[str, Any] | None = None,
+    now: datetime | None = None,
+    emit: bool = True,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Run a public gate; callers cannot disable its isolated audit probe."""
+
+    return _gate_core(
+        task_id,
+        stage=stage,
+        evidence_map=evidence_map,
+        required_item_ids=required_item_ids,
+        documents=documents,
+        resolvers=resolvers,
+        verifiers=verifiers,
+        now=now,
+        emit=emit,
+        base_dir=base_dir,
+        run_probe=True,
+    )
 
 
 def workspace_observation(path: str | Path = ".") -> dict[str, Any]:

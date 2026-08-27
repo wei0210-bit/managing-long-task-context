@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -7,6 +8,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -276,7 +278,10 @@ class EvidenceEvaluationTests(unittest.TestCase):
         result = evaluate_evidence(evidence, self.criterion, self.contract, now=NOW)
 
         self.assertEqual(result["status"], "fail")
-        self.assertEqual(result["checks"]["resolve"], {"status": "fail", "codes": ["INVALID_LOCATOR"]})
+        self.assertEqual(
+            result["checks"]["resolve"],
+            {"status": "fail", "codes": ["MALFORMED_LOCATOR"]},
+        )
 
     def test_test_report_digest_uses_canonical_json_without_artifact_digest(self) -> None:
         report = {
@@ -349,7 +354,7 @@ class EvidenceEvaluationTests(unittest.TestCase):
         result = evaluate_evidence(self._test_report_evidence(), self.criterion, self.contract, now=NOW)
 
         self.assertEqual(result["status"], "fail")
-        self.assertIn("REVISION_MISMATCH", result["checks"]["integrity_and_freshness"]["codes"])
+        self.assertIn("REVISION_MISMATCH", result["checks"]["scope"]["codes"])
 
     def test_test_report_rejects_internal_scope_mismatch(self) -> None:
         report = self._valid_test_report()
@@ -477,6 +482,297 @@ class EvidenceEvaluationTests(unittest.TestCase):
 
     def test_default_resolvers_exposes_only_the_four_builtin_kinds(self) -> None:
         self.assertEqual(set(default_resolvers()), {"file", "git-commit", "test-report", "url"})
+
+    def test_malformed_evidence_kind_is_fail_not_unknown(self) -> None:
+        for malformed_kind in (None, "", "   ", 7):
+            with self.subTest(kind=malformed_kind):
+                evidence = {"evidence_id": "EV-MALFORMED-KIND"}
+                if malformed_kind is not None:
+                    evidence["kind"] = malformed_kind
+
+                result = evaluate_evidence(
+                    evidence,
+                    self.criterion,
+                    self.contract,
+                    now=NOW,
+                )
+
+                self.assertEqual(result["status"], "fail")
+                self.assertEqual(
+                    result["checks"]["resolve"],
+                    {"status": "fail", "codes": ["MALFORMED_EVIDENCE_KIND"]},
+                )
+
+    def test_freshness_rejects_non_integer_negative_and_nonfinite_windows(self) -> None:
+        artifact = self.root / "artifact.txt"
+        artifact.write_bytes(b"strict evidence\n")
+        evidence = self._file_evidence(
+            locator="artifact.txt",
+            digest="sha256:b188fa1315c608900d360bb4d67356e1ac2fc71c5930b92b9007fd6b10588311",
+        )
+        invalid = [True, "3600", 3600.5, float("nan"), float("inf"), -1]
+
+        for maximum in invalid:
+            with self.subTest(maximum=maximum):
+                criterion = dict(self.criterion, max_evidence_age_seconds=maximum)
+                result = evaluate_evidence(
+                    evidence,
+                    criterion,
+                    self.contract,
+                    verifiers={"file": passing_verifier},
+                    now=NOW,
+                )
+                self.assertEqual(result["status"], "fail")
+                self.assertIn(
+                    "INVALID_FRESHNESS_WINDOW",
+                    result["checks"]["integrity_and_freshness"]["codes"],
+                )
+
+    def test_stale_evidence_cannot_escape_through_invalid_type_override(self) -> None:
+        artifact = self.root / "artifact.txt"
+        artifact.write_bytes(b"strict evidence\n")
+        evidence = self._file_evidence(
+            locator="artifact.txt",
+            digest="sha256:b188fa1315c608900d360bb4d67356e1ac2fc71c5930b92b9007fd6b10588311",
+        )
+        evidence["generated_at"] = "2026-08-27T01:00:00Z"
+        criterion = dict(
+            self.criterion,
+            evidence_freshness_by_type={"file": "unbounded"},
+        )
+
+        result = evaluate_evidence(
+            evidence,
+            criterion,
+            self.contract,
+            verifiers={"file": passing_verifier},
+            now=NOW,
+        )
+
+        self.assertEqual(result["status"], "fail")
+        self.assertIn(
+            "INVALID_FRESHNESS_WINDOW",
+            result["checks"]["integrity_and_freshness"]["codes"],
+        )
+
+    def test_file_locator_fragment_is_not_part_of_filesystem_path(self) -> None:
+        artifact = self.root / "artifact.txt"
+        artifact.write_bytes(b"strict evidence\n")
+        evidence = self._file_evidence(
+            locator="artifact.txt#L1",
+            digest="sha256:b188fa1315c608900d360bb4d67356e1ac2fc71c5930b92b9007fd6b10588311",
+        )
+        verifier_locators: list[str] = []
+
+        def fragment_verifier(callback_evidence, callback_criterion, resolution):
+            verifier_locators.append(callback_evidence["locator"])
+            return {"status": "pass", "codes": []}
+
+        result = evaluate_evidence(
+            evidence,
+            self.criterion,
+            self.contract,
+            verifiers={"file": fragment_verifier},
+            now=NOW,
+        )
+
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(verifier_locators, ["artifact.txt#L1"])
+
+    def test_test_report_permission_error_is_unknown_not_digest_mismatch(self) -> None:
+        self._write_report(self._valid_test_report())
+
+        with patch("pathlib.Path.open", side_effect=PermissionError("denied")):
+            result = evaluate_evidence(
+                self._test_report_evidence(),
+                self.criterion,
+                self.contract,
+                now=NOW,
+            )
+
+        self.assertEqual(result["status"], "unknown")
+        codes = result["checks"]["integrity_and_freshness"]["codes"]
+        self.assertIn("PERMISSION_DENIED", codes)
+        self.assertNotIn("DIGEST_MISMATCH", codes)
+
+    def test_file_hashing_enforces_documented_size_ceiling(self) -> None:
+        artifact = self.root / "oversized.bin"
+        with artifact.open("wb") as handle:
+            handle.truncate(16 * 1024 * 1024 + 1)
+        evidence = self._file_evidence(locator="oversized.bin")
+
+        result = evaluate_evidence(evidence, self.criterion, self.contract, now=NOW)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertIn(
+            "ARTIFACT_TOO_LARGE",
+            result["checks"]["integrity_and_freshness"]["codes"],
+        )
+
+    def test_git_launch_and_timeout_errors_are_deterministic_unknowns(self) -> None:
+        evidence = {
+            "evidence_id": "EV-GIT-ERROR",
+            "kind": "git-commit",
+            "locator": "a" * 40,
+            "generated_at": "2026-08-27T04:30:00Z",
+            "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
+        }
+        failures = (
+            (FileNotFoundError("git missing"), "TOOL_UNAVAILABLE"),
+            (subprocess.TimeoutExpired(cmd="git", timeout=5), "GIT_TIMEOUT"),
+        )
+
+        for error, expected_code in failures:
+            with self.subTest(error=type(error).__name__):
+                with patch("managing_long_task_context.evidence.subprocess.run", side_effect=error):
+                    result = evaluate_evidence(evidence, self.criterion, self.contract, now=NOW)
+                self.assertEqual(result["status"], "unknown")
+                self.assertEqual(
+                    result["checks"]["resolve"],
+                    {"status": "unknown", "codes": [expected_code]},
+                )
+
+    def test_git_revision_exact_and_ancestor_modes_use_criterion_requirement(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "config", "user.name", "Strict Test"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.email", "strict@example.invalid"],
+            check=True,
+        )
+        tracked = self.root / "tracked.txt"
+        tracked.write_text("old\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "tracked.txt"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "old"], check=True)
+        old_revision = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        tracked.write_text("new\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qam", "new"], check=True)
+        new_revision = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        evidence = {
+            "evidence_id": "EV-OLD-COMMIT",
+            "kind": "git-commit",
+            "locator": old_revision,
+            "generated_at": "2026-08-27T04:30:00Z",
+            "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
+        }
+
+        exact = evaluate_evidence(
+            evidence,
+            dict(self.criterion, required_revision=new_revision, revision_match="exact"),
+            self.contract,
+            verifiers={"git-commit": passing_verifier},
+            now=NOW,
+        )
+        ancestor = evaluate_evidence(
+            evidence,
+            dict(self.criterion, required_revision=new_revision, revision_match="ancestor"),
+            self.contract,
+            verifiers={"git-commit": passing_verifier},
+            now=NOW,
+        )
+        reverse_ancestor = evaluate_evidence(
+            dict(evidence, evidence_id="EV-NEW-COMMIT", locator=new_revision),
+            dict(self.criterion, required_revision=old_revision, revision_match="ancestor"),
+            self.contract,
+            verifiers={"git-commit": passing_verifier},
+            now=NOW,
+        )
+
+        self.assertEqual(exact["status"], "fail")
+        self.assertIn("REVISION_MISMATCH", exact["checks"]["scope"]["codes"])
+        self.assertEqual(ancestor["status"], "pass")
+        self.assertEqual(reverse_ancestor["status"], "fail")
+        self.assertIn(
+            "REVISION_MISMATCH",
+            reverse_ancestor["checks"]["scope"]["codes"],
+        )
+
+    def test_test_report_revision_is_anchored_to_criterion_not_caller_envelope(self) -> None:
+        old_revision = "a" * 40
+        required_revision = "b" * 40
+        report = self._valid_test_report()
+        report["repo_revision"] = old_revision
+        payload = dict(report)
+        payload.pop("artifact_digest")
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        report["artifact_digest"] = "sha256:" + hashlib.sha256(encoded).hexdigest()
+        self._write_report(report)
+        evidence = self._test_report_evidence()
+        evidence["repo_revision"] = old_revision
+
+        result = evaluate_evidence(
+            evidence,
+            dict(
+                self.criterion,
+                required_revision=required_revision,
+                revision_match="exact",
+            ),
+            self.contract,
+            verifiers={"test-report": passing_verifier},
+            now=NOW,
+        )
+
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("REVISION_MISMATCH", result["checks"]["scope"]["codes"])
+
+    def test_url_normalizes_host_before_rejecting_local_and_ambiguous_numeric_hosts(self) -> None:
+        for locator in (
+            "https://localhost./report",
+            "https://service.localhost./report",
+            "https://0x7f000001/report",
+        ):
+            with self.subTest(locator=locator):
+                evidence = {
+                    "evidence_id": "EV-URL-LOCAL",
+                    "kind": "url",
+                    "locator": locator,
+                    "generated_at": "2026-08-27T04:30:00Z",
+                    "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
+                }
+                result = evaluate_evidence(evidence, self.criterion, self.contract, now=NOW)
+                self.assertEqual(result["status"], "fail")
+                self.assertEqual(result["checks"]["resolve"]["status"], "fail")
+
+    def test_malformed_locators_use_public_malformed_locator_code(self) -> None:
+        fixtures = (
+            self._file_evidence(locator=""),
+            {
+                "evidence_id": "EV-GIT-MALFORMED",
+                "kind": "git-commit",
+                "locator": "HEAD",
+                "generated_at": "2026-08-27T04:30:00Z",
+                "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
+            },
+            {
+                "evidence_id": "EV-URL-MALFORMED",
+                "kind": "url",
+                "locator": "https:///missing-host",
+                "generated_at": "2026-08-27T04:30:00Z",
+                "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
+            },
+        )
+
+        for evidence in fixtures:
+            with self.subTest(kind=evidence["kind"]):
+                result = evaluate_evidence(evidence, self.criterion, self.contract, now=NOW)
+                self.assertEqual(
+                    result["checks"]["resolve"],
+                    {"status": "fail", "codes": ["MALFORMED_LOCATOR"]},
+                )
 
     def _file_evidence(
         self,

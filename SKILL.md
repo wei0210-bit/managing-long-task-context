@@ -72,26 +72,56 @@ child = await rlm(brief["prompt"], name="root-cause-verifier")
 ### 5. Complete only against publisher-written criteria
 
 ```python
+from datetime import datetime, timezone
+
+def verify_file_claim(evidence, criterion, resolution):
+    supported = evidence["scope"]["module"] == criterion["required_scope"]["module"]
+    return {"status": "pass" if supported else "fail", "codes": []}
+
 context.gate(
     "TASK-001",
     stage="completion",
     evidence_map={
         "AC-01": {
-            "result": "pass",
-            "evidence": ["test:integration-run-018"],
-            "evidence_types": ["integration-test"],
-            "covered_hops": ["callback-entry", "idempotency-check", "transaction-write"]
-        },
-        "AC-02": {
-            "result": "pass",
-            "evidence": ["test:payment-regression-019"],
-            "evidence_types": ["regression-test"]
+            "evidence": [{
+                "evidence_id": "EV-018",
+                "kind": "file",
+                "locator": "artifacts/integration-run-018.json#summary",
+                "artifact_digest": "sha256:<64 lowercase hex>",
+                "generated_at": "2026-08-27T04:30:00Z",
+                "scope": {"module": "payment-callback", "environment": "test"},
+                "covered_hops": [
+                    "callback-entry", "idempotency-check", "transaction-write"
+                ],
+                "produced_by": "executor-01",
+            }],
+            "delivery_receipts": [],
+            "validated_by": "validator-01",
         }
     },
+    verifiers={"file": verify_file_claim},
+    now=datetime(2026, 8, 27, 5, 0, tzinfo=timezone.utc),
 )
 ```
 
-没有逐条“验收标准 → 证据”映射，或者关键链路跳点未覆盖，不得宣称完成。
+完整可执行版本见 `examples/strict_completion.py`。合同使用
+`required_evidence_types`、`required_hops`、`required_delivery_types`、
+`required_scope`、freshness 和 independent-validation 控制。每个 required hop
+必须写在某个实际通过的 evidence 对象自己的 `covered_hops` 中；验收映射顶层的
+旧 `covered_hops` 字段只保留兼容性，不能自行证明 hop。需要独立验证时，合同还要
+提供 `actor_roles`，且 `validated_by` 必须拥有 validator 角色并与 evidence 的
+`produced_by`/owner 分离。
+
+当 criterion 声明 `required_delivery_types` 时，每个 receipt 必须是带稳定
+`evidence_id` 的 `delivery-receipt` 对象，并完整提供 `delivery_type`、`channel`、
+`target_id`、`artifact_ref`、`external_id`、`sent_at`、`observed_at` 和
+`verification_method`；两个时间字段同样必须使用显式 UTC RFC3339。receipt 也属于
+独立验证所引用的证据，因此它的 producer/submitter 不能与 `validated_by` 相同。
+
+本地 file/test-report resolver 以 16 MiB 为读取上限并增量计算摘要。时间必须是显式
+UTC RFC3339（`Z` 或 `+00:00`）；只允许最多 300 秒的未来时钟偏差。Git revision
+约束使用 `required_revision` 与 `revision_match: exact|ancestor`，test report 内部
+revision 和 scope 必须匹配 criterion，而不是只与调用者 envelope 相互一致。
 
 ## API
 
