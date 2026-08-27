@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +38,7 @@ _POINTER_RE = re.compile(
     r"(?:详见|参见|见|see)\s*[`'\"]([^`'\"]+\.(?:md|txt|json|ya?ml))[`'\"]",
     re.IGNORECASE,
 )
+_INTERNAL_BAD_SAMPLE_PROBE = ContextVar("_INTERNAL_BAD_SAMPLE_PROBE", default=False)
 
 
 class ContextError(RuntimeError):
@@ -968,14 +970,18 @@ def _run_bad_sample_probe() -> dict[str, Any]:
             ],
         }
         publish_contract(contract, confirmed_by="audit-probe", base_dir=probe_base_dir)
-        report = gate(
-            probe_id,
-            stage="completion",
-            evidence_map={},
-            emit=False,
-            base_dir=probe_base_dir,
-            _run_probe=False,
-        )
+        probe_context = _INTERNAL_BAD_SAMPLE_PROBE.set(True)
+        try:
+            report = gate(
+                probe_id,
+                stage="completion",
+                evidence_map={},
+                emit=False,
+                base_dir=probe_base_dir,
+                _run_probe=False,
+            )
+        finally:
+            _INTERNAL_BAD_SAMPLE_PROBE.reset(probe_context)
     return {
         "id": probe_id,
         "scanned": 1,
@@ -1011,7 +1017,7 @@ def audit(
         "scanned": 0,
         "expected": "reject",
         "actual": "reject",
-        "status": "pass",
+        "status": "fail",
     }
     if _run_probe:
         probe = _run_bad_sample_probe()
@@ -1021,6 +1027,8 @@ def audit(
                 f"completion bad-sample probe {probe['id']} failed: "
                 f"expected {probe['expected']}, got {probe['actual']}"
             )
+    elif not _INTERNAL_BAD_SAMPLE_PROBE.get():
+        errors.append("external callers cannot skip the audit bad-sample probe")
 
     try:
         contract = _read_json(paths["contract"])

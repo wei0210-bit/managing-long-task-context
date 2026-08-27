@@ -1124,6 +1124,39 @@ class ContextSkillTests(unittest.TestCase):
             any("PROBE-COMPLETION-EMPTY-EVIDENCE" in error for error in report["errors"])
         )
 
+    def test_audit_rejects_external_probe_bypass(self) -> None:
+        self.publish()
+
+        report = context.audit(
+            "TASK-001",
+            base_dir=self.base,
+            emit=False,
+            _run_probe=False,
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["stats"]["probe"], "fail")
+        self.assertEqual(report["stats"]["probe_scanned"], 0)
+        self.assertEqual(report["stats"]["probes_checked"], 0)
+        self.assertIn("external callers cannot skip the audit bad-sample probe", report["errors"])
+
+    def test_gate_rejects_external_probe_bypass(self) -> None:
+        self.publish()
+
+        report = context.gate(
+            "TASK-001",
+            stage="release",
+            base_dir=self.base,
+            emit=False,
+            _run_probe=False,
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["stats"]["probe"], "fail")
+        self.assertEqual(report["stats"]["probe_scanned"], 0)
+        self.assertEqual(report["stats"]["probes_checked"], 0)
+        self.assertIn("external callers cannot skip the audit bad-sample probe", report["errors"])
+
     def test_pointer_freshness_audit_detects_stale_target(self) -> None:
         self.publish()
         docs = Path(self.temp.name) / "docs"
