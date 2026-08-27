@@ -12,3 +12,6 @@ dist/
 # Runtime context state is local and may contain task-specific details.
 .context-lite/
 .prime/context/
+
+# Isolated feature worktrees.
+.worktrees/
