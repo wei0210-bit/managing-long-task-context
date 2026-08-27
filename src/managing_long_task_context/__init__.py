@@ -1185,7 +1185,7 @@ def _audit_documents(documents: Sequence[str | Path], max_pointer_lag_seconds: f
     return errors, warnings, checked
 
 
-def _run_bad_sample_probe() -> dict[str, Any]:
+def _run_bad_sample_probe(now: datetime) -> dict[str, Any]:
     """Verify that the production completion gate rejects empty required evidence."""
 
     probe_id = "PROBE-COMPLETION-EMPTY-EVIDENCE"
@@ -1215,6 +1215,7 @@ def _run_bad_sample_probe() -> dict[str, Any]:
             probe_id,
             stage="completion",
             evidence_map={},
+            now=now,
             emit=False,
             base_dir=probe_base_dir,
             run_probe=False,
@@ -1236,6 +1237,7 @@ def _audit_core(
     max_pointer_lag_seconds: float = 0,
     emit: bool = True,
     base_dir: str | Path | None = None,
+    now: datetime,
     run_probe: bool,
 ) -> dict[str, Any]:
     """Audit contract, event/snapshot consistency, item quality, staleness, and pointers."""
@@ -1259,7 +1261,7 @@ def _audit_core(
     }
     if run_probe:
         try:
-            probe = _run_bad_sample_probe()
+            probe = _run_bad_sample_probe(now)
         except Exception as exc:
             probe = {
                 "id": "PROBE-COMPLETION-EMPTY-EVIDENCE",
@@ -1387,6 +1389,7 @@ def audit(
         max_pointer_lag_seconds=max_pointer_lag_seconds,
         emit=emit,
         base_dir=base_dir,
+        now=_trusted_utc_now(),
         run_probe=True,
     )
 
@@ -1417,6 +1420,7 @@ def _gate_core(
         emit=False,
         base_dir=base_dir,
         max_pointer_lag_seconds=0,
+        now=observed_now,
         run_probe=run_probe,
     )
     errors = list(report["errors"])

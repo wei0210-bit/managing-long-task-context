@@ -100,6 +100,18 @@ class ContextSkillTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             context.gate("TASK-001", stage="release", now=NOW, base_dir=self.base, emit=False)
 
+    def test_public_gate_observes_trusted_utc_once_including_audit_probe(self):
+        self.publish()
+        with patch.object(
+            context,
+            "_trusted_utc_now",
+            side_effect=[NOW, NOW + timedelta(seconds=1)],
+        ) as clock:
+            report = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
+
+        self.assertTrue(report["passed"], report["errors"])
+        self.assertEqual(clock.call_count, 1)
+
     def test_completion_requires_validated_at_for_independent_validation(self):
         criterion = self.contract["acceptance_criteria"][0]
         criterion["required_evidence"] = ["custom"]
