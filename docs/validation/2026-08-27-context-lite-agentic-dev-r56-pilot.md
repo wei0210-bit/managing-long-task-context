@@ -21,7 +21,9 @@ service, scheduler, export, deployment, cleanup, or write command was run there.
 | --- | --- |
 | `git -C /Users/zhaowei/Desktop/David/project/Agentic-Dev status --porcelain=v1 -uall` | Pre-state was 0 bytes (empty). Post-state was also 0 bytes and byte-for-byte identical. |
 | `git -C /Users/zhaowei/Desktop/David/project/Agentic-Dev branch --show-current` | Local branch: `main`. |
-| `bash /Users/zhaowei/Desktop/David/project/Agentic-Dev/bin/session-orient.sh` | Observed local HEAD `d76b30fc67bf0cd7e46ffc8b5d557654754dfbaa`, no uncommitted changes, and tracking state `behind 5`. The behind state was recorded, not treated as R56 rerun evidence. |
+| `git -C /Users/zhaowei/Desktop/David/project/Agentic-Dev rev-parse HEAD` | Observed full local HEAD: `d76b30fc67bf0cd7e46ffc8b5d557654754dfbaa`. |
+| `git -C /Users/zhaowei/Desktop/David/project/Agentic-Dev status --short --branch` | Observed tracking state: `## main...origin/main [behind 5]`. The behind state was recorded, not treated as R56 rerun evidence. |
+| `bash /Users/zhaowei/Desktop/David/project/Agentic-Dev/bin/session-orient.sh` | Reported branch `main`, zero uncommitted changes, 10 unresolved `CLAUDE.md` items, no worktree awaiting closeout, and six recent short commits. |
 | `git -C /Users/zhaowei/Desktop/David/project/Agentic-Dev merge-base --is-ancestor 9a8e32e HEAD` | Exit status 0: `9a8e32e` is an ancestor of local `HEAD`. |
 | `git -C /Users/zhaowei/Desktop/David/project/Agentic-Dev diff --name-only 9a8e32e..HEAD -- src acceptance` | Non-empty: `acceptance/w2r-R56.test.ts`. |
 | `git -C /Users/zhaowei/Desktop/David/project/Agentic-Dev show --no-patch --format='%H%n%s%n%b' cf91814` | Resolved `cf91814509bd29712778de9b69f218fdd774df4a` with subject `docs(台账+图谱): R56 结单 —— 我的验证方法本身缺乏验证，已第五次`; this is a close decision. |
