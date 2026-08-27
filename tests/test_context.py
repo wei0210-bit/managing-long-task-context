@@ -174,6 +174,41 @@ class ContextSkillTests(unittest.TestCase):
         self.assertNotIn(old["id"], ids)
         self.assertIn("db:schema-query-02", packet["facts"][0]["evidence"])
 
+    def test_markdown_brief_keeps_item_control_fields(self) -> None:
+        self.publish()
+        fact = context.record(
+            "TASK-001",
+            statement="Unique index exists",
+            item_type="verified-fact",
+            actor="validator-01",
+            source={"kind": "tool", "ref": "schema-query-02"},
+            evidence=["db:schema-query-02"],
+            verification_method="direct schema inspection",
+            scope={"database": "payments"},
+            base_dir=self.base,
+        )
+
+        prompt = context.brief("TASK-001", base_dir=self.base)["prompt"]
+
+        self.assertIn(f"- {fact['id']}: Unique index exists", prompt)
+        self.assertIn("status=active", prompt)
+        self.assertIn('source={"kind":"tool","ref":"schema-query-02"}', prompt)
+        self.assertIn('evidence=["db:schema-query-02"]', prompt)
+        self.assertIn('scope={"database":"payments"}', prompt)
+        self.assertIn(f"verified_at={fact['verified_at']}", prompt)
+        self.assertIn(f"updated_at={fact['updated_at']}", prompt)
+
+    def test_markdown_brief_keeps_contract_scope_and_constraints(self) -> None:
+        self.publish()
+
+        prompt = context.brief("TASK-001", base_dir=self.base)["prompt"]
+
+        self.assertIn("## Scope", prompt)
+        self.assertIn("- payment callback", prompt)
+        self.assertIn("## Out of Scope", prompt)
+        self.assertIn("## Constraints", prompt)
+        self.assertIn("- keep public API", prompt)
+
     def test_handoff_requires_checkpoint(self) -> None:
         self.publish()
         before = context.gate("TASK-001", stage="handoff", base_dir=self.base, emit=False)

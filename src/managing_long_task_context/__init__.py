@@ -720,6 +720,23 @@ def brief(
     return packet
 
 
+def _brief_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _brief_item_to_markdown(item: Mapping[str, Any]) -> str:
+    statement = item.get("criterion") or item.get("statement") or _brief_json(dict(item))
+    fields = (
+        f"status={item.get('status')}",
+        f"source={_brief_json(item.get('source'))}",
+        f"evidence={_brief_json(item.get('evidence') or [])}",
+        f"scope={_brief_json(item.get('scope') or {})}",
+        f"verified_at={item.get('verified_at')}",
+        f"updated_at={item.get('updated_at')}",
+    )
+    return f"- {item.get('id', '')}: {statement} | " + " | ".join(fields)
+
+
 def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
     lines = [
         f"# Controlled Task Brief: {packet.get('task_id')}",
@@ -730,6 +747,17 @@ def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
         "Use only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently.",
         "Do not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes.",
     ]
+    for heading, key in (
+        ("Scope", "scope"),
+        ("Out of Scope", "out_of_scope"),
+        ("Constraints", "constraints"),
+    ):
+        values = packet.get(key) or []
+        lines.extend(["", f"## {heading}"])
+        if not values:
+            lines.append("- None")
+            continue
+        lines.extend(f"- {value}" for value in values)
     for heading, key in (
         ("Acceptance Criteria", "acceptance_criteria"),
         ("Verified Facts", "facts"),
@@ -746,9 +774,12 @@ def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
             continue
         for value in values:
             if isinstance(value, dict):
-                identifier = value.get("id", "")
-                text = value.get("criterion") or value.get("statement") or json.dumps(value, ensure_ascii=False)
-                lines.append(f"- {identifier}: {text}".strip())
+                if key == "acceptance_criteria":
+                    identifier = value.get("id", "")
+                    text = value.get("criterion") or value.get("statement") or _brief_json(value)
+                    lines.append(f"- {identifier}: {text}".strip())
+                else:
+                    lines.append(_brief_item_to_markdown(value))
             else:
                 lines.append(f"- {value}")
     checkpoint_value = packet.get("latest_checkpoint")
