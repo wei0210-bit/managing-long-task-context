@@ -43,9 +43,11 @@ class EvidenceEvaluationTests(unittest.TestCase):
         self.contract = {
             "workspace_root": str(self.root),
             "evidence_roots": [],
+        }
+        self.criterion = {
+            "required_scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
             "max_evidence_age_seconds": 3600,
         }
-        self.criterion = {"required_scope": {"task_id": "TASK-1", "criterion_id": "AC-1"}}
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -177,7 +179,7 @@ class EvidenceEvaluationTests(unittest.TestCase):
         )
         expired = dict(base, expires_at="2026-08-27T04:59:59Z")
         old = dict(base, generated_at="2026-08-27T04:50:00Z")
-        self.contract["evidence_freshness_by_type"] = {"file": 300}
+        self.criterion["evidence_freshness_by_type"] = {"file": 300}
 
         for evidence in (expired, old):
             with self.subTest(evidence=evidence):
@@ -187,6 +189,27 @@ class EvidenceEvaluationTests(unittest.TestCase):
                     result["checks"]["integrity_and_freshness"],
                     {"status": "fail", "codes": ["STALE"]},
                 )
+
+    def test_freshness_windows_come_from_criterion_when_contract_has_none(self) -> None:
+        artifact = self.root / "artifact.txt"
+        artifact.write_bytes(b"strict evidence\n")
+        evidence = self._file_evidence(
+            locator="artifact.txt",
+            digest="sha256:b188fa1315c608900d360bb4d67356e1ac2fc71c5930b92b9007fd6b10588311",
+        )
+        criterion = {
+            "required_scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
+            "max_evidence_age_seconds": 3600,
+            "evidence_freshness_by_type": {"file": 60},
+        }
+
+        result = evaluate_evidence(evidence, criterion, self.contract, now=NOW)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(
+            result["checks"]["integrity_and_freshness"],
+            {"status": "fail", "codes": ["STALE"]},
+        )
 
     def test_scope_mismatch_fails(self) -> None:
         artifact = self.root / "artifact.txt"
@@ -257,19 +280,18 @@ class EvidenceEvaluationTests(unittest.TestCase):
 
     def test_test_report_digest_uses_canonical_json_without_artifact_digest(self) -> None:
         report = {
-            "artifact_digest": "sha256:835beaa53f74eb47488a34f255203a81ab916db9e5262f90230b175fb36ff1b1",
+            "artifact_digest": "sha256:f577fedf5c684bd3b3fc09dbac9c60be842b8a86641f23e4d1af37d1a921972d",
+            "schema": "context-test-report/v1",
+            "command": "python3 -m unittest",
+            "exit_status": 0,
+            "generated_at": "2026-08-27T04:30:00Z",
+            "repo_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
             "summary": {"failed": 0, "passed": 3},
-            "suite": "strict",
         }
         path = self.root / "report.json"
         path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
-        evidence = {
-            "evidence_id": "EV-REPORT",
-            "kind": "test-report",
-            "locator": "report.json",
-            "generated_at": "2026-08-27T04:30:00Z",
-            "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
-        }
+        evidence = self._test_report_evidence()
 
         result = evaluate_evidence(
             evidence,
@@ -289,6 +311,100 @@ class EvidenceEvaluationTests(unittest.TestCase):
             wrong["checks"]["integrity_and_freshness"],
             {"status": "fail", "codes": ["DIGEST_MISMATCH"]},
         )
+
+    def test_test_report_rejects_nonzero_exit_status(self) -> None:
+        report = self._valid_test_report()
+        report.update(
+            artifact_digest="sha256:2d7665803e03fbdc7f17250b11810d4930b03e3b676a675508148949cadf21cb",
+            exit_status=1,
+        )
+        self._write_report(report)
+
+        result = evaluate_evidence(self._test_report_evidence(), self.criterion, self.contract, now=NOW)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("NONZERO_EXIT_STATUS", result["checks"]["integrity_and_freshness"]["codes"])
+
+    def test_test_report_rejects_wrong_schema(self) -> None:
+        report = self._valid_test_report()
+        report.update(
+            artifact_digest="sha256:5e3dd80d43f47ae4c1d441cf8946bfb4c053ba1058ff31db473bcef948c34675",
+            schema="context-test-report/v2",
+        )
+        self._write_report(report)
+
+        result = evaluate_evidence(self._test_report_evidence(), self.criterion, self.contract, now=NOW)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("INVALID_TEST_REPORT", result["checks"]["integrity_and_freshness"]["codes"])
+
+    def test_test_report_rejects_revision_mismatch(self) -> None:
+        report = self._valid_test_report()
+        report.update(
+            artifact_digest="sha256:272d5c5f3c14546cf9c7c6a360b85ffbf2b3e3e91fa7ab07dedce95075bf0b33",
+            repo_revision="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        )
+        self._write_report(report)
+
+        result = evaluate_evidence(self._test_report_evidence(), self.criterion, self.contract, now=NOW)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("REVISION_MISMATCH", result["checks"]["integrity_and_freshness"]["codes"])
+
+    def test_test_report_rejects_internal_scope_mismatch(self) -> None:
+        report = self._valid_test_report()
+        report.update(
+            artifact_digest="sha256:a6004c61c6c60c16b72095c781aa404d7a703d2f175df897c138250cae283cd0",
+            scope={"task_id": "TASK-1"},
+        )
+        self._write_report(report)
+
+        result = evaluate_evidence(self._test_report_evidence(), self.criterion, self.contract, now=NOW)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["checks"]["scope"], {"status": "fail", "codes": ["SCOPE_MISMATCH"]})
+
+    def test_test_report_requires_command_generated_at_and_revision_shape(self) -> None:
+        fixtures = [
+            (
+                {"command": ""},
+                "sha256:77fcaaef08e8cb4a1e1e08f82312b25474820e829fd8badfe01a97966a4fe7d2",
+            ),
+            (
+                {"generated_at": "not-a-time"},
+                "sha256:315a01909ddb7fba1c0f051b0cdedd1c32277627c9c0f21c7939d47bd40e76dd",
+            ),
+            (
+                {"repo_revision": ""},
+                "sha256:88ce9b8f1076eae3da35785f2aabbd5c46c52abffd3be0f1e24c82f89a0ab636",
+            ),
+        ]
+        for changes, digest in fixtures:
+            with self.subTest(changes=changes):
+                report = self._valid_test_report()
+                report.update(changes)
+                report["artifact_digest"] = digest
+                self._write_report(report)
+
+                result = evaluate_evidence(
+                    self._test_report_evidence(), self.criterion, self.contract, now=NOW
+                )
+
+                self.assertEqual(result["status"], "fail")
+                self.assertIn("INVALID_TEST_REPORT", result["checks"]["integrity_and_freshness"]["codes"])
+
+    def test_test_report_uses_internal_generated_at_for_freshness(self) -> None:
+        report = self._valid_test_report()
+        report.update(
+            artifact_digest="sha256:e648ac264d0aa93bdc86fa6e7ecf415dd58cfe99c9f55dbdf4af2c1958d634d5",
+            generated_at="2026-08-27T03:00:00Z",
+        )
+        self._write_report(report)
+
+        result = evaluate_evidence(self._test_report_evidence(), self.criterion, self.contract, now=NOW)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("STALE", result["checks"]["integrity_and_freshness"]["codes"])
 
     def test_url_is_syntax_only_and_valid_https_stays_unknown(self) -> None:
         evidence = {
@@ -329,6 +445,36 @@ class EvidenceEvaluationTests(unittest.TestCase):
                 self.assertEqual(result["status"], "fail")
                 self.assertEqual(result["checks"]["resolve"]["status"], "fail")
 
+    def test_url_rejects_whitespace_backslash_bad_percent_and_invalid_dns_hosts(self) -> None:
+        invalid = [
+            "https://example.test/has space",
+            "https://example.test/has\ttab",
+            "https://example.test/has\nnewline",
+            "https:\\example.test\\report",
+            "https://example.test/%ZZ",
+            "https://example.test/%",
+            "https://-bad.example/report",
+            "https://bad-.example/report",
+            "https://bad_label.example/report",
+            "https://double..example/report",
+            f"https://{'a' * 64}.example/report",
+            "https://999.1.1.1/report",
+            "https://éxample.test/report",
+        ]
+
+        for locator in invalid:
+            with self.subTest(locator=locator):
+                evidence = {
+                    "evidence_id": "EV-URL-STRICT",
+                    "kind": "url",
+                    "locator": locator,
+                    "generated_at": "2026-08-27T04:30:00Z",
+                    "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
+                }
+                result = evaluate_evidence(evidence, self.criterion, self.contract, now=NOW)
+                self.assertEqual(result["status"], "fail")
+                self.assertEqual(result["checks"]["resolve"]["status"], "fail")
+
     def test_default_resolvers_exposes_only_the_four_builtin_kinds(self) -> None:
         self.assertEqual(set(default_resolvers()), {"file", "git-commit", "test-report", "url"})
 
@@ -346,6 +492,31 @@ class EvidenceEvaluationTests(unittest.TestCase):
             "artifact_digest": digest,
             "generated_at": "2026-08-27T04:30:00Z",
             "scope": scope or {"task_id": "TASK-1", "criterion_id": "AC-1"},
+        }
+
+    def _valid_test_report(self) -> dict[str, object]:
+        return {
+            "artifact_digest": "sha256:f577fedf5c684bd3b3fc09dbac9c60be842b8a86641f23e4d1af37d1a921972d",
+            "schema": "context-test-report/v1",
+            "command": "python3 -m unittest",
+            "exit_status": 0,
+            "generated_at": "2026-08-27T04:30:00Z",
+            "repo_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
+            "summary": {"failed": 0, "passed": 3},
+        }
+
+    def _write_report(self, report: dict[str, object]) -> None:
+        (self.root / "report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+
+    def _test_report_evidence(self) -> dict[str, object]:
+        return {
+            "evidence_id": "EV-REPORT",
+            "kind": "test-report",
+            "locator": "report.json",
+            "repo_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "generated_at": "2026-08-27T04:30:00Z",
+            "scope": {"task_id": "TASK-1", "criterion_id": "AC-1"},
         }
 
 

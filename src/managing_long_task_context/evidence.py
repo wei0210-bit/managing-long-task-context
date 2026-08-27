@@ -29,6 +29,9 @@ Verifier = Callable[
 _RESOLVER_LAYERS = ("resolve", "integrity_and_freshness", "scope")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
+_URI_CHARS_RE = re.compile(r"[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+\Z")
+_BAD_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+_DNS_LABEL_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\Z")
 
 
 def check(status: str, *codes: str) -> dict[str, Any]:
@@ -125,7 +128,7 @@ def _resolve_file(
     now: datetime,
 ) -> Mapping[str, Any]:
     path, path_check = _local_path(evidence, contract)
-    integrity = _freshness_check(evidence, contract, now)
+    integrity = _freshness_check(evidence, criterion, now)
     if path_check["status"] == PASS and path is not None:
         expected = evidence.get("artifact_digest")
         actual = f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
@@ -145,7 +148,8 @@ def _resolve_test_report(
     now: datetime,
 ) -> Mapping[str, Any]:
     path, path_check = _local_path(evidence, contract)
-    integrity = _freshness_check(evidence, contract, now)
+    integrity = _freshness_check(evidence, criterion, now)
+    report_scope: Mapping[str, Any] | None = None
     if path_check["status"] == PASS and path is not None:
         try:
             report = json.loads(path.read_text(encoding="utf-8"))
@@ -155,6 +159,38 @@ def _resolve_test_report(
             if not isinstance(report, dict):
                 integrity = _merge_fail(integrity, "DIGEST_MISMATCH")
             else:
+                report_scope_value = report.get("scope")
+                if isinstance(report_scope_value, Mapping):
+                    report_scope = report_scope_value
+                report_time = _parse_time(report.get("generated_at"))
+                report_revision = report.get("repo_revision")
+                valid_shape = (
+                    report.get("schema") == "context-test-report/v1"
+                    and isinstance(report.get("command"), str)
+                    and bool(str(report["command"]).strip())
+                    and isinstance(report.get("exit_status"), int)
+                    and not isinstance(report.get("exit_status"), bool)
+                    and report_time is not None
+                    and (
+                        report_revision is None
+                        or isinstance(report_revision, str)
+                        and _COMMIT_RE.fullmatch(report_revision) is not None
+                    )
+                    and "repo_revision" in report
+                    and report_scope is not None
+                )
+                if not valid_shape:
+                    integrity = _merge_fail(integrity, "INVALID_TEST_REPORT")
+                if report.get("exit_status") != 0:
+                    integrity = _merge_fail(integrity, "NONZERO_EXIT_STATUS")
+                if report_revision != evidence.get("repo_revision"):
+                    integrity = _merge_fail(integrity, "REVISION_MISMATCH")
+                if report_time is not None:
+                    report_evidence = dict(evidence)
+                    report_evidence["generated_at"] = report["generated_at"]
+                    report_freshness = _freshness_check(report_evidence, criterion, now)
+                    if report_freshness["status"] == FAIL:
+                        integrity = _merge_fail(integrity, "STALE")
                 expected = report.get("artifact_digest")
                 payload = dict(report)
                 payload.pop("artifact_digest", None)
@@ -164,10 +200,13 @@ def _resolve_test_report(
                     actual = ""
                 if not isinstance(expected, str) or not _DIGEST_RE.fullmatch(expected) or expected != actual:
                     integrity = _merge_fail(integrity, "DIGEST_MISMATCH")
+    scope = _scope_check(evidence, criterion)
+    if report_scope is None or _scope_check({"scope": report_scope}, criterion)["status"] == FAIL:
+        scope = check(FAIL, "SCOPE_MISMATCH")
     return {
         "resolve": path_check,
         "integrity_and_freshness": integrity,
-        "scope": _scope_check(evidence, criterion),
+        "scope": scope,
     }
 
 
@@ -193,7 +232,7 @@ def _resolve_git_commit(
         resolution = check(PASS) if completed.returncode == 0 else check(FAIL, "NOT_FOUND")
     return {
         "resolve": resolution,
-        "integrity_and_freshness": _freshness_check(evidence, contract, now),
+        "integrity_and_freshness": _freshness_check(evidence, criterion, now),
         "scope": _scope_check(evidence, criterion),
     }
 
@@ -208,7 +247,7 @@ def _resolve_url(
     resolution = _url_syntax_check(locator)
     return {
         "resolve": resolution,
-        "integrity_and_freshness": _freshness_check(evidence, contract, now),
+        "integrity_and_freshness": _freshness_check(evidence, criterion, now),
         "scope": _scope_check(evidence, criterion),
     }
 
@@ -247,15 +286,15 @@ def _scope_check(evidence: Mapping[str, Any], criterion: Mapping[str, Any]) -> d
 
 
 def _freshness_check(
-    evidence: Mapping[str, Any], contract: Mapping[str, Any], now: datetime
+    evidence: Mapping[str, Any], criterion: Mapping[str, Any], now: datetime
 ) -> dict[str, Any]:
     generated_at = _parse_time(evidence.get("generated_at"))
     expires_at = _parse_time(evidence.get("expires_at"))
     if expires_at is not None and now >= expires_at:
         return check(FAIL, "STALE")
     kind = str(evidence.get("kind") or "")
-    maximum = contract.get("max_evidence_age_seconds")
-    overrides = contract.get("evidence_freshness_by_type")
+    maximum = criterion.get("max_evidence_age_seconds")
+    overrides = criterion.get("evidence_freshness_by_type")
     if isinstance(overrides, Mapping) and kind in overrides:
         maximum = overrides[kind]
     if isinstance(maximum, (int, float)) and not isinstance(maximum, bool) and generated_at is not None:
@@ -286,6 +325,8 @@ def _merge_fail(existing: Mapping[str, Any], code: str) -> dict[str, Any]:
 def _url_syntax_check(locator: Any) -> dict[str, Any]:
     if not isinstance(locator, str) or not locator:
         return check(FAIL, "INVALID_LOCATOR")
+    if not _URI_CHARS_RE.fullmatch(locator) or _BAD_PERCENT_ESCAPE_RE.search(locator):
+        return check(FAIL, "INVALID_LOCATOR")
     try:
         parsed = urlsplit(locator)
         host = parsed.hostname
@@ -304,4 +345,17 @@ def _url_syntax_check(locator: Any) -> dict[str, Any]:
         address = None
     if address is not None and not address.is_global:
         return check(FAIL, "NON_PUBLIC_ADDRESS")
+    if address is None and not _valid_dns_host(host):
+        return check(FAIL, "INVALID_LOCATOR")
     return check(UNKNOWN, "NETWORK_BLOCKED")
+
+
+def _valid_dns_host(host: str) -> bool:
+    if not host.isascii() or host.lower() == "localhost" or host.lower().endswith(".localhost"):
+        return False
+    normalized = host[:-1] if host.endswith(".") else host
+    if not normalized or len(normalized) > 253:
+        return False
+    if re.fullmatch(r"[0-9.]+", normalized):
+        return False
+    return all(_DNS_LABEL_RE.fullmatch(label) is not None for label in normalized.split("."))
