@@ -106,6 +106,6 @@ $ git diff --check
 (silent; success)
 ```
 
-This evidence-update commit changes only this evaluation record. Limitation:
+This evidence update changes this evaluation record and the plan's Scenario A pressure-check requirement. Limitation:
 evaluator isolation is a controller-recorded dispatch property, not something
 independently recoverable from the answer files alone.
