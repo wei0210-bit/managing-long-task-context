@@ -833,15 +833,32 @@ def _brief_json(value: Any) -> str:
 
 def _brief_item_to_markdown(item: Mapping[str, Any]) -> str:
     statement = item.get("criterion") or item.get("statement") or _brief_json(dict(item))
-    fields = (
+    fields = [
         f"status={item.get('status')}",
         f"source={_brief_json(item.get('source'))}",
         f"evidence={_brief_json(item.get('evidence') or [])}",
         f"scope={_brief_json(item.get('scope') or {})}",
         f"verified_at={item.get('verified_at')}",
         f"updated_at={item.get('updated_at')}",
-    )
+    ]
+    if item.get("conflicts_with"):
+        fields.append(f"conflicts_with={_brief_json(item['conflicts_with'])}")
+    if item.get("conflict_reason") is not None:
+        fields.append(f"conflict_reason={_brief_json(item['conflict_reason'])}")
+    metadata = item.get("metadata")
+    if isinstance(metadata, dict) and metadata:
+        fields.append(f"metadata={_brief_json(metadata)}")
     return f"- {item.get('id', '')}: {statement} | " + " | ".join(fields)
+
+
+def _brief_acceptance_to_markdown(criterion: Mapping[str, Any]) -> str:
+    text = criterion.get("criterion") or criterion.get("statement") or _brief_json(dict(criterion))
+    fields = [f"- {criterion.get('id', '')}: {text}"]
+    if "required_evidence" in criterion:
+        fields.append(f"required_evidence={_brief_json(criterion['required_evidence'])}")
+    if "chain_hops" in criterion:
+        fields.append(f"chain_hops={_brief_json(criterion['chain_hops'])}")
+    return " | ".join(fields)
 
 
 def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
@@ -882,9 +899,7 @@ def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
         for value in values:
             if isinstance(value, dict):
                 if key == "acceptance_criteria":
-                    identifier = value.get("id", "")
-                    text = value.get("criterion") or value.get("statement") or _brief_json(value)
-                    lines.append(f"- {identifier}: {text}".strip())
+                    lines.append(_brief_acceptance_to_markdown(value))
                 else:
                     lines.append(_brief_item_to_markdown(value))
             else:

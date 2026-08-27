@@ -198,6 +198,46 @@ class ContextSkillTests(unittest.TestCase):
         self.assertIn(f"verified_at={fact['verified_at']}", prompt)
         self.assertIn(f"updated_at={fact['updated_at']}", prompt)
 
+    def test_markdown_brief_keeps_conflict_and_priority_controls(self) -> None:
+        self.publish()
+        item = context.record(
+            "TASK-001",
+            statement="Probe results disagree",
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-02"},
+            metadata={"required": True, "blocker": True, "severity": "critical"},
+            base_dir=self.base,
+        )
+        conflicted = context.update_item(
+            "TASK-001",
+            item["id"],
+            actor="validator-01",
+            status="conflicted",
+            conflicts_with=["EV-019"],
+            conflict_reason="A second report observed two writes",
+            base_dir=self.base,
+        )
+
+        prompt = context.brief("TASK-001", base_dir=self.base)["prompt"]
+
+        self.assertIn(f"- {conflicted['id']}: Probe results disagree", prompt)
+        self.assertIn('conflicts_with=["EV-019"]', prompt)
+        self.assertIn('conflict_reason="A second report observed two writes"', prompt)
+        self.assertIn('metadata={"blocker":true,"required":true,"severity":"critical"}', prompt)
+
+    def test_markdown_brief_keeps_acceptance_evidence_and_hops(self) -> None:
+        self.publish()
+
+        prompt = context.brief("TASK-001", base_dir=self.base)["prompt"]
+
+        self.assertIn(
+            '- AC-01: Duplicate callback creates one charge | '
+            'required_evidence=["integration-test"] | '
+            'chain_hops=["entry","guard","write"]',
+            prompt,
+        )
+
     def test_markdown_brief_keeps_contract_scope_and_constraints(self) -> None:
         self.publish()
 
@@ -255,7 +295,7 @@ class ContextSkillTests(unittest.TestCase):
             base_dir=self.base,
         )
 
-        packet = context.brief("TASK-001", max_chars=5000, base_dir=self.base)
+        packet = context.brief("TASK-001", max_chars=5600, base_dir=self.base)
         selected_ids = {
             item["id"]
             for key in ("facts", "observations", "assumptions", "decisions", "questions")
@@ -266,7 +306,7 @@ class ContextSkillTests(unittest.TestCase):
         self.assertIn(conflicted["id"], selected_ids)
         self.assertIn(decision["id"], selected_ids)
         self.assertNotIn(assumption["id"], selected_ids)
-        self.assertLessEqual(len(packet["prompt"]), 5000)
+        self.assertLessEqual(len(packet["prompt"]), 5600)
 
     def test_brief_max_items_caps_candidates_before_character_budget(self) -> None:
         self.publish()
