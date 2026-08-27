@@ -599,7 +599,8 @@ def update_item(
             merged.update(_json_clone(dict(metadata)))
             updated["metadata"] = merged
         if updated.get("type") == "verified-fact":
-            updated["status"] = "active" if updated.get("status") != "superseded" else "superseded"
+            if updated.get("status") not in {"conflicted", "superseded"}:
+                updated["status"] = "active"
             updated["verified_at"] = now
         updated["actor"] = actor
         updated["updated_at"] = now

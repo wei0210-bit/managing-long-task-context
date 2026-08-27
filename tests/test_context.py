@@ -72,6 +72,35 @@ class ContextSkillTests(unittest.TestCase):
                 base_dir=self.base,
             )
 
+    def test_verified_fact_update_preserves_explicit_conflicted_status(self) -> None:
+        self.publish()
+        fact = context.record(
+            "TASK-001",
+            statement="Callback writes exactly once",
+            item_type="verified-fact",
+            actor="validator-01",
+            source={"kind": "test-report", "ref": "artifacts/run-018.json"},
+            evidence=["artifacts/run-018.json"],
+            verification_method="integration test inspection",
+            scope={"module": "payment-callback"},
+            base_dir=self.base,
+        )
+
+        conflicted = context.update_item(
+            "TASK-001",
+            fact["id"],
+            actor="validator-02",
+            status="conflicted",
+            conflicts_with=["EV-019"],
+            conflict_reason="A second report observed two writes",
+            base_dir=self.base,
+        )
+
+        self.assertEqual(conflicted["status"], "conflicted")
+        self.assertEqual(conflicted["conflicts_with"], ["EV-019"])
+        self.assertEqual(conflicted["conflict_reason"], "A second report observed two writes")
+        self.assertIsNotNone(conflicted["verified_at"])
+
     def test_assumption_requires_explicit_verification_to_become_fact(self) -> None:
         self.publish()
         item = context.record(
