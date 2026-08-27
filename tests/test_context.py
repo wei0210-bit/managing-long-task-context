@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import managing_long_task_context as context
+from managing_long_task_context.evidence import canonical_json_bytes
 
 
 class ContextSkillTests(unittest.TestCase):
@@ -75,6 +77,26 @@ class ContextSkillTests(unittest.TestCase):
         report = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
         self.assertFalse(report["passed"])
         self.assertTrue(any("integrity digest is invalid" in error for error in report["errors"]))
+
+    def test_release_gate_rejects_legacy_digest_even_when_integrity_digest_is_recomputed(self) -> None:
+        self.publish()
+        path = self.base / "TASK-001" / "task-contract.json"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        stored["seal"]["digest"] = "legacy-format"
+        digest_input = json.loads(json.dumps(stored))
+        digest_input["seal"].pop("integrity_digest")
+        stored["seal"]["integrity_digest"] = (
+            "sha256:" + hashlib.sha256(canonical_json_bytes(digest_input)).hexdigest()
+        )
+        path.write_text(json.dumps(stored), encoding="utf-8")
+
+        report = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
+
+        self.assertFalse(report["passed"])
+        self.assertIn(
+            "contract.seal.digest is unsupported; use contract.seal.integrity_digest",
+            report["errors"],
+        )
 
     def test_verified_fact_requires_evidence_scope_and_method(self) -> None:
         self.publish()

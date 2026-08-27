@@ -192,6 +192,8 @@ def _validate_sealed_contract(contract: Mapping[str, Any]) -> list[str]:
     if not isinstance(seal, dict):
         errors.append("contract is not sealed by the task publisher")
         return errors
+    if "digest" in seal:
+        errors.append("contract.seal.digest is unsupported; use contract.seal.integrity_digest")
     for field in ("confirmed_by", "confirmed_at"):
         if not isinstance(seal.get(field), str) or not seal[field].strip():
             errors.append(f"contract.seal.{field} must be a non-empty string")
