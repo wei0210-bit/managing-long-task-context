@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "task_id": "TASK-001",
+  "version": 1,
+  "issued_by": "task-publisher",
+  "issued_at": "2026-08-26T09:00:00Z",
+  "authorized_approvers": [],
+  "objective": "修复订单重复扣款问题",
+  "scope": [
+    "支付回调处理",
+    "重复请求防护"
+  ],
+  "out_of_scope": [
+    "更换支付服务商"
+  ],
+  "constraints": [
+    "不修改现有外部支付接口"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "criterion": "同一支付回调重复发送时，只生成一笔扣款记录",
+      "required_evidence": [
+        "integration-test"
+      ],
+      "chain_hops": [
+        "callback-entry",
+        "idempotency-check",
+        "transaction-write"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "criterion": "现有支付回归测试全部通过",
+      "required_evidence": [
+        "regression-test"
+      ]
+    }
+  ]
+}
