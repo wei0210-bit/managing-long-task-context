@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import uuid
 from contextlib import contextmanager
 from copy import deepcopy
@@ -384,22 +385,6 @@ def _item_errors(item: Mapping[str, Any], now: datetime | None = None) -> tuple[
             if current > verified_at + timedelta(hours=float(ttl)):
                 warnings.append(f"{item_id}: mutable fact is stale and must be re-observed")
     return errors, warnings
-
-
-def _validator_probe() -> bool:
-    bad_item = {
-        "id": "PROBE",
-        "statement": "known invalid verified fact",
-        "type": "verified-fact",
-        "status": "active",
-        "source": {"kind": "agent-inference", "ref": "probe"},
-        "evidence": [],
-        "scope": {},
-        "verified_at": None,
-        "verification_method": None,
-    }
-    errors, _ = _item_errors(bad_item)
-    return len(errors) >= 4
 
 
 def _emit_report(report: Mapping[str, Any]) -> None:
@@ -957,6 +942,49 @@ def _audit_documents(documents: Sequence[str | Path], max_pointer_lag_seconds: f
     return errors, warnings, checked
 
 
+def _run_bad_sample_probe() -> dict[str, Any]:
+    """Verify that the production completion gate rejects empty required evidence."""
+
+    probe_id = "PROBE-COMPLETION-EMPTY-EVIDENCE"
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        probe_base_dir = Path(temporary_dir) / ".prime" / "context"
+        contract = {
+            "schema": SCHEMA_VERSION,
+            "task_id": probe_id,
+            "version": 1,
+            "issued_by": "audit-probe",
+            "issued_at": "2026-08-27T00:00:00+00:00",
+            "authorized_approvers": [],
+            "objective": "Reject empty completion evidence",
+            "scope": ["audit probe"],
+            "out_of_scope": [],
+            "constraints": [],
+            "acceptance_criteria": [
+                {
+                    "id": "AC-EMPTY-EVIDENCE",
+                    "criterion": "Completion requires file evidence",
+                    "required_evidence": ["file"],
+                }
+            ],
+        }
+        publish_contract(contract, confirmed_by="audit-probe", base_dir=probe_base_dir)
+        report = gate(
+            probe_id,
+            stage="completion",
+            evidence_map={},
+            emit=False,
+            base_dir=probe_base_dir,
+            _run_probe=False,
+        )
+    return {
+        "id": probe_id,
+        "scanned": 1,
+        "expected": "reject",
+        "actual": "reject" if not report["passed"] else "pass",
+        "status": "pass" if not report["passed"] else "fail",
+    }
+
+
 def audit(
     task_id: str,
     *,
@@ -964,18 +992,39 @@ def audit(
     max_pointer_lag_seconds: float = 0,
     emit: bool = True,
     base_dir: str | Path | None = None,
+    _run_probe: bool = True,
 ) -> dict[str, Any]:
     """Audit contract, event/snapshot consistency, item quality, staleness, and pointers."""
 
     paths = _paths(task_id, base_dir)
     errors: list[str] = []
     warnings: list[str] = []
-    probe_ok = _validator_probe()
-    if not probe_ok:
-        errors.append("validator self-probe failed; the checker cannot prove it detects known-bad input")
+    scan_counts = {
+        "contracts_checked": 0,
+        "events_checked": 0,
+        "items_checked": 0,
+        "pointers_checked": 0,
+        "probes_checked": 0,
+    }
+    probe = {
+        "id": "PROBE-COMPLETION-EMPTY-EVIDENCE",
+        "scanned": 0,
+        "expected": "reject",
+        "actual": "reject",
+        "status": "pass",
+    }
+    if _run_probe:
+        probe = _run_bad_sample_probe()
+        scan_counts["probes_checked"] = probe["scanned"]
+        if probe["status"] != "pass":
+            errors.append(
+                f"completion bad-sample probe {probe['id']} failed: "
+                f"expected {probe['expected']}, got {probe['actual']}"
+            )
 
     try:
         contract = _read_json(paths["contract"])
+        scan_counts["contracts_checked"] = 1
         errors.extend(_validate_sealed_contract(contract))
     except ContextError as exc:
         contract = {}
@@ -983,6 +1032,8 @@ def audit(
 
     try:
         snapshot = _load_snapshot(task_id, paths)
+        events = _read_events(paths["events"])
+        scan_counts["events_checked"] = len(events)
         rebuilt = _rebuild_snapshot(task_id, paths["events"])
         if snapshot != rebuilt:
             errors.append("snapshot differs from append-only event log; rebuild required")
@@ -991,6 +1042,7 @@ def audit(
         errors.append(str(exc))
 
     items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
+    scan_counts["items_checked"] = len(items)
     counts = {item_type: 0 for item_type in ITEM_TYPES}
     stale_count = 0
     conflict_count = 0
@@ -1020,6 +1072,7 @@ def audit(
         doc_errors, doc_warnings, pointer_checked = _audit_documents(documents, max_pointer_lag_seconds)
         errors.extend(doc_errors)
         warnings.extend(doc_warnings)
+    scan_counts["pointers_checked"] = pointer_checked
 
     report = {
         "stage": "audit",
@@ -1027,12 +1080,15 @@ def audit(
         "errors": errors,
         "warnings": warnings,
         "stats": {
-            "checked": len(items),
+            "checked": scan_counts["items_checked"],
             "events": snapshot.get("event_count", 0),
-            "probe": "pass" if probe_ok else "fail",
+            "probe": probe["status"],
+            "probe_id": probe["id"],
+            "probe_scanned": probe["scanned"],
+            "probe_expected_rejection": probe["expected"],
             "stale": stale_count,
             "conflicts": conflict_count,
-            "pointers_checked": pointer_checked,
+            **scan_counts,
             **counts,
         },
         "contract_version": contract.get("version"),
@@ -1054,13 +1110,20 @@ def gate(
     now: datetime | None = None,
     emit: bool = True,
     base_dir: str | Path | None = None,
+    _run_probe: bool = True,
 ) -> dict[str, Any]:
     """Run a release, resume, handoff, or completion quality gate."""
 
     if stage not in GATE_STAGES:
         raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
     paths = _paths(task_id, base_dir)
-    report = audit(task_id, documents=documents, emit=False, base_dir=base_dir)
+    report = audit(
+        task_id,
+        documents=documents,
+        emit=False,
+        base_dir=base_dir,
+        _run_probe=_run_probe,
+    )
     errors = list(report["errors"])
     warnings = list(report["warnings"])
     criterion_reports: dict[str, Any] = {}

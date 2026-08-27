@@ -554,7 +554,18 @@ class ContextSkillTests(unittest.TestCase):
             "missing_delivery_types": [],
         }
 
-        with patch.object(context, "_evaluate_completion_criterion", return_value=owner_report):
+        production_owner = context._evaluate_completion_criterion
+
+        def owner_for_real_criterion(criterion, *args, **kwargs):
+            if criterion["id"] == "AC-01":
+                return owner_report
+            return production_owner(criterion, *args, **kwargs)
+
+        with patch.object(
+            context,
+            "_evaluate_completion_criterion",
+            side_effect=owner_for_real_criterion,
+        ):
             report = context.gate(
                 "TASK-001",
                 stage="completion",
@@ -1059,6 +1070,59 @@ class ContextSkillTests(unittest.TestCase):
         report = context.audit("TASK-001", base_dir=self.base, emit=False)
         self.assertEqual(report["stats"]["probe"], "pass")
         self.assertEqual(report["stats"]["checked"], 1)
+        self.assertEqual(report["stats"]["probe_id"], "PROBE-COMPLETION-EMPTY-EVIDENCE")
+        self.assertEqual(report["stats"]["probe_scanned"], 1)
+        self.assertEqual(report["stats"]["probes_checked"], 1)
+        self.assertEqual(report["stats"]["contracts_checked"], 1)
+        self.assertEqual(report["stats"]["items_checked"], 1)
+        self.assertGreaterEqual(report["stats"]["events_checked"], 2)
+
+    def test_audit_probe_does_not_mutate_real_ledger(self) -> None:
+        self.publish()
+        context.record(
+            "TASK-001",
+            statement="Observed duplicate callback",
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "log-query-01"},
+            base_dir=self.base,
+        )
+        task_dir = self.base / "TASK-001"
+        before = {
+            name: (task_dir / name).read_bytes()
+            for name in ("task-contract.json", "events.jsonl", "snapshot.json")
+        }
+
+        context.audit("TASK-001", base_dir=self.base, emit=False)
+
+        after = {
+            name: (task_dir / name).read_bytes()
+            for name in ("task-contract.json", "events.jsonl", "snapshot.json")
+        }
+        self.assertEqual(after, before)
+
+    def test_audit_fails_when_bad_sample_is_not_rejected(self) -> None:
+        self.publish()
+        owner_report = {
+            "status": "pass",
+            "evidence_results": [],
+            "missing_evidence_types": [],
+            "missing_hops": [],
+            "missing_delivery_types": [],
+        }
+
+        with patch(
+            "managing_long_task_context._evaluate_completion_criterion",
+            return_value=owner_report,
+        ):
+            report = context.audit("TASK-001", base_dir=self.base, emit=False)
+
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["stats"]["probe"], "fail")
+        self.assertEqual(report["stats"]["probe_id"], "PROBE-COMPLETION-EMPTY-EVIDENCE")
+        self.assertTrue(
+            any("PROBE-COMPLETION-EMPTY-EVIDENCE" in error for error in report["errors"])
+        )
 
     def test_pointer_freshness_audit_detects_stale_target(self) -> None:
         self.publish()
