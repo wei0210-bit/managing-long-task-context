@@ -20,6 +20,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from .evidence import canonical_json_bytes
+
 try:  # Prime Agent targets macOS/Linux; keep a safe fallback for other runtimes.
     import fcntl  # type: ignore
 except ImportError:  # pragma: no cover
@@ -123,12 +125,14 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _canonical_contract(contract: Mapping[str, Any]) -> bytes:
     value = deepcopy(dict(contract))
-    value.pop("seal", None)
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    seal = value.get("seal")
+    if isinstance(seal, dict):
+        seal.pop("integrity_digest", None)
+    return canonical_json_bytes(value)
 
 
 def _contract_digest(contract: Mapping[str, Any]) -> str:
-    return hashlib.sha256(_canonical_contract(contract)).hexdigest()
+    return "sha256:" + hashlib.sha256(_canonical_contract(contract)).hexdigest()
 
 
 def _version_key(value: Any) -> tuple[int, str]:
@@ -188,12 +192,14 @@ def _validate_sealed_contract(contract: Mapping[str, Any]) -> list[str]:
     if not isinstance(seal, dict):
         errors.append("contract is not sealed by the task publisher")
         return errors
-    for field in ("confirmed_by", "confirmed_at", "digest"):
+    for field in ("confirmed_by", "confirmed_at"):
         if not isinstance(seal.get(field), str) or not seal[field].strip():
             errors.append(f"contract.seal.{field} must be a non-empty string")
-    digest = seal.get("digest")
-    if isinstance(digest, str) and digest != _contract_digest(contract):
-        errors.append("contract seal is invalid: contract changed after publisher confirmation")
+    integrity_digest = seal.get("integrity_digest")
+    if not isinstance(integrity_digest, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", integrity_digest) is None:
+        errors.append("contract.seal.integrity_digest must be sha256:<64 lowercase hex>")
+    elif integrity_digest != _contract_digest(contract):
+        errors.append("contract integrity digest is invalid: contract changed after publication")
     authorized = {str(contract.get("issued_by", ""))}
     approvers = contract.get("authorized_approvers", [])
     if isinstance(approvers, list):
@@ -439,8 +445,8 @@ def publish_contract(
         value["seal"] = {
             "confirmed_by": confirmed_by,
             "confirmed_at": _now(),
-            "digest": _contract_digest(value),
         }
+        value["seal"]["integrity_digest"] = _contract_digest(value)
         _atomic_write_json(paths["contract"], value)
         snapshot = _load_snapshot(task_id, paths)
         event = _new_event(
@@ -450,7 +456,7 @@ def publish_contract(
             {
                 "task_id": task_id,
                 "version": value["version"],
-                "digest": value["seal"]["digest"],
+                "integrity_digest": value["seal"]["integrity_digest"],
                 "confirmed_by": confirmed_by,
                 "confirmed_at": value["seal"]["confirmed_at"],
             },
@@ -787,7 +793,7 @@ def brief(
         return {
             "task_id": task_id,
             "contract_version": contract.get("version"),
-            "contract_digest": contract.get("seal", {}).get("digest"),
+            "contract_integrity_digest": contract.get("seal", {}).get("integrity_digest"),
             "objective": contract.get("objective"),
             "scope": contract.get("scope", []),
             "out_of_scope": contract.get("out_of_scope", []),

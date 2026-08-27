@@ -30,7 +30,7 @@ context.publish_contract(contract, confirmed_by="task-publisher")
 context.gate("TASK-001", stage="release")
 ```
 
-合同发布后会生成摘要封印。任何修改都会使封印失效；变更必须提高版本并由发布者或授权人重新确认。
+合同发布后会生成完整性摘要。它检测发布后的内容变化（包括确认者和确认时间），但不认证谁作出了确认；身份认证需要外部签名或受信存储。任何修改都会使摘要失效；变更必须提高版本并由发布者或授权人重新确认。
 
 ### 2. Record context without laundering assumptions into facts
 

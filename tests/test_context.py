@@ -58,7 +58,23 @@ class ContextSkillTests(unittest.TestCase):
         path.write_text(json.dumps(stored), encoding="utf-8")
         result = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
         self.assertFalse(result["passed"])
-        self.assertTrue(any("seal is invalid" in error for error in result["errors"]))
+        self.assertTrue(any("integrity digest is invalid" in error for error in result["errors"]))
+
+    def test_contract_uses_integrity_digest_without_identity_claim(self) -> None:
+        published = self.publish()
+        digest = published["seal"]["integrity_digest"]
+        self.assertRegex(digest, r"^sha256:[0-9a-f]{64}$")
+        self.assertNotIn("digest", published["seal"])
+
+    def test_contract_integrity_covers_confirmation_metadata(self) -> None:
+        self.publish()
+        path = self.base / "TASK-001" / "task-contract.json"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        stored["seal"]["confirmed_by"] = "attacker"
+        path.write_text(json.dumps(stored), encoding="utf-8")
+        report = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("integrity digest is invalid" in error for error in report["errors"]))
 
     def test_verified_fact_requires_evidence_scope_and_method(self) -> None:
         self.publish()
