@@ -1114,31 +1114,32 @@ def gate(
                     now=now,
                 )
                 criterion_reports[str(criterion_id)] = criterion_report
-                if not isinstance(evidence_entry, Mapping):
-                    errors.append(f"missing completion evidence for {criterion_id}")
-                for evidence_result in criterion_report["evidence_results"]:
-                    if evidence_result["status"] != "pass":
+                if criterion_report["status"] != "pass":
+                    errors.append(
+                        f"criterion {criterion_id} status is {criterion_report['status']}"
+                    )
+                    for evidence_result in criterion_report["evidence_results"]:
+                        if evidence_result["status"] == "pass":
+                            continue
                         errors.append(
                             f"criterion {criterion_id} evidence "
                             f"{evidence_result['evidence_id']} is {evidence_result['status']}"
                         )
-                if not isinstance(evidence_entry, Mapping) or not evidence_entry.get("evidence"):
-                    errors.append(f"criterion {criterion_id} has no evidence")
-                if criterion_report["missing_evidence_types"]:
-                    errors.append(
-                        f"criterion {criterion_id} missing required evidence types: "
-                        f"{criterion_report['missing_evidence_types']}"
-                    )
-                if criterion_report["missing_hops"]:
-                    errors.append(
-                        f"criterion {criterion_id} missing chain-hop coverage: "
-                        f"{criterion_report['missing_hops']}"
-                    )
-                if criterion_report["missing_delivery_types"]:
-                    errors.append(
-                        f"criterion {criterion_id} missing required delivery types: "
-                        f"{criterion_report['missing_delivery_types']}"
-                    )
+                    if criterion_report["missing_evidence_types"]:
+                        errors.append(
+                            f"criterion {criterion_id} missing required evidence types: "
+                            f"{criterion_report['missing_evidence_types']}"
+                        )
+                    if criterion_report["missing_hops"]:
+                        errors.append(
+                            f"criterion {criterion_id} missing chain-hop coverage: "
+                            f"{criterion_report['missing_hops']}"
+                        )
+                    if criterion_report["missing_delivery_types"]:
+                        errors.append(
+                            f"criterion {criterion_id} missing required delivery types: "
+                            f"{criterion_report['missing_delivery_types']}"
+                        )
 
     final = {
         "stage": stage,
@@ -1171,31 +1172,33 @@ def _evaluate_completion_criterion(
     criterion_id = str(criterion.get("id"))
     entry = evidence_entry if isinstance(evidence_entry, Mapping) else {}
 
+    def malformed_result(label: str, index: int) -> dict[str, Any]:
+        return {
+            "evidence_id": f"{criterion_id}:{label}[{index}]",
+            "kind": "",
+            "status": "fail",
+            "checks": {
+                "resolve": {"status": "fail", "codes": ["MALFORMED_EVIDENCE"]},
+                "integrity_and_freshness": {
+                    "status": "unknown",
+                    "codes": ["MALFORMED_EVIDENCE"],
+                },
+                "scope": {"status": "unknown", "codes": ["MALFORMED_EVIDENCE"]},
+                "claim": {"status": "unknown", "codes": ["MALFORMED_EVIDENCE"]},
+            },
+        }
+
     def evaluate_candidates(
         raw_value: Any, label: str
     ) -> tuple[list[dict[str, Any]], list[Mapping[str, Any] | None]]:
-        candidates = raw_value if isinstance(raw_value, list) else [raw_value]
+        if not isinstance(raw_value, list):
+            return [malformed_result(label, 0)], [None]
         results: list[dict[str, Any]] = []
         sources: list[Mapping[str, Any] | None] = []
-        for index, candidate in enumerate(candidates):
+        for index, candidate in enumerate(raw_value):
             if not isinstance(candidate, Mapping):
                 sources.append(None)
-                results.append(
-                    {
-                        "evidence_id": f"{criterion_id}:{label}[{index}]",
-                        "kind": "",
-                        "status": "fail",
-                        "checks": {
-                            "resolve": {"status": "fail", "codes": ["MALFORMED_EVIDENCE"]},
-                            "integrity_and_freshness": {
-                                "status": "unknown",
-                                "codes": ["MALFORMED_EVIDENCE"],
-                            },
-                            "scope": {"status": "unknown", "codes": ["MALFORMED_EVIDENCE"]},
-                            "claim": {"status": "unknown", "codes": ["MALFORMED_EVIDENCE"]},
-                        },
-                    }
-                )
+                results.append(malformed_result(label, index))
                 continue
             sources.append(candidate)
             results.append(

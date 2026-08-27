@@ -288,19 +288,29 @@ def _scope_check(evidence: Mapping[str, Any], criterion: Mapping[str, Any]) -> d
 def _freshness_check(
     evidence: Mapping[str, Any], criterion: Mapping[str, Any], now: datetime
 ) -> dict[str, Any]:
-    generated_at = _parse_time(evidence.get("generated_at"))
-    expires_at = _parse_time(evidence.get("expires_at"))
-    if expires_at is not None and now >= expires_at:
-        return check(FAIL, "STALE")
+    result = check(PASS)
+    generated_value = evidence.get("generated_at")
+    generated_at = _parse_time(generated_value)
+    expires_value = evidence.get("expires_at")
+    expires_at = _parse_time(expires_value)
+    if expires_value is not None:
+        if expires_at is None:
+            result = _merge_fail(result, "INVALID_EXPIRES_AT")
+        elif now >= expires_at:
+            result = _merge_fail(result, "STALE")
     kind = str(evidence.get("kind") or "")
     maximum = criterion.get("max_evidence_age_seconds")
     overrides = criterion.get("evidence_freshness_by_type")
     if isinstance(overrides, Mapping) and kind in overrides:
         maximum = overrides[kind]
-    if isinstance(maximum, (int, float)) and not isinstance(maximum, bool) and generated_at is not None:
-        if (now - generated_at).total_seconds() > maximum:
-            return check(FAIL, "STALE")
-    return check(PASS)
+    if isinstance(maximum, (int, float)) and not isinstance(maximum, bool):
+        if generated_value is None:
+            result = _merge_fail(result, "MISSING_GENERATED_AT")
+        elif generated_at is None:
+            result = _merge_fail(result, "INVALID_GENERATED_AT")
+        elif (now - generated_at).total_seconds() > maximum:
+            result = _merge_fail(result, "STALE")
+    return result
 
 
 def _parse_time(value: Any) -> datetime | None:

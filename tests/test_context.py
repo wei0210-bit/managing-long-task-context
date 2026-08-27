@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import sys
 
@@ -69,6 +70,40 @@ class ContextSkillTests(unittest.TestCase):
 
     def publish(self) -> dict:
         return context.publish_contract(self.contract, confirmed_by="publisher", base_dir=self.base)
+
+    def completion_file_report(self, timestamp_fields: dict) -> dict:
+        workspace = Path(self.temp.name) / "workspace"
+        workspace.mkdir()
+        content = b"timestamp completion evidence\n"
+        (workspace / "completion.txt").write_bytes(content)
+        self.contract["workspace_root"] = str(workspace)
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["file"]
+        criterion["required_scope"] = {"task_id": "TASK-001", "criterion_id": "AC-01"}
+        criterion["max_evidence_age_seconds"] = 3600
+        self.publish()
+        evidence = {
+            "evidence_id": "EV-TIMESTAMP",
+            "kind": "file",
+            "locator": "completion.txt",
+            "artifact_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+            "scope": {"task_id": "TASK-001", "criterion_id": "AC-01"},
+            **timestamp_fields,
+        }
+        return context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "evidence": [evidence],
+                    "covered_hops": ["entry", "guard", "write"],
+                }
+            },
+            verifiers={"file": passing_verifier},
+            now=NOW,
+            base_dir=self.base,
+            emit=False,
+        )
 
     def test_contract_requires_publisher_written_acceptance_criteria(self) -> None:
         bad = dict(self.contract)
@@ -441,7 +476,10 @@ class ContextSkillTests(unittest.TestCase):
         content = b"completion evidence\n"
         (workspace / "completion.txt").write_bytes(content)
         self.contract["workspace_root"] = str(workspace)
-        self.contract["acceptance_criteria"][0]["required_evidence"] = ["file"]
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["file"]
+        criterion["required_scope"] = {"task_id": "TASK-001", "criterion_id": "AC-01"}
+        criterion["max_evidence_age_seconds"] = 3600
         self.publish()
         evidence = {
             "evidence_id": "EV-AC-01",
@@ -502,6 +540,109 @@ class ContextSkillTests(unittest.TestCase):
             emit=False,
         )
         self.assertTrue(complete["passed"], complete["errors"])
+        checks = complete["criteria"]["AC-01"]["evidence_results"][0]["checks"]
+        self.assertEqual(checks["integrity_and_freshness"], {"status": "pass", "codes": []})
+        self.assertEqual(checks["scope"], {"status": "pass", "codes": []})
+
+    def test_completion_gate_accepts_criterion_owner_pass(self) -> None:
+        self.publish()
+        owner_report = {
+            "status": "pass",
+            "evidence_results": [],
+            "missing_evidence_types": [],
+            "missing_hops": [],
+            "missing_delivery_types": [],
+        }
+
+        with patch.object(context, "_evaluate_completion_criterion", return_value=owner_report):
+            report = context.gate(
+                "TASK-001",
+                stage="completion",
+                evidence_map={"AC-01": {}},
+                base_dir=self.base,
+                emit=False,
+            )
+
+        self.assertTrue(report["passed"], report["errors"])
+
+    def test_completion_gate_rejects_criterion_owner_fail(self) -> None:
+        self.publish()
+        owner_report = {
+            "status": "fail",
+            "evidence_results": [],
+            "missing_evidence_types": [],
+            "missing_hops": [],
+            "missing_delivery_types": [],
+        }
+
+        with patch.object(context, "_evaluate_completion_criterion", return_value=owner_report):
+            report = context.gate(
+                "TASK-001",
+                stage="completion",
+                evidence_map={"AC-01": {"evidence": [{"evidence_id": "EV-PATCH"}]}},
+                base_dir=self.base,
+                emit=False,
+            )
+
+        self.assertFalse(report["passed"])
+        self.assertIn("criterion AC-01 status is fail", report["errors"])
+
+    def test_completion_gate_rejects_criterion_owner_unknown(self) -> None:
+        self.publish()
+        owner_report = {
+            "status": "unknown",
+            "evidence_results": [],
+            "missing_evidence_types": [],
+            "missing_hops": [],
+            "missing_delivery_types": [],
+        }
+
+        with patch.object(context, "_evaluate_completion_criterion", return_value=owner_report):
+            report = context.gate(
+                "TASK-001",
+                stage="completion",
+                evidence_map={"AC-01": {"evidence": [{"evidence_id": "EV-PATCH"}]}},
+                base_dir=self.base,
+                emit=False,
+            )
+
+        self.assertFalse(report["passed"])
+        self.assertIn("criterion AC-01 status is unknown", report["errors"])
+
+    def test_completion_rejects_missing_generated_at_when_freshness_required(self) -> None:
+        report = self.completion_file_report({})
+
+        self.assertFalse(report["passed"])
+        result = report["criteria"]["AC-01"]
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(
+            result["evidence_results"][0]["checks"]["integrity_and_freshness"],
+            {"status": "fail", "codes": ["MISSING_GENERATED_AT"]},
+        )
+
+    def test_completion_rejects_invalid_generated_at_when_freshness_required(self) -> None:
+        report = self.completion_file_report({"generated_at": "not-a-time"})
+
+        self.assertFalse(report["passed"])
+        result = report["criteria"]["AC-01"]
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(
+            result["evidence_results"][0]["checks"]["integrity_and_freshness"],
+            {"status": "fail", "codes": ["INVALID_GENERATED_AT"]},
+        )
+
+    def test_completion_rejects_invalid_expires_at(self) -> None:
+        report = self.completion_file_report(
+            {"generated_at": "2026-08-27T04:30:00Z", "expires_at": "not-a-time"}
+        )
+
+        self.assertFalse(report["passed"])
+        result = report["criteria"]["AC-01"]
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(
+            result["evidence_results"][0]["checks"]["integrity_and_freshness"],
+            {"status": "fail", "codes": ["INVALID_EXPIRES_AT"]},
+        )
 
     def test_completion_re_resolves_deleted_evidence(self) -> None:
         workspace = Path(self.temp.name) / "workspace"
@@ -735,6 +876,134 @@ class ContextSkillTests(unittest.TestCase):
         )
         self.assertTrue(verified["passed"], verified["errors"])
         self.assertEqual(verified["criteria"]["AC-01"]["missing_delivery_types"], [])
+
+    def test_completion_requires_list_evidence_container(self) -> None:
+        self.contract["acceptance_criteria"][0]["required_evidence"] = ["custom"]
+        self.publish()
+        dependencies = {
+            "resolvers": {"custom": passing_resolver},
+            "verifiers": {"custom": passing_verifier},
+        }
+
+        for evidence_value in (
+            {"evidence_id": "EV-SINGLETON", "kind": "custom"},
+            "custom:pointer",
+        ):
+            with self.subTest(evidence=evidence_value):
+                report = context.gate(
+                    "TASK-001",
+                    stage="completion",
+                    evidence_map={
+                        "AC-01": {
+                            "evidence": evidence_value,
+                            "covered_hops": ["entry", "guard", "write"],
+                        }
+                    },
+                    now=NOW,
+                    base_dir=self.base,
+                    emit=False,
+                    **dependencies,
+                )
+
+                self.assertFalse(report["passed"])
+                result = report["criteria"]["AC-01"]
+                self.assertEqual(result["status"], "fail")
+                self.assertEqual(
+                    result["evidence_results"][0]["checks"]["resolve"],
+                    {"status": "fail", "codes": ["MALFORMED_EVIDENCE"]},
+                )
+
+    def test_completion_requires_list_delivery_receipts_container(self) -> None:
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["custom"]
+        criterion["required_delivery_types"] = ["feishu"]
+        self.publish()
+        dependencies = {
+            "resolvers": {"custom": passing_resolver, "delivery-receipt": passing_resolver},
+            "verifiers": {"custom": passing_verifier, "delivery-receipt": passing_verifier},
+        }
+
+        for receipt_value in (
+            {
+                "evidence_id": "EV-RECEIPT-SINGLETON",
+                "kind": "delivery-receipt",
+                "delivery_type": "feishu",
+            },
+            "receipt:pointer",
+        ):
+            with self.subTest(receipt=receipt_value):
+                report = context.gate(
+                    "TASK-001",
+                    stage="completion",
+                    evidence_map={
+                        "AC-01": {
+                            "evidence": [{"evidence_id": "EV-CUSTOM", "kind": "custom"}],
+                            "covered_hops": ["entry", "guard", "write"],
+                            "delivery_receipts": receipt_value,
+                        }
+                    },
+                    now=NOW,
+                    base_dir=self.base,
+                    emit=False,
+                    **dependencies,
+                )
+
+                self.assertFalse(report["passed"])
+                result = report["criteria"]["AC-01"]
+                self.assertEqual(result["status"], "fail")
+                self.assertEqual(
+                    result["evidence_results"][1]["checks"]["resolve"],
+                    {"status": "fail", "codes": ["MALFORMED_EVIDENCE"]},
+                )
+                self.assertEqual(result["missing_delivery_types"], ["feishu"])
+
+    def test_completion_rejects_invalid_delivery_receipt_fields(self) -> None:
+        criterion = self.contract["acceptance_criteria"][0]
+        criterion["required_evidence"] = ["custom"]
+        criterion["required_delivery_types"] = ["feishu"]
+        self.publish()
+        dependencies = {
+            "resolvers": {
+                "custom": passing_resolver,
+                "wrong-receipt-kind": passing_resolver,
+                "delivery-receipt": passing_resolver,
+            },
+            "verifiers": {
+                "custom": passing_verifier,
+                "wrong-receipt-kind": passing_verifier,
+                "delivery-receipt": passing_verifier,
+            },
+        }
+
+        for receipt in (
+            {
+                "evidence_id": "EV-WRONG-KIND",
+                "kind": "wrong-receipt-kind",
+                "delivery_type": "feishu",
+            },
+            {"evidence_id": "EV-NO-DELIVERY-TYPE", "kind": "delivery-receipt"},
+        ):
+            with self.subTest(receipt=receipt):
+                report = context.gate(
+                    "TASK-001",
+                    stage="completion",
+                    evidence_map={
+                        "AC-01": {
+                            "evidence": [{"evidence_id": "EV-CUSTOM", "kind": "custom"}],
+                            "covered_hops": ["entry", "guard", "write"],
+                            "delivery_receipts": [receipt],
+                        }
+                    },
+                    now=NOW,
+                    base_dir=self.base,
+                    emit=False,
+                    **dependencies,
+                )
+
+                self.assertFalse(report["passed"])
+                result = report["criteria"]["AC-01"]
+                self.assertEqual(result["status"], "fail")
+                self.assertEqual(result["missing_delivery_types"], ["feishu"])
 
     def test_completion_keeps_conflicted_items_blocking(self) -> None:
         self.contract["acceptance_criteria"][0]["required_evidence"] = ["custom"]
