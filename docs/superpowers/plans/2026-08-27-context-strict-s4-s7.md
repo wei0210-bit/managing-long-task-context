@@ -35,6 +35,7 @@
 
 **Interfaces:**
 - Produces `evaluate_evidence(evidence, criterion, contract, *, resolvers=None, verifiers=None, now=None) -> dict[str, Any]`.
+- Produces `canonical_json_bytes(value) -> bytes`, a dependency-free RFC 8785-compatible encoder for the schema's supported JSON values.
 - A resolver is a callable `(evidence, criterion, contract, now) -> Mapping[str, Any]` returning the three non-semantic checks named `resolve`, `integrity_and_freshness`, and `scope`.
 - A verifier is a callable `(evidence, criterion, resolution) -> Mapping[str, Any]` returning one `claim` check.
 - Produces `default_resolvers() -> dict[str, Callable[..., Mapping[str, Any]]]` for `file`, `git-commit`, `test-report`, and `url`.
@@ -43,7 +44,8 @@
 **Deliverables:**
 - Resolver output cannot set semantic claim status; an unregistered verifier yields `unknown` with `CLAIM_NOT_VERIFIED` even if a resolver includes an extra forged `claim: pass` key.
 - Local paths resolve from `contract.workspace_root`; final realpaths must remain under `workspace_root` or `evidence_roots`.
-- File and test-report integrity use `sha256:<lowercase-hex>`; test-report digest covers compact sorted-key UTF-8 JSON excluding its top-level `artifact_digest`.
+- File and test-report integrity use `sha256:<lowercase-hex>`; test-report digest covers RFC 8785 canonical UTF-8 JSON excluding its top-level `artifact_digest`.
+- Canonical JSON accepts `null`, booleans, strings, integers, arrays, and string-keyed objects; it rejects floats and non-string keys in this first Strict tranche, orders object keys by UTF-16 code units, and uses minimal JSON string escaping. This deliberately prevents Python-specific float rendering from pretending to be cross-runtime canonicalization.
 - Freshness uses the supplied UTC `now`, `generated_at`, `expires_at`, `max_evidence_age_seconds`, and optional `evidence_freshness_by_type` override.
 - Required scope is a subset of evidence scope. Missing keys or unequal values produce `SCOPE_MISMATCH`.
 - `git-commit` uses `git -C <workspace_root> cat-file -e <sha>^{commit}` with an exact 40-lowercase/uppercase-hex locator.
@@ -55,6 +57,7 @@
 - Wrong file/test-report digest returns `fail`/`DIGEST_MISMATCH`; expired evidence returns `fail`/`STALE`; wrong scope returns `fail`/`SCOPE_MISMATCH`.
 - A real commit in a temporary Git repository passes the resolver layers; a nonexistent commit fails.
 - A valid HTTPS locator is `unknown`, while `http`, embedded credentials, malformed URLs, loopback, private, and link-local literal hosts fail syntax/security checks without network access.
+- `canonical_json_bytes({"\ue000": 2, "😀": 1, "a": "\n"})` equals the hand-authored UTF-8 bytes for `{"a":"\\n","😀":1,"\ue000":2}`, and floats are rejected.
 
 **Failure conditions:**
 - Any resolver can directly make `claim` pass.
@@ -80,7 +83,7 @@ def passing_verifier(evidence, criterion, resolution):
     return {"status": "pass", "codes": []}
 ```
 
-Assert the resolver-only result is `unknown` with `CLAIM_NOT_VERIFIED`, then pass `verifiers={"file": passing_verifier}` and assert all four checks and the overall result are `pass`. Add literal fixtures for missing file, allowed-root escape, digest mismatch, stale evidence, scope mismatch, valid/invalid Git commits, a canonical test report, and URL syntax/security boundaries.
+Assert the resolver-only result is `unknown` with `CLAIM_NOT_VERIFIED`, then pass `verifiers={"file": passing_verifier}` and assert all four checks and the overall result are `pass`. Add literal fixtures for missing file, allowed-root escape, digest mismatch, stale evidence, scope mismatch, valid/invalid Git commits, a canonical test report, URL syntax/security boundaries, UTF-16 key ordering, and float rejection. Canonical expected bytes must be hand-authored and must not use the production encoder.
 
 - [ ] **Step 2: Run RED verification**
 
@@ -135,6 +138,8 @@ def evaluate_evidence(
 
 The implementation may add private helpers and type aliases, but must keep the public signature and output keys above. Resolver normalization must accept only the three named resolver layers and must ignore every resolver-provided semantic field.
 
+Implement `canonical_json_bytes` recursively: use literal `null`/`true`/`false`, base-10 integers, `json.dumps(value, ensure_ascii=False, separators=(",", ":"))` for individual strings, preserve array order, and sort object keys with `key.encode("utf-16-be", "surrogatepass")`. Reject floats, non-string keys, and unsupported objects with `TypeError`.
+
 - [ ] **Step 4: Run GREEN verification**
 
 Run:
@@ -172,6 +177,7 @@ git commit -m "feat: resolve strict evidence in layers"
 
 **Interfaces:**
 - Keeps `publish_contract(contract, *, confirmed_by, base_dir=None)` unchanged.
+- Consumes `canonical_json_bytes` from `managing_long_task_context.evidence`; contract and test-report digests must not maintain separate canonicalization algorithms.
 - Produces `contract["seal"]["integrity_digest"]` formatted `sha256:<64 lowercase hex>` and no `seal.digest`.
 - Contract-published events use payload key `integrity_digest`; brief packets use `contract_integrity_digest`.
 
@@ -236,7 +242,7 @@ def _canonical_contract(contract: Mapping[str, Any]) -> bytes:
     seal = value.get("seal")
     if isinstance(seal, dict):
         seal.pop("integrity_digest", None)
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return canonical_json_bytes(value)
 
 
 def _contract_digest(contract: Mapping[str, Any]) -> str:
@@ -287,6 +293,7 @@ git commit -m "fix: name contract integrity protection accurately"
 - Completion evidence entries contain `evidence: list[Mapping[str, Any]]`, `covered_hops: list[str]`, and optional `delivery_receipts: list[Mapping[str, Any]]`.
 - Supports criterion key `required_evidence_types`; retains `required_evidence` as the current compatibility alias until the schema migration tranche.
 - Adds `criteria` to the completion report, keyed by criterion ID, with `status`, `evidence_results`, `missing_evidence_types`, `missing_hops`, and `missing_delivery_types`.
+- Adds private `_evaluate_completion_criterion(criterion, evidence_entry, contract, *, resolvers, verifiers, now) -> dict[str, Any]`; Task 4 uses this exact production boundary for failure injection.
 
 **Deliverables:**
 - `gate(stage="completion")` calls `evaluate_evidence` on every supplied evidence/receipt during every invocation and does not trust persisted `resolver_status` or caller `result`.
@@ -356,7 +363,7 @@ def gate(
 ) -> dict[str, Any]:
 ```
 
-For each criterion, build `evidence_results = [evaluate_evidence(...)]`. Treat a non-mapping evidence entry as a fail with `MALFORMED_EVIDENCE`. Derive supplied kinds from evaluated objects, compare with required types, compare covered/required hops, and evaluate required delivery receipts through the same function. Record all details in `criteria[criterion_id]`; add an error for every fail/unknown/missing condition. Never mutate the caller's map.
+Implement `_evaluate_completion_criterion` as the single owner of criterion tri-state derivation. For each criterion, build `evidence_results = [evaluate_evidence(...)]`. Treat a non-mapping evidence entry as a fail with `MALFORMED_EVIDENCE`. Derive supplied kinds from evaluated objects, compare with required types, compare covered/required hops, and evaluate required delivery receipts through the same function. Record all details in `criteria[criterion_id]`; `gate` adds an error for every fail/unknown/missing condition. Never mutate the caller's map.
 
 - [ ] **Step 4: Run GREEN verification**
 
@@ -434,7 +441,7 @@ self.assertEqual(report["stats"]["items_checked"], 1)
 self.assertGreaterEqual(report["stats"]["events_checked"], 2)
 ```
 
-Add `test_audit_probe_does_not_mutate_real_ledger`, capturing exact bytes of the real task's contract, events, and snapshot before and after `audit()`. Add `test_audit_fails_when_bad_sample_is_not_rejected` using `unittest.mock.patch` on the smallest production-path function used by completion evaluation so the bad evidence appears to pass; assert the audit report fails and names the probe.
+Add `test_audit_probe_does_not_mutate_real_ledger`, capturing exact bytes of the real task's contract, events, and snapshot before and after `audit()`. Add `test_audit_fails_when_bad_sample_is_not_rejected` using `unittest.mock.patch("managing_long_task_context._evaluate_completion_criterion", return_value={"status": "pass", "evidence_results": [], "missing_evidence_types": [], "missing_hops": [], "missing_delivery_types": []})`; assert the audit report fails and names the probe.
 
 - [ ] **Step 2: Run RED verification**
 
