@@ -268,6 +268,35 @@ class ContextSkillTests(unittest.TestCase):
         self.assertNotIn(assumption["id"], selected_ids)
         self.assertLessEqual(len(packet["prompt"]), 5000)
 
+    def test_brief_max_items_caps_candidates_before_character_budget(self) -> None:
+        self.publish()
+        context.record(
+            "TASK-001",
+            statement="B" * 5000,
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "oversized-blocker"},
+            metadata={"blocker": True},
+            base_dir=self.base,
+        )
+        decision = context.record(
+            "TASK-001",
+            statement="Short decision",
+            item_type="decision",
+            actor="publisher",
+            source={"kind": "task-contract", "ref": "short-decision"},
+            base_dir=self.base,
+        )
+
+        packet = context.brief("TASK-001", max_chars=3000, max_items=1, base_dir=self.base)
+        selected_ids = {
+            item["id"]
+            for key in ("facts", "observations", "assumptions", "decisions", "questions")
+            for item in packet[key]
+        }
+
+        self.assertNotIn(decision["id"], selected_ids)
+
     def test_brief_rejects_required_items_that_exceed_budget(self) -> None:
         self.publish()
         context.record(

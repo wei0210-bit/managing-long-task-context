@@ -729,17 +729,15 @@ def _select_brief_items(
         raise ValueError("max_items must be positive")
 
     ordered = sorted((dict(item) for item in items), key=_brief_sort_key)
-    mandatory_count = sum(_brief_is_mandatory(item) for item in ordered)
-    if max_items is not None and mandatory_count > max_items:
-        raise ContextError("BRIEF_REQUIRED_OVERFLOW: max_items would omit a mandatory item")
+    if max_items is not None:
+        omitted = ordered[max_items:]
+        if any(_brief_is_mandatory(item) for item in omitted):
+            raise ContextError("BRIEF_REQUIRED_OVERFLOW: max_items would omit a mandatory item")
+        ordered = ordered[:max_items]
 
     selected: list[dict[str, Any]] = []
     for item in ordered:
         mandatory = _brief_is_mandatory(item)
-        if max_items is not None and len(selected) >= max_items:
-            if mandatory:
-                raise ContextError("BRIEF_REQUIRED_OVERFLOW: max_items would omit a mandatory item")
-            continue
         candidate = [*selected, item]
         candidate_prompt = _brief_to_markdown(_brief_selection_packet(candidate))
         if len(candidate_prompt) <= max_chars:
