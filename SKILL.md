@@ -28,9 +28,11 @@ import managing_long_task_context as context
 contract = json.loads(Path("task-contract.json").read_text())
 context.publish_contract(contract, confirmed_by="task-publisher")
 context.gate("TASK-001", stage="release")
+diagnostics = context.brief_diagnostics("TASK-001")
 ```
 
 合同发布后会生成完整性摘要。它检测发布后的内容变化（包括确认者和确认时间），但不认证谁作出了确认；身份认证需要外部签名或受信存储。任何修改都会使摘要失效；变更必须提高版本并由发布者或授权人重新确认。
+如果 `diagnostics["fits"]` 为 false，先按结构化 overflow 信息外置长内容、解决冲突或拆分任务；不得通过删除验收标准或 mandatory 条目换取可交接状态。
 
 ### 2. Record context without laundering assumptions into facts
 
@@ -46,6 +48,7 @@ context.record(
 ```
 
 `verified-fact` 必须提供独立证据、验证方法、适用范围和核实时间。会变化的事实应设置 `mutable=True` 与 `ttl_hours`，恢复任务时重新观测。
+登记或更新 required/conflicted 条目后立即运行 `brief_diagnostics()`；preflight 只暴露风险，不得阻止事实入账或静默丢弃信息。
 
 ### 3. Update by event; never overwrite history
 
@@ -63,46 +66,23 @@ context.checkpoint(
     actor="executor-01",
 )
 
+diagnostics = context.brief_diagnostics("TASK-001", phase="root-cause-verification")
+if not diagnostics["fits"]:
+    raise RuntimeError(diagnostics["overflow"])
+context.gate("TASK-001", stage="handoff")
 brief = context.brief("TASK-001", phase="root-cause-verification")
 child = await rlm(brief["prompt"], name="root-cause-verifier")
 ```
 
 不得把自由格式聊天总结当作交接依据。`brief()` 只从已封印合同、当前快照和最近检查点生成。
+模型交接默认只消费 `brief()`；证据真实性由 `gate()` 调用 resolver 核验。不得把完整 `events.jsonl`、`snapshot.json` 或运行日志注入模型；仅在调查具体分歧时按需读取最小相关片段。
+
+`brief_diagnostics()` 使用与 `brief()` 相同的字符预算与选择逻辑，区分 fixed、mandatory、`max_items` 和最终渲染 overflow。token 区间只是跨模型的离线估算，明确标记为 advisory，不参与条目选择、overflow 或 gate 裁决。
 
 ### 5. Complete only against publisher-written criteria
 
-```python
-def verify_file_claim(evidence, criterion, resolution):
-    supported = evidence["scope"]["module"] == criterion["required_scope"]["module"]
-    return {"status": "pass" if supported else "fail", "codes": []}
-
-context.gate(
-    "TASK-001",
-    stage="completion",
-    evidence_map={
-        "AC-01": {
-            "evidence": [{
-                "evidence_id": "EV-018",
-                "kind": "file",
-                "locator": "artifacts/integration-run-018.json#summary",
-                "artifact_digest": "sha256:<64 lowercase hex>",
-                "generated_at": "2026-08-27T04:30:00Z",
-                "scope": {"module": "payment-callback", "environment": "test"},
-                "covered_hops": [
-                    "callback-entry", "idempotency-check", "transaction-write"
-                ],
-                "produced_by": "executor-01",
-            }],
-            "delivery_receipts": [],
-            "validated_by": "validator-01",
-            "validated_at": "2026-08-27T05:00:00Z",
-        }
-    },
-    verifiers={"file": verify_file_claim},
-)
-```
-
-完整可执行版本见 `examples/strict_completion.py`。合同使用
+完整的 resolver、verifier、evidence map 和独立验证调用见可执行示例
+`examples/strict_completion.py`。合同使用
 `required_evidence_types`、`required_hops`、`required_delivery_types`、
 `required_scope`、freshness 和 independent-validation 控制。每个 required hop
 必须写在某个实际通过的 evidence 对象自己的 `covered_hops` 中；验收映射顶层的
@@ -135,6 +115,7 @@ completion gate 使用自身观测到的当前 UTC 判断 evidence、独立验�
 | `update_item(...)` | 验证、标记冲突、解决问题或废弃旧条目 |
 | `checkpoint(...)` | 记录阶段增量、证据、阻塞与下一步 |
 | `brief(...)` | 生成最小 Active Context / Handoff Packet |
+| `brief_diagnostics(...)` | 预检相同 brief 的字符预算、mandatory 占用与 advisory token 区间；overflow 时仍返回结构化原因 |
 | `audit(...)` | 自证检查器有效并输出扫描数量、错误和告警 |
 
 ## Persisted State
@@ -148,7 +129,7 @@ completion gate 使用自身观测到的当前 UTC 判断 evidence、独立验�
 └── snapshot.json        # 可由事件重建的当前视图
 ```
 
-`events.jsonl` 是过程追溯记录；`snapshot.json` 不是新的事实来源。
+`events.jsonl` 是过程追溯记录；`snapshot.json` 不是新的事实来源。两者都不是默认模型输入。
 
 ## Hard Stops
 

@@ -647,6 +647,174 @@ class ContextSkillTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_chars must be positive"):
             context.brief("TASK-001", max_chars=0, base_dir=self.base)
 
+    def test_brief_diagnostics_reports_ready_budget_and_advisory_token_range(self) -> None:
+        self.publish()
+        item = context.record(
+            "TASK-001",
+            statement="Unique index exists",
+            item_type="verified-fact",
+            actor="validator-01",
+            source={"kind": "tool", "ref": "schema-query-02"},
+            evidence=["db:schema-query-02"],
+            verification_method="direct schema inspection",
+            scope={"database": "payments"},
+            base_dir=self.base,
+        )
+
+        diagnostics = context.brief_diagnostics("TASK-001", base_dir=self.base)
+        prompt = context.brief("TASK-001", base_dir=self.base)["prompt"]
+
+        self.assertEqual(diagnostics["status"], "ready")
+        self.assertIsNone(diagnostics["overflow"])
+        self.assertEqual(diagnostics["budget"]["max_chars"], 8000)
+        self.assertEqual(diagnostics["budget"]["prompt_chars"], len(prompt))
+        self.assertEqual(
+            diagnostics["budget"]["selection_chars"],
+            len(prompt) - diagnostics["budget"]["fixed_overhead_chars"],
+        )
+        self.assertLessEqual(
+            diagnostics["budget"]["empty_prompt_chars"],
+            diagnostics["budget"]["prompt_chars"],
+        )
+        self.assertEqual(diagnostics["items"]["candidate_count"], 1)
+        self.assertEqual(diagnostics["items"]["selected_count"], 1)
+        self.assertEqual(diagnostics["items"]["selected_ids"], [item["id"]])
+        self.assertEqual(diagnostics["items"]["omitted_count"], 0)
+        text = diagnostics["text"]
+        self.assertEqual(
+            text["ascii_chars"] + text["cjk_chars"] + text["other_chars"],
+            len(prompt),
+        )
+        estimate = diagnostics["token_estimate"]
+        self.assertTrue(estimate["advisory"])
+        self.assertEqual(estimate["method"], "portable-range-v1")
+        self.assertLessEqual(estimate["lower_bound"], estimate["upper_bound"])
+
+    def test_brief_diagnostics_reports_mandatory_overflow_without_hiding_item(self) -> None:
+        self.publish()
+        required = context.record(
+            "TASK-001",
+            statement="R" * 9000,
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-oversized"},
+            metadata={"required": True},
+            base_dir=self.base,
+        )
+
+        diagnostics = context.brief_diagnostics("TASK-001", max_chars=8000, base_dir=self.base)
+
+        self.assertEqual(diagnostics["status"], "overflow")
+        self.assertEqual(diagnostics["overflow"]["kind"], "mandatory")
+        self.assertEqual(diagnostics["overflow"]["code"], "BRIEF_REQUIRED_OVERFLOW")
+        self.assertEqual(diagnostics["overflow"]["item_ids"], [required["id"]])
+        self.assertEqual(diagnostics["items"]["mandatory_count"], 1)
+        self.assertGreater(diagnostics["budget"]["mandatory_prompt_chars"], 8000)
+        with self.assertRaisesRegex(
+            context.ContextError,
+            "BRIEF_REQUIRED_OVERFLOW: mandatory items exceed max_chars",
+        ):
+            context.brief("TASK-001", max_chars=8000, base_dir=self.base)
+
+    def test_brief_diagnostics_distinguishes_fixed_and_max_items_overflow(self) -> None:
+        self.contract["objective"] = "O" * 9000
+        self.publish()
+
+        fixed = context.brief_diagnostics("TASK-001", max_chars=8000, base_dir=self.base)
+
+        self.assertEqual(fixed["status"], "overflow")
+        self.assertEqual(fixed["overflow"]["kind"], "fixed")
+        self.assertGreater(fixed["budget"]["fixed_overhead_chars"], 8000)
+
+        self.contract["task_id"] = "TASK-002"
+        self.contract["objective"] = "Compact objective"
+        context.publish_contract(self.contract, confirmed_by="publisher", base_dir=self.base)
+        first = context.record(
+            "TASK-002",
+            statement="First required observation",
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-01"},
+            metadata={"required": True},
+            base_dir=self.base,
+        )
+        second = context.record(
+            "TASK-002",
+            statement="Second required observation",
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-02"},
+            metadata={"required": True},
+            base_dir=self.base,
+        )
+
+        max_items = context.brief_diagnostics(
+            "TASK-002",
+            max_items=1,
+            base_dir=self.base,
+        )
+
+        self.assertEqual(max_items["status"], "overflow")
+        self.assertEqual(max_items["overflow"]["kind"], "max_items")
+        self.assertEqual(max_items["items"]["mandatory_count"], 2)
+        self.assertEqual(len(max_items["items"]["selected_ids"]), 1)
+        self.assertEqual(len(max_items["overflow"]["item_ids"]), 1)
+        self.assertEqual(
+            set(max_items["items"]["selected_ids"] + max_items["overflow"]["item_ids"]),
+            {first["id"], second["id"]},
+        )
+
+    def test_brief_token_estimate_weights_cjk_without_becoming_a_gate(self) -> None:
+        self.contract["task_id"] = "ASCII-001"
+        self.contract["objective"] = "A" * 120
+        context.publish_contract(self.contract, confirmed_by="publisher", base_dir=self.base)
+        ascii_diagnostics = context.brief_diagnostics("ASCII-001", base_dir=self.base)
+
+        self.contract["task_id"] = "CJK00-001"
+        self.contract["objective"] = "界" * 120
+        context.publish_contract(self.contract, confirmed_by="publisher", base_dir=self.base)
+        cjk_diagnostics = context.brief_diagnostics("CJK00-001", base_dir=self.base)
+
+        self.assertEqual(ascii_diagnostics["status"], "ready")
+        self.assertEqual(cjk_diagnostics["status"], "ready")
+        self.assertGreater(cjk_diagnostics["text"]["cjk_chars"], ascii_diagnostics["text"]["cjk_chars"])
+        self.assertGreater(
+            cjk_diagnostics["token_estimate"]["lower_bound"],
+            ascii_diagnostics["token_estimate"]["lower_bound"],
+        )
+
+    def test_handoff_gate_rejects_unrenderable_brief_with_diagnostics(self) -> None:
+        self.publish()
+        context.record(
+            "TASK-001",
+            statement="R" * 9000,
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-oversized"},
+            metadata={"required": True},
+            base_dir=self.base,
+        )
+        context.checkpoint(
+            "TASK-001",
+            phase="handoff",
+            completed=["captured current state"],
+            evidence_added=[],
+            next_action="externalize oversized detail and keep its stable reference",
+            actor="executor",
+            base_dir=self.base,
+        )
+
+        report = context.gate("TASK-001", stage="handoff", emit=False, base_dir=self.base)
+
+        self.assertFalse(report["passed"])
+        self.assertIn(
+            "BRIEF_REQUIRED_OVERFLOW: mandatory items exceed max_chars",
+            report["errors"],
+        )
+        self.assertEqual(report["stats"]["brief_status"], "overflow")
+        self.assertEqual(report["stats"]["brief_overflow_kind"], "mandatory")
+        self.assertGreater(report["stats"]["brief_mandatory_prompt_chars"], 8000)
+
     def test_handoff_requires_checkpoint(self) -> None:
         self.publish()
         before = context.gate("TASK-001", stage="handoff", base_dir=self.base, emit=False)

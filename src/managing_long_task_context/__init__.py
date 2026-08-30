@@ -939,33 +939,278 @@ def _brief_is_mandatory(item: Mapping[str, Any]) -> bool:
     return metadata.get("required") is True or item.get("status") == "conflicted"
 
 
-def _select_brief_items(
-    items: Sequence[Mapping[str, Any]], *, max_chars: int, max_items: int | None
-) -> list[dict[str, Any]]:
-    """Select ordered items only when the fully rendered candidate still fits."""
-
+def _validate_brief_limits(*, max_chars: int, max_items: int | None) -> None:
     if max_chars <= 0:
         raise ValueError("max_chars must be positive")
     if max_items is not None and max_items < 1:
         raise ValueError("max_items must be positive")
 
+
+def _brief_candidates(
+    snapshot: Mapping[str, Any], include: Sequence[str] | None
+) -> tuple[list[dict[str, Any]], list[str]]:
+    all_items = snapshot.get("items", {})
+    if not isinstance(all_items, dict):
+        return [], []
+    include_set = set(include or [])
+    candidates: list[dict[str, Any]] = []
+    filtered_mandatory_ids: list[str] = []
+    for identifier, raw in sorted(all_items.items()):
+        if not isinstance(raw, dict) or raw.get("status") == "superseded":
+            continue
+        if include is not None and identifier not in include_set:
+            if _brief_is_mandatory(raw):
+                filtered_mandatory_ids.append(str(identifier))
+            continue
+        candidates.append(deepcopy(raw))
+    return candidates, filtered_mandatory_ids
+
+
+def _build_brief_packet(
+    task_id: str,
+    contract: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    phase: str | None,
+    selected: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    selected_items = [dict(item) for item in selected]
+    return {
+        "task_id": task_id,
+        "contract_version": contract.get("version"),
+        "contract_integrity_digest": (contract.get("seal") or {}).get("integrity_digest"),
+        "objective": contract.get("objective"),
+        "scope": contract.get("scope", []),
+        "out_of_scope": contract.get("out_of_scope", []),
+        "constraints": contract.get("constraints", []),
+        "actor_roles": deepcopy(contract.get("actor_roles", {})),
+        "acceptance_criteria": contract.get("acceptance_criteria", []),
+        "phase": phase or (snapshot.get("latest_checkpoint") or {}).get("phase"),
+        "facts": [item for item in selected_items if item.get("type") == "verified-fact"],
+        "observations": [item for item in selected_items if item.get("type") == "observation"],
+        "assumptions": [item for item in selected_items if item.get("type") == "assumption"],
+        "decisions": [item for item in selected_items if item.get("type") == "decision"],
+        "questions": [item for item in selected_items if item.get("type") == "question"],
+        "conflicts": [item for item in selected_items if item.get("status") == "conflicted"],
+        "stale_items": [item["id"] for item in selected_items if _item_is_stale(item)],
+        "latest_checkpoint": snapshot.get("latest_checkpoint"),
+        "context_version": snapshot.get("event_count", 0),
+    }
+
+
+def _brief_item_rendered_chars(item: Mapping[str, Any], empty_selection_chars: int) -> int:
+    rendered = _brief_to_markdown(_brief_selection_packet([item]))
+    return len(rendered) - empty_selection_chars
+
+
+def _select_brief_items_plan(
+    items: Sequence[Mapping[str, Any]], *, max_chars: int, max_items: int | None
+) -> dict[str, Any]:
+    """Plan deterministic selection while preserving structured overflow details."""
+
+    _validate_brief_limits(max_chars=max_chars, max_items=max_items)
     ordered = sorted((dict(item) for item in items), key=_brief_sort_key)
+    mandatory_items = [item for item in ordered if _brief_is_mandatory(item)]
+    empty_selection_chars = len(_brief_to_markdown(_brief_selection_packet([])))
+    mandatory_item_sizes = [
+        {
+            "id": str(item.get("id", "")),
+            "rendered_chars": _brief_item_rendered_chars(item, empty_selection_chars),
+        }
+        for item in mandatory_items
+    ]
+    overflow: dict[str, Any] | None = None
     if max_items is not None:
         omitted = ordered[max_items:]
-        if any(_brief_is_mandatory(item) for item in omitted):
-            raise ContextError("BRIEF_REQUIRED_OVERFLOW: max_items would omit a mandatory item")
+        omitted_mandatory = [item for item in omitted if _brief_is_mandatory(item)]
+        if omitted_mandatory:
+            overflow = {
+                "code": "BRIEF_REQUIRED_OVERFLOW",
+                "kind": "max_items",
+                "message": "BRIEF_REQUIRED_OVERFLOW: max_items would omit a mandatory item",
+                "item_ids": [str(item.get("id", "")) for item in omitted_mandatory],
+            }
         ordered = ordered[:max_items]
 
     selected: list[dict[str, Any]] = []
     for item in ordered:
-        mandatory = _brief_is_mandatory(item)
+        is_mandatory = _brief_is_mandatory(item)
         candidate = [*selected, item]
         candidate_prompt = _brief_to_markdown(_brief_selection_packet(candidate))
         if len(candidate_prompt) <= max_chars:
             selected = candidate
-        elif mandatory:
-            raise ContextError("BRIEF_REQUIRED_OVERFLOW: mandatory items exceed max_chars")
-    return selected
+        elif is_mandatory and overflow is None:
+            overflow = {
+                "code": "BRIEF_REQUIRED_OVERFLOW",
+                "kind": "mandatory",
+                "message": "BRIEF_REQUIRED_OVERFLOW: mandatory items exceed max_chars",
+                "item_ids": [str(item.get("id", ""))],
+            }
+            break
+    selected_ids = {str(item.get("id", "")) for item in selected}
+    return {
+        "selected": selected,
+        "overflow": overflow,
+        "mandatory": [dict(item) for item in mandatory_items],
+        "mandatory_item_sizes": mandatory_item_sizes,
+        "omitted": [
+            dict(item) for item in sorted((dict(item) for item in items), key=_brief_sort_key)
+            if str(item.get("id", "")) not in selected_ids
+        ],
+    }
+
+
+def _select_brief_items(
+    items: Sequence[Mapping[str, Any]], *, max_chars: int, max_items: int | None
+) -> list[dict[str, Any]]:
+    """Select ordered items only when the fully rendered candidate still fits."""
+
+    plan = _select_brief_items_plan(items, max_chars=max_chars, max_items=max_items)
+    if plan["overflow"] is not None:
+        raise ContextError(plan["overflow"]["message"])
+    return plan["selected"]
+
+
+def _is_cjk(character: str) -> bool:
+    value = ord(character)
+    return (
+        0x3400 <= value <= 0x4DBF
+        or 0x4E00 <= value <= 0x9FFF
+        or 0xF900 <= value <= 0xFAFF
+        or 0x20000 <= value <= 0x2EBEF
+    )
+
+
+def _brief_text_metrics(text: str, *, basis: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    ascii_chars = sum(ord(character) < 128 for character in text)
+    cjk_chars = sum(_is_cjk(character) for character in text)
+    other_chars = len(text) - ascii_chars - cjk_chars
+    lower_bound = (ascii_chars + 3) // 4 + cjk_chars + (other_chars + 1) // 2
+    upper_bound = (ascii_chars + 2) // 3 + 2 * cjk_chars + other_chars
+    return (
+        {
+            "basis": basis,
+            "ascii_chars": ascii_chars,
+            "cjk_chars": cjk_chars,
+            "other_chars": other_chars,
+        },
+        {
+            "lower_bound": lower_bound,
+            "upper_bound": upper_bound,
+            "method": "portable-range-v1",
+            "advisory": True,
+        },
+    )
+
+
+def _plan_brief(
+    task_id: str,
+    *,
+    phase: str | None,
+    include: Sequence[str] | None,
+    max_items: int | None,
+    max_chars: int,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    _validate_brief_limits(max_chars=max_chars, max_items=max_items)
+    paths = _paths(task_id, base_dir)
+    contract = _read_json(paths["contract"])
+    contract_errors = _validate_sealed_contract(contract)
+    if contract_errors:
+        raise ContextError("release gate failed: " + "; ".join(contract_errors))
+    snapshot = _load_snapshot(task_id, paths)
+    candidates, filtered_mandatory_ids = _brief_candidates(snapshot, include)
+    empty_packet = _build_brief_packet(task_id, contract, snapshot, phase, [])
+    empty_prompt = _brief_to_markdown(empty_packet)
+    empty_selection_prompt = _brief_to_markdown(_brief_selection_packet([]))
+    fixed_overhead_chars = len(empty_prompt) - len(empty_selection_prompt)
+    selection_budget_chars = max_chars - fixed_overhead_chars
+
+    mandatory = [item for item in candidates if _brief_is_mandatory(item)]
+    mandatory_selection_prompt = _brief_to_markdown(_brief_selection_packet(mandatory))
+    mandatory_prompt = _brief_to_markdown(
+        _build_brief_packet(task_id, contract, snapshot, phase, mandatory)
+    )
+    if selection_budget_chars <= 0:
+        selection_plan = {
+            "selected": [],
+            "mandatory": mandatory,
+            "mandatory_item_sizes": [],
+            "omitted": candidates,
+            "overflow": {
+                "code": "BRIEF_REQUIRED_OVERFLOW",
+                "kind": "fixed",
+                "message": "BRIEF_REQUIRED_OVERFLOW: fixed brief content exceeds max_chars",
+                "item_ids": [],
+            },
+        }
+    else:
+        selection_plan = _select_brief_items_plan(
+            candidates,
+            max_chars=selection_budget_chars,
+            max_items=max_items,
+        )
+
+    selected = selection_plan["selected"]
+    packet = _build_brief_packet(task_id, contract, snapshot, phase, selected)
+    selected_prompt = _brief_to_markdown(packet)
+    overflow = selection_plan["overflow"]
+    if overflow is None and len(selected_prompt) > max_chars:
+        overflow = {
+            "code": "BRIEF_REQUIRED_OVERFLOW",
+            "kind": "final_render",
+            "message": "BRIEF_REQUIRED_OVERFLOW: brief content exceeds max_chars",
+            "item_ids": [],
+        }
+    packet["prompt"] = selected_prompt
+
+    largest_items = sorted(
+        selection_plan["mandatory_item_sizes"],
+        key=lambda item: (-item["rendered_chars"], item["id"]),
+    )[:5]
+    if overflow is not None:
+        overflow = {**overflow, "largest_items": largest_items}
+    if overflow is None:
+        measured_text = selected_prompt
+        measured_basis = "selected_prompt"
+    elif mandatory:
+        measured_text = mandatory_prompt
+        measured_basis = "mandatory_prompt"
+    else:
+        measured_text = empty_prompt
+        measured_basis = "empty_prompt"
+    text_metrics, token_estimate = _brief_text_metrics(measured_text, basis=measured_basis)
+    selected_selection_chars = len(_brief_to_markdown(_brief_selection_packet(selected)))
+    selected_ids = [str(item.get("id", "")) for item in selected]
+    omitted_ids = [str(item.get("id", "")) for item in selection_plan["omitted"]]
+    diagnostics = {
+        "status": "ready" if overflow is None else "overflow",
+        "fits": overflow is None,
+        "overflow": overflow,
+        "budget": {
+            "max_chars": max_chars,
+            "max_items": max_items,
+            "fixed_overhead_chars": fixed_overhead_chars,
+            "empty_prompt_chars": len(empty_prompt),
+            "selection_budget_chars": selection_budget_chars,
+            "selection_chars": selected_selection_chars,
+            "prompt_chars": len(selected_prompt) if overflow is None else None,
+            "selected_prompt_chars": len(selected_prompt),
+            "mandatory_selection_chars": len(mandatory_selection_prompt),
+            "mandatory_prompt_chars": len(mandatory_prompt),
+        },
+        "items": {
+            "candidate_count": len(candidates),
+            "mandatory_count": len(mandatory),
+            "selected_count": len(selected),
+            "omitted_count": len(selection_plan["omitted"]),
+            "selected_ids": selected_ids,
+            "omitted_ids": omitted_ids,
+            "filtered_mandatory_ids": filtered_mandatory_ids,
+        },
+        "text": text_metrics,
+        "token_estimate": token_estimate,
+    }
+    return {"packet": packet, "diagnostics": diagnostics}
 
 
 def brief(
@@ -978,75 +1223,41 @@ def brief(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Generate a minimal active-context/handoff packet from controlled state."""
-
-    if max_chars <= 0:
-        raise ValueError("max_chars must be positive")
-    if max_items is not None and max_items < 1:
-        raise ValueError("max_items must be positive")
-    paths = _paths(task_id, base_dir)
-    contract = _read_json(paths["contract"])
-    contract_errors = _validate_sealed_contract(contract)
-    if contract_errors:
-        raise ContextError("release gate failed: " + "; ".join(contract_errors))
-    snapshot = _load_snapshot(task_id, paths)
-    all_items = snapshot.get("items", {})
-    if not isinstance(all_items, dict):
-        all_items = {}
-    candidates: list[dict[str, Any]] = []
-    include_set = set(include or [])
-    for identifier, raw in sorted(all_items.items()):
-        if not isinstance(raw, dict):
-            continue
-        if include is not None and identifier not in include_set:
-            continue
-        if raw.get("status") == "superseded":
-            continue
-        candidates.append(deepcopy(raw))
-
-    def build_packet(selected: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-        selected_items = [dict(item) for item in selected]
-        return {
-            "task_id": task_id,
-            "contract_version": contract.get("version"),
-            "contract_integrity_digest": contract.get("seal", {}).get("integrity_digest"),
-            "objective": contract.get("objective"),
-            "scope": contract.get("scope", []),
-            "out_of_scope": contract.get("out_of_scope", []),
-            "constraints": contract.get("constraints", []),
-            "actor_roles": deepcopy(contract.get("actor_roles", {})),
-            "acceptance_criteria": contract.get("acceptance_criteria", []),
-            "phase": phase or (snapshot.get("latest_checkpoint") or {}).get("phase"),
-            "facts": [item for item in selected_items if item.get("type") == "verified-fact"],
-            "observations": [item for item in selected_items if item.get("type") == "observation"],
-            "assumptions": [item for item in selected_items if item.get("type") == "assumption"],
-            "decisions": [item for item in selected_items if item.get("type") == "decision"],
-            "questions": [item for item in selected_items if item.get("type") == "question"],
-            "conflicts": [item for item in selected_items if item.get("status") == "conflicted"],
-            "stale_items": [item["id"] for item in selected_items if _item_is_stale(item)],
-            "latest_checkpoint": snapshot.get("latest_checkpoint"),
-            "context_version": snapshot.get("event_count", 0),
-        }
-
-    empty_packet = build_packet([])
-    empty_selection_packet = _brief_selection_packet([])
-    # Selection changes only the item sections.  Account for the real
-    # contract/checkpoint wrapper once, while keeping candidate rendering in
-    # _select_brief_items deterministic and independent of task I/O.
-    fixed_length = len(_brief_to_markdown(empty_packet)) - len(_brief_to_markdown(empty_selection_packet))
-    selection_budget = max_chars - fixed_length
-    if selection_budget <= 0:
-        raise ContextError("BRIEF_REQUIRED_OVERFLOW: fixed brief content exceeds max_chars")
-
-    selected = _select_brief_items(
-        candidates,
-        max_chars=selection_budget,
+    plan = _plan_brief(
+        task_id,
+        phase=phase,
+        include=include,
         max_items=max_items,
+        max_chars=max_chars,
+        base_dir=base_dir,
     )
-    packet = build_packet(selected)
-    packet["prompt"] = _brief_to_markdown(packet)
-    if len(packet["prompt"]) > max_chars:
-        raise ContextError("BRIEF_REQUIRED_OVERFLOW: brief content exceeds max_chars")
-    return packet
+    overflow = plan["diagnostics"]["overflow"]
+    if overflow is not None:
+        raise ContextError(overflow["message"])
+    return plan["packet"]
+
+
+def brief_diagnostics(
+    task_id: str,
+    *,
+    phase: str | None = None,
+    include: Sequence[str] | None = None,
+    max_items: int | None = None,
+    max_chars: int = 8000,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Measure brief fit without weakening or suppressing required-content overflow."""
+
+    return deepcopy(
+        _plan_brief(
+            task_id,
+            phase=phase,
+            include=include,
+            max_items=max_items,
+            max_chars=max_chars,
+            base_dir=base_dir,
+        )["diagnostics"]
+    )
 
 
 def _brief_json(value: Any) -> str:
@@ -1430,12 +1641,31 @@ def _gate_core(
     evidence_attempts = 0
     contract: dict[str, Any] = {}
     snapshot = _empty_snapshot(task_id)
+    brief_report: dict[str, Any] | None = None
     try:
         contract = _read_json(paths["contract"])
         snapshot = _load_snapshot(task_id, paths)
     except ContextError as exc:
         if str(exc) not in errors:
             errors.append(str(exc))
+
+    if contract and stage in {"release", "resume", "handoff"}:
+        try:
+            brief_report = brief_diagnostics(task_id, base_dir=base_dir)
+        except (ContextError, ValueError) as exc:
+            warnings.append(f"brief preflight unavailable: {exc}")
+        else:
+            overflow = brief_report.get("overflow")
+            if isinstance(overflow, Mapping):
+                message = str(overflow.get("message", "BRIEF_REQUIRED_OVERFLOW"))
+                if stage == "handoff":
+                    if message not in errors:
+                        errors.append(message)
+                else:
+                    warnings.append(f"brief preflight: {message}")
+            filtered = brief_report.get("items", {}).get("filtered_mandatory_ids", [])
+            if filtered:
+                warnings.append(f"brief preflight filtered mandatory items: {filtered}")
 
     if stage in {"resume", "handoff", "completion"}:
         items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
@@ -1573,6 +1803,14 @@ def _gate_core(
             "checked": report["stats"].get("checked", 0),
             "criteria_checked": criteria_checked,
             "evidence_attempts": evidence_attempts,
+            "brief_status": (brief_report or {}).get("status", "unavailable"),
+            "brief_overflow_kind": ((brief_report or {}).get("overflow") or {}).get("kind"),
+            "brief_fixed_overhead_chars": (
+                (brief_report or {}).get("budget", {}).get("fixed_overhead_chars")
+            ),
+            "brief_mandatory_prompt_chars": (
+                (brief_report or {}).get("budget", {}).get("mandatory_prompt_chars")
+            ),
         },
         "contract_version": contract.get("version"),
     }
@@ -1976,6 +2214,7 @@ async def run(action: str, **kwargs: Any) -> Any:
         "update_item": update_item,
         "checkpoint": checkpoint,
         "brief": brief,
+        "brief_diagnostics": brief_diagnostics,
         "audit": audit,
         "gate": gate,
         "workspace_observation": workspace_observation,
@@ -1996,6 +2235,7 @@ __all__ = [
     "update_item",
     "checkpoint",
     "brief",
+    "brief_diagnostics",
     "audit",
     "gate",
     "workspace_observation",
