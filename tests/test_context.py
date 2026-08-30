@@ -669,11 +669,21 @@ class ContextSkillTests(unittest.TestCase):
         self.assertEqual(diagnostics["budget"]["max_chars"], 8000)
         self.assertEqual(diagnostics["budget"]["prompt_chars"], len(prompt))
         self.assertEqual(
-            diagnostics["budget"]["selection_chars"],
-            len(prompt) - diagnostics["budget"]["fixed_overhead_chars"],
+            diagnostics["budget"]["selection_wrapper_chars"]
+            + diagnostics["budget"]["prompt_adjustment_chars"],
+            diagnostics["budget"]["fixed_prompt_chars"],
+        )
+        self.assertEqual(
+            diagnostics["budget"]["item_contribution_chars"],
+            len(prompt) - diagnostics["budget"]["fixed_prompt_chars"],
+        )
+        self.assertEqual(
+            diagnostics["budget"]["prompt_adjustment_chars"]
+            + diagnostics["budget"]["selection_prompt_chars"],
+            len(prompt),
         )
         self.assertLessEqual(
-            diagnostics["budget"]["empty_prompt_chars"],
+            diagnostics["budget"]["fixed_prompt_chars"],
             diagnostics["budget"]["prompt_chars"],
         )
         self.assertEqual(diagnostics["items"]["candidate_count"], 1)
@@ -687,8 +697,9 @@ class ContextSkillTests(unittest.TestCase):
         )
         estimate = diagnostics["token_estimate"]
         self.assertTrue(estimate["advisory"])
-        self.assertEqual(estimate["method"], "portable-range-v1")
-        self.assertLessEqual(estimate["lower_bound"], estimate["upper_bound"])
+        self.assertEqual(estimate["method"], "portable-heuristic-v1")
+        self.assertEqual(estimate["semantics"], "heuristic-not-guaranteed")
+        self.assertLessEqual(estimate["range_low"], estimate["range_high"])
 
     def test_brief_diagnostics_reports_mandatory_overflow_without_hiding_item(self) -> None:
         self.publish()
@@ -724,7 +735,7 @@ class ContextSkillTests(unittest.TestCase):
 
         self.assertEqual(fixed["status"], "overflow")
         self.assertEqual(fixed["overflow"]["kind"], "fixed")
-        self.assertGreater(fixed["budget"]["fixed_overhead_chars"], 8000)
+        self.assertGreater(fixed["budget"]["fixed_prompt_chars"], 8000)
 
         self.contract["task_id"] = "TASK-002"
         self.contract["objective"] = "Compact objective"
@@ -764,6 +775,72 @@ class ContextSkillTests(unittest.TestCase):
             {first["id"], second["id"]},
         )
 
+    def test_brief_diagnostics_classifies_empty_prompt_overflow_as_fixed(self) -> None:
+        self.publish()
+        ready = context.brief_diagnostics("TASK-001", base_dir=self.base)
+        max_chars = ready["budget"]["fixed_prompt_chars"] - 1
+
+        diagnostics = context.brief_diagnostics(
+            "TASK-001",
+            max_chars=max_chars,
+            base_dir=self.base,
+        )
+
+        self.assertEqual(diagnostics["status"], "overflow")
+        self.assertEqual(diagnostics["overflow"]["kind"], "fixed")
+        self.assertGreater(diagnostics["budget"]["fixed_prompt_chars"], max_chars)
+        with self.assertRaisesRegex(
+            context.ContextError,
+            "BRIEF_REQUIRED_OVERFLOW: brief content exceeds max_chars",
+        ):
+            context.brief("TASK-001", max_chars=max_chars, base_dir=self.base)
+
+    def test_brief_diagnostics_rejects_include_filter_that_omits_required_item(self) -> None:
+        self.publish()
+        required = context.record(
+            "TASK-001",
+            statement="Required observation",
+            item_type="observation",
+            actor="executor",
+            source={"kind": "tool", "ref": "probe-required"},
+            metadata={"required": True},
+            base_dir=self.base,
+        )
+
+        legacy_packet = context.brief("TASK-001", include=[], base_dir=self.base)
+        diagnostics = context.brief_diagnostics("TASK-001", include=[], base_dir=self.base)
+
+        self.assertEqual(legacy_packet["observations"], [])
+        self.assertEqual(diagnostics["status"], "overflow")
+        self.assertFalse(diagnostics["fits"])
+        self.assertEqual(diagnostics["overflow"]["kind"], "include")
+        self.assertEqual(diagnostics["overflow"]["item_ids"], [required["id"]])
+        self.assertEqual(diagnostics["items"]["filtered_mandatory_ids"], [required["id"]])
+
+    def test_brief_diagnostics_does_not_rerender_full_mandatory_sets(self) -> None:
+        self.publish()
+        for index in range(20):
+            context.record(
+                "TASK-001",
+                statement=f"required-{index}-" + "R" * 10000,
+                item_type="observation",
+                actor="executor",
+                source={"kind": "tool", "ref": f"probe-{index}"},
+                metadata={"required": True},
+                base_dir=self.base,
+            )
+
+        with patch.object(
+            context,
+            "_brief_to_markdown",
+            wraps=context._brief_to_markdown,
+        ) as render:
+            diagnostics = context.brief_diagnostics("TASK-001", base_dir=self.base)
+
+        self.assertEqual(diagnostics["status"], "overflow")
+        self.assertEqual(diagnostics["items"]["mandatory_count"], 20)
+        self.assertLessEqual(render.call_count, 6)
+
     def test_brief_token_estimate_weights_cjk_without_becoming_a_gate(self) -> None:
         self.contract["task_id"] = "ASCII-001"
         self.contract["objective"] = "A" * 120
@@ -779,8 +856,8 @@ class ContextSkillTests(unittest.TestCase):
         self.assertEqual(cjk_diagnostics["status"], "ready")
         self.assertGreater(cjk_diagnostics["text"]["cjk_chars"], ascii_diagnostics["text"]["cjk_chars"])
         self.assertGreater(
-            cjk_diagnostics["token_estimate"]["lower_bound"],
-            ascii_diagnostics["token_estimate"]["lower_bound"],
+            cjk_diagnostics["token_estimate"]["range_low"],
+            ascii_diagnostics["token_estimate"]["range_low"],
         )
 
     def test_handoff_gate_rejects_unrenderable_brief_with_diagnostics(self) -> None:
@@ -814,6 +891,31 @@ class ContextSkillTests(unittest.TestCase):
         self.assertEqual(report["stats"]["brief_status"], "overflow")
         self.assertEqual(report["stats"]["brief_overflow_kind"], "mandatory")
         self.assertGreater(report["stats"]["brief_mandatory_prompt_chars"], 8000)
+
+    def test_handoff_gate_fails_closed_when_brief_preflight_is_unavailable(self) -> None:
+        self.publish()
+        context.checkpoint(
+            "TASK-001",
+            phase="handoff",
+            completed=["captured current state"],
+            evidence_added=[],
+            next_action="continue from the controlled checkpoint",
+            actor="executor",
+            base_dir=self.base,
+        )
+
+        with patch.object(
+            context,
+            "brief_diagnostics",
+            side_effect=context.ContextError("synthetic preflight failure"),
+        ):
+            report = context.gate("TASK-001", stage="handoff", emit=False, base_dir=self.base)
+
+        self.assertFalse(report["passed"])
+        self.assertIn(
+            "brief preflight unavailable: synthetic preflight failure",
+            report["errors"],
+        )
 
     def test_handoff_requires_checkpoint(self) -> None:
         self.publish()

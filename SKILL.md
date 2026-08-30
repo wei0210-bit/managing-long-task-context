@@ -32,7 +32,7 @@ diagnostics = context.brief_diagnostics("TASK-001")
 ```
 
 合同发布后会生成完整性摘要。它检测发布后的内容变化（包括确认者和确认时间），但不认证谁作出了确认；身份认证需要外部签名或受信存储。任何修改都会使摘要失效；变更必须提高版本并由发布者或授权人重新确认。
-`fits=false` 时按 overflow 信息外置内容、解冲突或拆任务；禁止删除验收标准或 mandatory 条目。
+`fits=false` 时按 overflow 信息外置明细并保留简洁稳定引用、解冲突或拆任务；禁止删除验收标准或 mandatory 条目。
 
 ### 2. Record context without laundering assumptions into facts
 
@@ -76,7 +76,7 @@ child = await rlm(brief["prompt"], name="root-cause-verifier")
 
 不得把聊天总结当作交接依据。模型只消费 `brief()`；`gate()`/resolver 核验证据；ledger、snapshot 和日志仅为具体分歧读取最小片段。
 
-`brief_diagnostics()` 与 `brief()` 共用选择逻辑并区分 overflow；token 区间只作 advisory，不参与选择、overflow 或 gate。
+`brief_diagnostics()` 与 `brief()` 共用选择逻辑并区分 overflow；token 范围是跨模型的启发估算（`heuristic-not-guaranteed`），只作 advisory，不参与选择、overflow 或 gate。
 
 ### 5. Complete only against publisher-written criteria
 
@@ -113,7 +113,7 @@ completion gate 使用自身观测到的当前 UTC 判断 evidence、独立验�
 | `update_item(...)` | 验证、标记冲突、解决问题或废弃旧条目 |
 | `checkpoint(...)` | 记录阶段增量、证据、阻塞与下一步 |
 | `brief(...)` | 生成最小 Active Context / Handoff Packet |
-| `brief_diagnostics(...)` | 预检预算、mandatory 占用和 advisory token 区间；overflow 时仍返回原因 |
+| `brief_diagnostics(...)` | 预检固定提示、条目贡献、mandatory 占用和 advisory token 启发范围；overflow 时仍返回原因 |
 | `audit(...)` | 自证检查器有效并输出扫描数量、错误和告警 |
 
 ## Persisted State

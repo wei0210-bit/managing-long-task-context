@@ -997,9 +997,36 @@ def _build_brief_packet(
     }
 
 
-def _brief_item_rendered_chars(item: Mapping[str, Any], empty_selection_chars: int) -> int:
-    rendered = _brief_to_markdown(_brief_selection_packet([item]))
-    return len(rendered) - empty_selection_chars
+_BRIEF_ITEM_SECTION_BY_TYPE = {
+    "verified-fact": "facts",
+    "observation": "observations",
+    "assumption": "assumptions",
+    "decision": "decisions",
+    "question": "questions",
+}
+
+
+def _brief_item_sections(item: Mapping[str, Any]) -> tuple[str, ...]:
+    sections: list[str] = []
+    section = _BRIEF_ITEM_SECTION_BY_TYPE.get(str(item.get("type")))
+    if section is not None:
+        sections.append(section)
+    if item.get("status") == "conflicted":
+        sections.append("conflicts")
+    return tuple(sections)
+
+
+def _brief_selection_delta(
+    rendered_line_chars: int,
+    sections: Sequence[str],
+    section_counts: Mapping[str, int],
+) -> int:
+    return sum(
+        rendered_line_chars - len("- None")
+        if section_counts.get(section, 0) == 0
+        else rendered_line_chars + 1
+        for section in sections
+    )
 
 
 def _select_brief_items_plan(
@@ -1011,13 +1038,32 @@ def _select_brief_items_plan(
     ordered = sorted((dict(item) for item in items), key=_brief_sort_key)
     mandatory_items = [item for item in ordered if _brief_is_mandatory(item)]
     empty_selection_chars = len(_brief_to_markdown(_brief_selection_packet([])))
-    mandatory_item_sizes = [
-        {
-            "id": str(item.get("id", "")),
-            "rendered_chars": _brief_item_rendered_chars(item, empty_selection_chars),
-        }
-        for item in mandatory_items
-    ]
+    item_profiles: dict[str, tuple[int, tuple[str, ...]]] = {}
+    for item in ordered:
+        identifier = str(item.get("id", ""))
+        item_profiles[identifier] = (
+            len(_brief_item_to_markdown(item)),
+            _brief_item_sections(item),
+        )
+    mandatory_item_sizes = []
+    mandatory_selection_chars = empty_selection_chars
+    mandatory_section_counts: dict[str, int] = {}
+    for item in mandatory_items:
+        identifier = str(item.get("id", ""))
+        rendered_line_chars, sections = item_profiles[identifier]
+        mandatory_item_sizes.append(
+            {
+                "id": identifier,
+                "rendered_chars": _brief_selection_delta(rendered_line_chars, sections, {}),
+            }
+        )
+        mandatory_selection_chars += _brief_selection_delta(
+            rendered_line_chars,
+            sections,
+            mandatory_section_counts,
+        )
+        for section in sections:
+            mandatory_section_counts[section] = mandatory_section_counts.get(section, 0) + 1
     overflow: dict[str, Any] | None = None
     if max_items is not None:
         omitted = ordered[max_items:]
@@ -1032,12 +1078,22 @@ def _select_brief_items_plan(
         ordered = ordered[:max_items]
 
     selected: list[dict[str, Any]] = []
+    selected_selection_chars = empty_selection_chars
+    selected_section_counts: dict[str, int] = {}
     for item in ordered:
         is_mandatory = _brief_is_mandatory(item)
-        candidate = [*selected, item]
-        candidate_prompt = _brief_to_markdown(_brief_selection_packet(candidate))
-        if len(candidate_prompt) <= max_chars:
-            selected = candidate
+        identifier = str(item.get("id", ""))
+        rendered_line_chars, sections = item_profiles[identifier]
+        candidate_chars = selected_selection_chars + _brief_selection_delta(
+            rendered_line_chars,
+            sections,
+            selected_section_counts,
+        )
+        if candidate_chars <= max_chars:
+            selected.append(item)
+            selected_selection_chars = candidate_chars
+            for section in sections:
+                selected_section_counts[section] = selected_section_counts.get(section, 0) + 1
         elif is_mandatory and overflow is None:
             overflow = {
                 "code": "BRIEF_REQUIRED_OVERFLOW",
@@ -1052,6 +1108,8 @@ def _select_brief_items_plan(
         "overflow": overflow,
         "mandatory": [dict(item) for item in mandatory_items],
         "mandatory_item_sizes": mandatory_item_sizes,
+        "mandatory_selection_chars": mandatory_selection_chars,
+        "selected_selection_chars": selected_selection_chars,
         "omitted": [
             dict(item) for item in sorted((dict(item) for item in items), key=_brief_sort_key)
             if str(item.get("id", "")) not in selected_ids
@@ -1094,11 +1152,49 @@ def _brief_text_metrics(text: str, *, basis: str) -> tuple[dict[str, Any], dict[
             "other_chars": other_chars,
         },
         {
-            "lower_bound": lower_bound,
-            "upper_bound": upper_bound,
-            "method": "portable-range-v1",
+            "range_low": lower_bound,
+            "range_high": upper_bound,
+            "method": "portable-heuristic-v1",
+            "semantics": "heuristic-not-guaranteed",
             "advisory": True,
         },
+    )
+
+
+def _brief_text_metrics_from_lines(
+    lines: Iterable[str], *, basis: str
+) -> tuple[dict[str, Any], dict[str, Any], int]:
+    ascii_chars = 0
+    cjk_chars = 0
+    other_chars = 0
+    line_count = 0
+    for line in lines:
+        if line_count:
+            ascii_chars += 1  # The rendered separator is one ASCII newline.
+        line_ascii_chars = sum(ord(character) < 128 for character in line)
+        line_cjk_chars = sum(_is_cjk(character) for character in line)
+        ascii_chars += line_ascii_chars
+        cjk_chars += line_cjk_chars
+        other_chars += len(line) - line_ascii_chars - line_cjk_chars
+        line_count += 1
+    total_chars = ascii_chars + cjk_chars + other_chars
+    lower_bound = (ascii_chars + 3) // 4 + cjk_chars + (other_chars + 1) // 2
+    upper_bound = (ascii_chars + 2) // 3 + 2 * cjk_chars + other_chars
+    return (
+        {
+            "basis": basis,
+            "ascii_chars": ascii_chars,
+            "cjk_chars": cjk_chars,
+            "other_chars": other_chars,
+        },
+        {
+            "range_low": lower_bound,
+            "range_high": upper_bound,
+            "method": "portable-heuristic-v1",
+            "semantics": "heuristic-not-guaranteed",
+            "advisory": True,
+        },
+        total_chars,
     )
 
 
@@ -1122,19 +1218,22 @@ def _plan_brief(
     empty_packet = _build_brief_packet(task_id, contract, snapshot, phase, [])
     empty_prompt = _brief_to_markdown(empty_packet)
     empty_selection_prompt = _brief_to_markdown(_brief_selection_packet([]))
-    fixed_overhead_chars = len(empty_prompt) - len(empty_selection_prompt)
-    selection_budget_chars = max_chars - fixed_overhead_chars
+    prompt_adjustment_chars = len(empty_prompt) - len(empty_selection_prompt)
+    selection_prompt_budget_chars = max_chars - prompt_adjustment_chars
 
     mandatory = [item for item in candidates if _brief_is_mandatory(item)]
-    mandatory_selection_prompt = _brief_to_markdown(_brief_selection_packet(mandatory))
-    mandatory_prompt = _brief_to_markdown(
-        _build_brief_packet(task_id, contract, snapshot, phase, mandatory)
-    )
-    if selection_budget_chars <= 0:
+    if selection_prompt_budget_chars <= 0:
+        measured_selection = _select_brief_items_plan(
+            candidates,
+            max_chars=1,
+            max_items=max_items,
+        )
         selection_plan = {
             "selected": [],
             "mandatory": mandatory,
-            "mandatory_item_sizes": [],
+            "mandatory_item_sizes": measured_selection["mandatory_item_sizes"],
+            "mandatory_selection_chars": measured_selection["mandatory_selection_chars"],
+            "selected_selection_chars": len(empty_selection_prompt),
             "omitted": candidates,
             "overflow": {
                 "code": "BRIEF_REQUIRED_OVERFLOW",
@@ -1146,16 +1245,16 @@ def _plan_brief(
     else:
         selection_plan = _select_brief_items_plan(
             candidates,
-            max_chars=selection_budget_chars,
+            max_chars=selection_prompt_budget_chars,
             max_items=max_items,
         )
 
     selected = selection_plan["selected"]
     packet = _build_brief_packet(task_id, contract, snapshot, phase, selected)
     selected_prompt = _brief_to_markdown(packet)
-    overflow = selection_plan["overflow"]
-    if overflow is None and len(selected_prompt) > max_chars:
-        overflow = {
+    brief_overflow = selection_plan["overflow"]
+    if brief_overflow is None and len(selected_prompt) > max_chars:
+        brief_overflow = {
             "code": "BRIEF_REQUIRED_OVERFLOW",
             "kind": "final_render",
             "message": "BRIEF_REQUIRED_OVERFLOW: brief content exceeds max_chars",
@@ -1167,36 +1266,56 @@ def _plan_brief(
         selection_plan["mandatory_item_sizes"],
         key=lambda item: (-item["rendered_chars"], item["id"]),
     )[:5]
-    if overflow is not None:
-        overflow = {**overflow, "largest_items": largest_items}
-    if overflow is None:
-        measured_text = selected_prompt
-        measured_basis = "selected_prompt"
-    elif mandatory:
-        measured_text = mandatory_prompt
-        measured_basis = "mandatory_prompt"
+    diagnostic_overflow = brief_overflow
+    if len(empty_prompt) > max_chars:
+        diagnostic_overflow = {
+            "code": "BRIEF_REQUIRED_OVERFLOW",
+            "kind": "fixed",
+            "message": "BRIEF_REQUIRED_OVERFLOW: fixed brief content exceeds max_chars",
+            "item_ids": [],
+        }
+    if diagnostic_overflow is not None:
+        diagnostic_overflow = {**diagnostic_overflow, "largest_items": largest_items}
+    if diagnostic_overflow is None:
+        text_metrics, token_estimate = _brief_text_metrics(
+            selected_prompt,
+            basis="selected_prompt",
+        )
+    elif diagnostic_overflow["kind"] != "fixed" and mandatory:
+        mandatory_packet = _build_brief_packet(task_id, contract, snapshot, phase, mandatory)
+        text_metrics, token_estimate, measured_prompt_chars = _brief_text_metrics_from_lines(
+            _brief_markdown_lines(mandatory_packet),
+            basis="mandatory_prompt",
+        )
     else:
-        measured_text = empty_prompt
-        measured_basis = "empty_prompt"
-    text_metrics, token_estimate = _brief_text_metrics(measured_text, basis=measured_basis)
-    selected_selection_chars = len(_brief_to_markdown(_brief_selection_packet(selected)))
+        text_metrics, token_estimate = _brief_text_metrics(
+            empty_prompt,
+            basis="empty_prompt",
+        )
+    mandatory_selection_chars = selection_plan["mandatory_selection_chars"]
+    mandatory_prompt_chars = prompt_adjustment_chars + mandatory_selection_chars
+    if diagnostic_overflow is not None and diagnostic_overflow["kind"] != "fixed" and mandatory:
+        mandatory_prompt_chars = measured_prompt_chars
+    selected_selection_chars = selection_plan["selected_selection_chars"]
     selected_ids = [str(item.get("id", "")) for item in selected]
     omitted_ids = [str(item.get("id", "")) for item in selection_plan["omitted"]]
     diagnostics = {
-        "status": "ready" if overflow is None else "overflow",
-        "fits": overflow is None,
-        "overflow": overflow,
+        "status": "ready" if diagnostic_overflow is None else "overflow",
+        "fits": diagnostic_overflow is None,
+        "overflow": diagnostic_overflow,
         "budget": {
             "max_chars": max_chars,
             "max_items": max_items,
-            "fixed_overhead_chars": fixed_overhead_chars,
-            "empty_prompt_chars": len(empty_prompt),
-            "selection_budget_chars": selection_budget_chars,
-            "selection_chars": selected_selection_chars,
-            "prompt_chars": len(selected_prompt) if overflow is None else None,
+            "fixed_prompt_chars": len(empty_prompt),
+            "selection_wrapper_chars": len(empty_selection_prompt),
+            "prompt_adjustment_chars": prompt_adjustment_chars,
+            "selection_prompt_budget_chars": selection_prompt_budget_chars,
+            "selection_prompt_chars": selected_selection_chars,
+            "item_contribution_chars": selected_selection_chars - len(empty_selection_prompt),
+            "prompt_chars": len(selected_prompt) if diagnostic_overflow is None else None,
             "selected_prompt_chars": len(selected_prompt),
-            "mandatory_selection_chars": len(mandatory_selection_prompt),
-            "mandatory_prompt_chars": len(mandatory_prompt),
+            "mandatory_selection_chars": mandatory_selection_chars,
+            "mandatory_prompt_chars": mandatory_prompt_chars,
         },
         "items": {
             "candidate_count": len(candidates),
@@ -1210,7 +1329,7 @@ def _plan_brief(
         "text": text_metrics,
         "token_estimate": token_estimate,
     }
-    return {"packet": packet, "diagnostics": diagnostics}
+    return {"packet": packet, "diagnostics": diagnostics, "brief_overflow": brief_overflow}
 
 
 def brief(
@@ -1231,7 +1350,7 @@ def brief(
         max_chars=max_chars,
         base_dir=base_dir,
     )
-    overflow = plan["diagnostics"]["overflow"]
+    overflow = plan["brief_overflow"]
     if overflow is not None:
         raise ContextError(overflow["message"])
     return plan["packet"]
@@ -1248,7 +1367,7 @@ def brief_diagnostics(
 ) -> dict[str, Any]:
     """Measure brief fit without weakening or suppressing required-content overflow."""
 
-    return deepcopy(
+    diagnostics = deepcopy(
         _plan_brief(
             task_id,
             phase=phase,
@@ -1258,6 +1377,18 @@ def brief_diagnostics(
             base_dir=base_dir,
         )["diagnostics"]
     )
+    filtered = diagnostics["items"]["filtered_mandatory_ids"]
+    if filtered and diagnostics["overflow"] is None:
+        diagnostics["status"] = "overflow"
+        diagnostics["fits"] = False
+        diagnostics["overflow"] = {
+            "code": "BRIEF_REQUIRED_OVERFLOW",
+            "kind": "include",
+            "message": "BRIEF_REQUIRED_OVERFLOW: include would omit a mandatory item",
+            "item_ids": filtered,
+            "largest_items": [],
+        }
+    return diagnostics
 
 
 def _brief_json(value: Any) -> str:
@@ -1310,30 +1441,32 @@ def _brief_acceptance_to_markdown(criterion: Mapping[str, Any]) -> str:
     return " | ".join(fields)
 
 
-def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
-    lines = [
-        f"# Controlled Task Brief: {packet.get('task_id')}",
-        f"Contract version: {packet.get('contract_version')}",
-        f"Objective: {packet.get('objective')}",
-        "",
-        "## Rules",
-        "Use only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently.",
-        "Do not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes.",
-    ]
+def _brief_markdown_lines(packet: Mapping[str, Any]) -> Iterable[str]:
+    yield f"# Controlled Task Brief: {packet.get('task_id')}"
+    yield f"Contract version: {packet.get('contract_version')}"
+    yield f"Objective: {packet.get('objective')}"
+    yield ""
+    yield "## Rules"
+    yield "Use only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently."
+    yield "Do not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes."
     actor_roles = packet.get("actor_roles")
     if isinstance(actor_roles, Mapping) and actor_roles:
-        lines.extend(["", "## Actor Roles", f"- actor_roles={_brief_json(actor_roles)}"])
+        yield ""
+        yield "## Actor Roles"
+        yield f"- actor_roles={_brief_json(actor_roles)}"
     for heading, key in (
         ("Scope", "scope"),
         ("Out of Scope", "out_of_scope"),
         ("Constraints", "constraints"),
     ):
         values = packet.get(key) or []
-        lines.extend(["", f"## {heading}"])
+        yield ""
+        yield f"## {heading}"
         if not values:
-            lines.append("- None")
+            yield "- None"
             continue
-        lines.extend(f"- {value}" for value in values)
+        for value in values:
+            yield f"- {value}"
     for heading, key in (
         ("Acceptance Criteria", "acceptance_criteria"),
         ("Verified Facts", "facts"),
@@ -1344,28 +1477,33 @@ def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
         ("Conflicts", "conflicts"),
     ):
         values = packet.get(key) or []
-        lines.extend(["", f"## {heading}"])
+        yield ""
+        yield f"## {heading}"
         if not values:
-            lines.append("- None")
+            yield "- None"
             continue
         for value in values:
             if isinstance(value, dict):
                 if key == "acceptance_criteria":
-                    lines.append(_brief_acceptance_to_markdown(value))
+                    yield _brief_acceptance_to_markdown(value)
                 else:
-                    lines.append(_brief_item_to_markdown(value))
+                    yield _brief_item_to_markdown(value)
             else:
-                lines.append(f"- {value}")
+                yield f"- {value}"
     checkpoint_value = packet.get("latest_checkpoint")
-    lines.extend(["", "## Latest Checkpoint"])
+    yield ""
+    yield "## Latest Checkpoint"
     if isinstance(checkpoint_value, dict):
-        lines.append(f"- Phase: {checkpoint_value.get('phase')}")
-        lines.append(f"- Next action: {checkpoint_value.get('next_action')}")
+        yield f"- Phase: {checkpoint_value.get('phase')}"
+        yield f"- Next action: {checkpoint_value.get('next_action')}"
         if checkpoint_value.get("blockers"):
-            lines.append(f"- Blockers: {checkpoint_value.get('blockers')}")
+            yield f"- Blockers: {checkpoint_value.get('blockers')}"
     else:
-        lines.append("- None")
-    return "\n".join(lines)
+        yield "- None"
+
+
+def _brief_to_markdown(packet: Mapping[str, Any]) -> str:
+    return "\n".join(_brief_markdown_lines(packet))
 
 
 def _audit_documents(documents: Sequence[str | Path], max_pointer_lag_seconds: float) -> tuple[list[str], list[str], int]:
@@ -1653,7 +1791,11 @@ def _gate_core(
         try:
             brief_report = brief_diagnostics(task_id, base_dir=base_dir)
         except (ContextError, ValueError) as exc:
-            warnings.append(f"brief preflight unavailable: {exc}")
+            message = f"brief preflight unavailable: {exc}"
+            if stage == "handoff":
+                errors.append(message)
+            else:
+                warnings.append(message)
         else:
             overflow = brief_report.get("overflow")
             if isinstance(overflow, Mapping):
@@ -1805,8 +1947,8 @@ def _gate_core(
             "evidence_attempts": evidence_attempts,
             "brief_status": (brief_report or {}).get("status", "unavailable"),
             "brief_overflow_kind": ((brief_report or {}).get("overflow") or {}).get("kind"),
-            "brief_fixed_overhead_chars": (
-                (brief_report or {}).get("budget", {}).get("fixed_overhead_chars")
+            "brief_fixed_prompt_chars": (
+                (brief_report or {}).get("budget", {}).get("fixed_prompt_chars")
             ),
             "brief_mandatory_prompt_chars": (
                 (brief_report or {}).get("budget", {}).get("mandatory_prompt_chars")
