@@ -36,9 +36,8 @@ live project observation.
 Store each task at `.context-lite/<task-id>/NOW.md`. Use the fixed template in
 `assets/NOW.template.md`; do not add headings. Keep only the goal, current state,
 decisions, blockers, and next work—not chat history, long logs, or copied code.
-The model consumes `NOW.md` plus observations fetched through `refresh_ref` or
-`recovery_ref` by default. Do not load archives or whole logs unless investigating
-a specific discrepancy.
+Load only `NOW.md` and targeted `refresh_ref`/`recovery_ref` observations; read
+archives or logs only for a specific discrepancy.
 
 ## Stable References
 
