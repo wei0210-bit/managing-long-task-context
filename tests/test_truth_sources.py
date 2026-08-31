@@ -2210,6 +2210,54 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self.assertIn("criterion AC-01 evidence EV-GATE is fail", result["errors"])
         self.assertEqual(result["truth_source_results"][0]["status"], "unknown")
 
+    def test_completion_final_context_error_propagates_after_entry_callback(self) -> None:
+        self._prepare_passing_completion()
+        evidence_resolver_calls = 0
+
+        def evidence_resolver(evidence, criterion, contract, now):
+            nonlocal evidence_resolver_calls
+            evidence_resolver_calls += 1
+            return self._passing_resolver(evidence, criterion, contract, now)
+
+        with patch.object(context, "_truth_gate_final", side_effect=context.ContextError("ordinary-final-context-error")):
+            with self.assertRaisesRegex(context.ContextError, "ordinary-final-context-error"):
+                context.gate(
+                    self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+                    resolvers={"custom": evidence_resolver},
+                    verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+                    base_dir=self.base, emit=False,
+                )
+        self.assertEqual(evidence_resolver_calls, 1)
+
+    def test_completion_tail_body_context_error_propagates_after_entry_callback(self) -> None:
+        self._prepare_passing_completion()
+        evidence_resolver_calls = 0
+        truth_phase_calls = 0
+        original_truth_phase = context._evaluate_truth_phase_locked
+
+        def evidence_resolver(evidence, criterion, contract, now):
+            nonlocal evidence_resolver_calls
+            evidence_resolver_calls += 1
+            return self._passing_resolver(evidence, criterion, contract, now)
+
+        def tail_body_error(*args, **kwargs):
+            nonlocal truth_phase_calls
+            truth_phase_calls += 1
+            if truth_phase_calls == 2:
+                raise context.ContextError("ordinary-tail-body-context-error")
+            return original_truth_phase(*args, **kwargs)
+
+        with patch.object(context, "_evaluate_truth_phase_locked", side_effect=tail_body_error):
+            with self.assertRaisesRegex(context.ContextError, "ordinary-tail-body-context-error"):
+                context.gate(
+                    self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+                    resolvers={"custom": evidence_resolver},
+                    verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+                    base_dir=self.base, emit=False,
+                )
+        self.assertEqual(evidence_resolver_calls, 1)
+        self.assertEqual(truth_phase_calls, 2)
+
     def test_release_verdict_is_fixed_before_writer_can_finish(self) -> None:
         self._observe()
         entered = threading.Event()
