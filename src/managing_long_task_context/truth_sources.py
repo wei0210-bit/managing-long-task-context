@@ -190,7 +190,9 @@ def _required_flags() -> tuple[int, int] | None:
     # Non-blocking is mandatory: without it, a FIFO/device final target can
     # hang before fstat has a chance to reject it as non-regular.
     nonblocking = getattr(os, "O_NONBLOCK", None)
-    if not all(isinstance(flag, int) for flag in (readonly, nofollow, cloexec, directory, nonblocking)):
+    if type(readonly) is not int:
+        return None
+    if any(type(flag) is not int or flag == 0 for flag in (nofollow, cloexec, directory, nonblocking)):
         return None
     return readonly | nofollow | cloexec | directory, readonly | nofollow | cloexec | nonblocking
 

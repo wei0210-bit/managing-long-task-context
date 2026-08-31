@@ -534,6 +534,18 @@ class SecureFileResolverTests(unittest.TestCase):
                     "fingerprint": None,
                 })
 
+    def test_zero_or_false_safety_flags_fail_closed_before_open(self) -> None:
+        for flag_name in ("O_NOFOLLOW", "O_CLOEXEC", "O_DIRECTORY", "O_NONBLOCK"):
+            for value in (0, False):
+                with self.subTest(flag_name=flag_name, value=value), \
+                     patch.object(truth_sources.os, flag_name, value), \
+                     patch.object(truth_sources.os, "open", side_effect=AssertionError("must not open")):
+                    self.assertEqual(self.resolve(), {
+                        "status": "unknown",
+                        "code": "TRUTH_SOURCE_RESOLVER_UNKNOWN",
+                        "fingerprint": None,
+                    })
+
     def test_close_failure_returns_unknown_and_never_retries_a_descriptor(self) -> None:
         original_open, original_close = truth_sources.os.open, truth_sources.os.close
         opened: list[int] = []
