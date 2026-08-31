@@ -837,6 +837,99 @@ class TruthSourceRecoveryTests(_TruthSourceContractFixture):
                         view = context._load_committed_task_view_locked("TSC-03", paths)
                         self.assertEqual(view["snapshot"], context._rebuild_snapshot("TSC-03", view["events"]))
 
+    def test_rebuild_and_matching_reject_extra_or_forged_publish_envelopes(self) -> None:
+        sealed = self.publish()
+        original = self.events()[0]
+        for mutation in (
+            lambda event: event.update({"extra": True}),
+            lambda event: event.update({"schema": 99}),
+            lambda event: event.update({"task_id": "OTHER"}),
+            lambda event: event.update({"event_id": "forged"}),
+            lambda event: event["payload"].update({"extra": True}),
+            lambda event: event.update({"actor": "other"}),
+        ):
+            with self.subTest(mutation=mutation):
+                event = json.loads(json.dumps(original))
+                mutation(event)
+                with self.assertRaises(context.ContextError):
+                    context._rebuild_snapshot("TSC-03", [event])
+                self.assertEqual(context._matching_contract_publish_events(sealed, [event]), [])
+
+    def test_latest_publish_conflicts_never_repair(self) -> None:
+        sealed = self.publish()
+        for field, value in (
+            ("version", 2),
+            ("integrity_digest", "sha256:" + "f" * 64),
+            ("confirmed_by", "other"),
+            ("confirmed_at", "2026-08-31T04:00:00+00:00"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary_dir:
+                self.base = Path(temporary_dir) / ".prime" / "context"
+                sealed = self.publish()
+                event = context._new_event("TSC-03", "contract-published", "publisher", {
+                    "task_id": "TSC-03", "version": 2,
+                    "integrity_digest": sealed["seal"]["integrity_digest"],
+                    "confirmed_by": sealed["seal"]["confirmed_by"],
+                    "confirmed_at": sealed["seal"]["confirmed_at"],
+                    "truth_source_reset": {"schema": "truth-sources/v1", "generation": 2, "source_ids": ["TS-STATUS"]},
+                })
+                event["payload"][field] = value
+                if field == "confirmed_by":
+                    event["actor"] = value
+                paths = context._paths("TSC-03", self.base)
+                with paths["events"].open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(event) + "\n")
+                with self.assertRaisesRegex(context.ContextError, "CONTRACT_COMMIT_MISMATCH"):
+                    self.publish()
+
+    def test_no_matching_publish_with_newer_latest_event_never_repairs(self) -> None:
+        with patch.object(context, "_append_event_locked", side_effect=OSError("event cut")):
+            with self.assertRaises(OSError):
+                self.publish()
+        sealed = context._read_json(context._paths("TSC-03", self.base)["contract"])
+        conflicting = context._new_event("TSC-03", "contract-published", "publisher", {
+            "task_id": "TSC-03", "version": 2,
+            "integrity_digest": "sha256:" + "f" * 64,
+            "confirmed_by": "publisher",
+            "confirmed_at": "2026-08-31T04:00:00+00:00",
+            "truth_source_reset": {"schema": "truth-sources/v1", "generation": 1, "source_ids": ["TS-STATUS"]},
+        })
+        paths = context._paths("TSC-03", self.base)
+        with paths["events"].open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(conflicting) + "\n")
+        with self.assertRaisesRegex(context.ContextError, "CONTRACT_COMMIT_MISMATCH"):
+            self.publish()
+        self.assertEqual(context._matching_contract_publish_events(sealed, self.events()), [])
+
+    def test_committed_view_uses_rebuilt_snapshot_when_same_count_content_differs(self) -> None:
+        self.publish()
+        paths = context._paths("TSC-03", self.base)
+        stale = context._read_json(paths["snapshot"])
+        stale["truth_sources"]["sources"]["TS-STATUS"]["status"] = "observed"
+        context._atomic_write_json(paths["snapshot"], stale)
+        view = context._load_committed_task_view_locked("TSC-03", paths)
+        self.assertEqual(view["snapshot"], context._rebuild_snapshot("TSC-03", view["events"]))
+
+
+class LegacyTruthSourceFastPathTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name) / ".prime" / "context"
+        self.addCleanup(self.temp.cleanup)
+        context.publish_contract(LEGACY_CONTRACT, confirmed_by="publisher", base_dir=self.base)
+
+    def test_corrupt_legacy_events_do_not_trigger_truth_recovery_for_brief_or_gate(self) -> None:
+        paths = context._paths("LEGACY-GOLDEN", self.base)
+        with paths["events"].open("ab") as handle:
+            handle.write(b"{corrupt\n")
+        with patch.object(context, "_rebuild_snapshot", side_effect=AssertionError("truth recovery")):
+            packet = context.brief("LEGACY-GOLDEN", base_dir=self.base)
+            report = context.gate("LEGACY-GOLDEN", stage="release", base_dir=self.base, emit=False)
+        self.assertEqual(packet["task_id"], "LEGACY-GOLDEN")
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("invalid JSONL" in error for error in report["errors"]))
+        self.assertFalse(any("brief preflight unavailable" in error for error in report["errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()

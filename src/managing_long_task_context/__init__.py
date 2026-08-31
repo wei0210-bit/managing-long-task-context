@@ -605,17 +605,69 @@ def _apply_truth_control_event(snapshot: dict[str, Any], event: Mapping[str, Any
     return result
 
 
+_EVENT_FIELDS = frozenset({"schema", "event_id", "task_id", "event_type", "actor", "created_at", "payload"})
+_EVENT_TYPES = frozenset({
+    "contract-published", "item-recorded", "item-updated", "checkpoint-recorded",
+    "truth-source-dirtied", "truth-source-observed",
+})
+_CONTRACT_PUBLISH_FIELDS = frozenset({
+    "task_id", "version", "integrity_digest", "confirmed_by", "confirmed_at",
+})
+
+
+def _validate_event_envelope(task_id: str, event: Mapping[str, Any]) -> None:
+    if set(event) != _EVENT_FIELDS:
+        raise ContextError("event envelope fields are invalid")
+    if event.get("schema") != SCHEMA_VERSION:
+        raise ContextError("event schema is invalid")
+    event_id = event.get("event_id")
+    if not isinstance(event_id, str) or re.fullmatch(r"EV-[0-9a-f]{12}", event_id) is None:
+        raise ContextError("event_id is invalid")
+    if event.get("task_id") != task_id:
+        raise ContextError("event task_id does not match task")
+    if event.get("event_type") not in _EVENT_TYPES:
+        raise ContextError("event_type is invalid")
+    if not isinstance(event.get("actor"), str) or not event["actor"].strip():
+        raise ContextError("event actor is invalid")
+    if not _valid_explicit_utc_timestamp(event.get("created_at")):
+        raise ContextError("event created_at is invalid")
+    if not isinstance(event.get("payload"), Mapping):
+        raise ContextError("event payload must be an object")
+
+
+def _validate_contract_publish_event(event: Mapping[str, Any], *, task_id: str) -> None:
+    _validate_event_envelope(task_id, event)
+    payload = event["payload"]
+    assert isinstance(payload, Mapping)
+    allowed = _CONTRACT_PUBLISH_FIELDS | ({"truth_source_reset"} if "truth_source_reset" in payload else set())
+    if event.get("event_type") != "contract-published" or set(payload) != allowed:
+        raise ContextError("contract-published payload fields are invalid")
+    if payload.get("task_id") != task_id:
+        raise ContextError("contract-published payload task_id is invalid")
+    if not isinstance(payload.get("version"), (int, float, str)) or isinstance(payload.get("version"), bool):
+        raise ContextError("contract-published payload version is invalid")
+    if not isinstance(payload.get("integrity_digest"), str) or re.fullmatch(r"sha256:[0-9a-f]{64}", payload["integrity_digest"]) is None:
+        raise ContextError("contract-published payload integrity_digest is invalid")
+    if not isinstance(payload.get("confirmed_by"), str) or not payload["confirmed_by"].strip() or event.get("actor") != payload["confirmed_by"]:
+        raise ContextError("contract-published actor must equal confirmed_by")
+    if not _valid_explicit_utc_timestamp(payload.get("confirmed_at")):
+        raise ContextError("contract-published payload confirmed_at is invalid")
+
+
 def _apply_event(snapshot: dict[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
+    task_id = snapshot.get("task_id")
+    if not isinstance(task_id, str):
+        raise ContextError("snapshot task_id is invalid")
+    _validate_event_envelope(task_id, event)
     result = deepcopy(snapshot)
     event_type = event.get("event_type")
     payload = event.get("payload")
-    if not isinstance(payload, dict):
-        payload = {}
+    assert isinstance(payload, Mapping)
     if event_type == "contract-published":
+        _validate_contract_publish_event(event, task_id=task_id)
         result["contract"] = deepcopy(payload)
         reset = payload.get("truth_source_reset") if isinstance(payload, Mapping) else None
         if reset is not None:
-            _validate_truth_event_envelope(event, "contract-published")
             if not isinstance(reset, Mapping) or set(reset) != {"schema", "generation", "source_ids"}:
                 raise _truth_event_error(event_type, "truth_source_reset fields are invalid")
             if reset.get("schema") != CAPABILITY:
@@ -696,9 +748,11 @@ def _matching_contract_publish_events(
     matches: list[dict[str, Any]] = []
     for event in events:
         payload = event.get("payload") if isinstance(event, Mapping) else None
-        if event.get("event_type") == "contract-published" and isinstance(payload, Mapping) and all(
-            payload.get(field) == value for field, value in expected.items()
-        ):
+        try:
+            _validate_contract_publish_event(event, task_id=str(contract.get("task_id")))
+        except ContextError:
+            continue
+        if isinstance(payload, Mapping) and all(payload.get(field) == value for field, value in expected.items()):
             matches.append(dict(event))
     return matches
 
@@ -722,12 +776,18 @@ def _committed_contract_errors(
     if len(matching) > 1:
         return ["CONTRACT_COMMIT_DUPLICATE_EVENT"]
     if len(matching) == 0:
+        if not published:
+            return ["CONTRACT_COMMIT_MISSING_EVENT"]
         same_version = [
             event for event in published
             if isinstance(event.get("payload"), Mapping)
             and event["payload"].get("version") == contract.get("version")
         ]
-        return ["CONTRACT_COMMIT_MISMATCH" if same_version else "CONTRACT_COMMIT_MISSING_EVENT"]
+        latest_payload = latest.get("payload") if isinstance(latest, Mapping) else None
+        latest_version = latest_payload.get("version") if isinstance(latest_payload, Mapping) else None
+        if same_version or _version_key(latest_version) >= _version_key(contract.get("version")):
+            return ["CONTRACT_COMMIT_MISMATCH"]
+        return ["CONTRACT_COMMIT_MISSING_EVENT"]
     if latest != matching[0]:
         return ["CONTRACT_COMMIT_MISMATCH"]
     reset = matching[0].get("payload", {}).get("truth_source_reset")
@@ -752,18 +812,35 @@ def _load_committed_task_view_locked(task_id: str, paths: Mapping[str, Path]) ->
     errors = _validate_sealed_contract(contract)
     if errors:
         raise ContextError("release gate failed: " + "; ".join(errors))
+    try:
+        snapshot = _read_json(paths["snapshot"])
+    except ContextError:
+        snapshot = None
+    truth_history_enabled = truth_sources_enabled(contract) or (
+        isinstance(snapshot, Mapping) and isinstance(snapshot.get("truth_sources"), Mapping)
+    )
+    if not truth_history_enabled and snapshot is not None:
+        return {
+            "contract": contract,
+            "snapshot": snapshot,
+            "events": [],
+            "contract_digest": contract["seal"]["integrity_digest"],
+            "event_tail_id": None,
+            "event_count": snapshot.get("event_count", 0),
+            "truth_history_enabled": False,
+        }
     events = _read_events(paths["events"])
-    truth_history_enabled = truth_sources_enabled(contract) or _has_truth_reset(events)
+    if not truth_history_enabled:
+        truth_history_enabled = _has_truth_reset(events)
     rebuilt = _rebuild_snapshot(task_id, events)
     if truth_history_enabled:
         committed = _committed_contract_errors(contract, events, rebuilt)
         if committed:
             raise ContextError(committed[0])
-    try:
-        snapshot = _read_json(paths["snapshot"])
-    except ContextError:
+        # A strict projection is authoritative even if a stale snapshot has the
+        # same event count; the snapshot is only a write-through cache.
         snapshot = rebuilt
-    if truth_history_enabled and snapshot.get("event_count") != len(events):
+    elif snapshot is None:
         snapshot = rebuilt
     return {
         "contract": contract,
@@ -932,14 +1009,29 @@ def publish_contract(
     task_id = str(value["task_id"])
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        existing_truth_history = False
+        existing_events: list[dict[str, Any]] | None = None
         if paths["contract"].exists():
             existing = _read_json(paths["contract"])
             existing_errors = _validate_sealed_contract(existing)
             if existing_errors:
                 raise ContextError("existing contract is invalid: " + "; ".join(existing_errors))
-            existing_events = _read_events(paths["events"])
-            existing_truth_history = truth_sources_enabled(existing) or _has_truth_reset(existing_events)
+            try:
+                existing_snapshot = _read_json(paths["snapshot"])
+            except ContextError:
+                existing_snapshot = None
+            existing_truth_history = truth_sources_enabled(existing) or (
+                isinstance(existing_snapshot, Mapping)
+                and isinstance(existing_snapshot.get("truth_sources"), Mapping)
+            )
+            if existing_snapshot is None and not existing_truth_history:
+                existing_events = _read_events(paths["events"])
+                existing_truth_history = _has_truth_reset(existing_events)
             if existing_truth_history:
+                if existing_events is None:
+                    existing_events = _read_events(paths["events"])
+                if not truth_sources_enabled(existing):
+                    existing_truth_history = _has_truth_reset(existing_events)
                 existing_rebuilt = _rebuild_snapshot(task_id, existing_events)
                 commit_errors = _committed_contract_errors(existing, existing_events, existing_rebuilt)
                 same_publisher_fields = _canonical_contract_input(value) == _canonical_contract_input(existing)
@@ -968,8 +1060,12 @@ def publish_contract(
         }
         value["seal"]["integrity_digest"] = _contract_digest(value)
         _atomic_write_json(paths["contract"], value)
-        events = _read_events(paths["events"])
-        snapshot = _rebuild_snapshot(task_id, events) if truth_sources_enabled(value) or _has_truth_reset(events) else _load_snapshot(task_id, paths)
+        strict_rebuild = truth_sources_enabled(value) or existing_truth_history
+        if strict_rebuild:
+            events = _read_events(paths["events"])
+            snapshot = _rebuild_snapshot(task_id, events)
+        else:
+            snapshot = _load_snapshot(task_id, paths)
         payload: dict[str, Any] = {
             "task_id": task_id,
             "version": value["version"],
@@ -1935,8 +2031,13 @@ def _audit_core(
     try:
         contract = _read_json(paths["contract"])
         errors.extend(_validate_sealed_contract(contract))
+        try:
+            stored_snapshot = _read_json(paths["snapshot"])
+        except ContextError:
+            stored_snapshot = None
     except ContextError as exc:
         contract = {}
+        stored_snapshot = None
         errors.append(str(exc))
 
     events_valid = True
@@ -1954,21 +2055,28 @@ def _audit_core(
         errors.append(str(exc))
 
     if events_valid:
+        truth_history_enabled = truth_sources_enabled(contract) or (
+            isinstance(stored_snapshot, Mapping)
+            and isinstance(stored_snapshot.get("truth_sources"), Mapping)
+        )
         try:
-            rebuilt = _rebuild_snapshot(task_id, events)
+            if truth_history_enabled:
+                rebuilt = _rebuild_snapshot(task_id, events)
+            else:
+                rebuilt = _empty_snapshot(task_id)
+                for event in events:
+                    rebuilt = _apply_event(rebuilt, event)
         except ContextError as exc:
             events_valid = False
             rebuilt = _empty_snapshot(task_id)
             errors.append(str(exc))
     if events_valid:
-        truth_history_enabled = truth_sources_enabled(contract) or _has_truth_reset(events)
+        if not truth_history_enabled:
+            truth_history_enabled = _has_truth_reset(events)
         if truth_history_enabled:
             commit_errors = _committed_contract_errors(contract, events, rebuilt)
             errors.extend(commit_errors)
-        try:
-            snapshot = _read_json(paths["snapshot"])
-        except ContextError:
-            snapshot = deepcopy(rebuilt)
+        snapshot = deepcopy(stored_snapshot) if isinstance(stored_snapshot, Mapping) else deepcopy(rebuilt)
         if truth_history_enabled and snapshot.get("event_count") != len(events):
             snapshot = deepcopy(rebuilt)
         elif snapshot != rebuilt:
