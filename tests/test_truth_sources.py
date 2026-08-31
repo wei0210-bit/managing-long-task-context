@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import errno
@@ -635,6 +636,195 @@ class _TruthSourceContractFixture(unittest.TestCase):
         return context._read_events(context._paths("TSC-03", self.base)["events"])
 
 
+class TruthSourceApiTests(_TruthSourceContractFixture):
+    def setUp(self) -> None:
+        super().setUp()
+        self.workspace = self.workspace.resolve()
+        status_dir = self.workspace / "docs"
+        status_dir.mkdir()
+        self.status = status_dir / "TS-STATUS.md"
+        self.status.write_text("initial authoritative status\n", encoding="utf-8")
+        self.publish()
+        self.task_id = "TSC-03"
+
+    def paths(self) -> dict[str, Path]:
+        return context._paths(self.task_id, self.base)
+
+    def snapshot(self) -> dict[str, object]:
+        return context._read_json(self.paths()["snapshot"])
+
+    def events_bytes(self) -> bytes:
+        return self.paths()["events"].read_bytes()
+
+    def test_mark_dirty_updates_only_matching_sources_once(self) -> None:
+        before = self.snapshot()["truth_sources"]["generation"]
+        result = context.mark_truth_sources_dirty(
+            self.task_id,
+            change_kind="implementation-change",
+            actor="executor-01",
+            reason="authentication behavior changed",
+            base_dir=self.base,
+        )
+        self.assertEqual(result["generation"], before + 1)
+        self.assertEqual(result["affected_source_ids"], ["TS-STATUS"])
+        self.assertEqual(set(result), {"event_id", "generation", "affected_source_ids"})
+        self.assertEqual(self.snapshot()["truth_sources"]["generation"], before + 1)
+
+    def test_public_dispatcher_and_exports_include_both_write_apis(self) -> None:
+        self.assertIn("mark_truth_sources_dirty", context.__all__)
+        self.assertIn("observe_truth_source", context.__all__)
+        result = asyncio.run(context.run(
+            "mark_truth_sources_dirty",
+            task_id=self.task_id,
+            change_kind="implementation-change",
+            actor="executor-01",
+            reason="dispatcher path",
+            base_dir=self.base,
+        ))
+        self.assertEqual(result["affected_source_ids"], ["TS-STATUS"])
+
+    def test_mark_dirty_without_matching_change_kind_writes_nothing(self) -> None:
+        before = self.events_bytes()
+        with self.assertRaisesRegex(context.ContextError, "TRUTH_SOURCE_CHANGE_KIND_UNDECLARED"):
+            context.mark_truth_sources_dirty(
+                self.task_id,
+                change_kind="typo-change",
+                actor="executor-01",
+                reason="must not write",
+                base_dir=self.base,
+            )
+        self.assertEqual(self.events_bytes(), before)
+
+    def test_observe_requires_declared_owner_and_stable_refs(self) -> None:
+        before = self.events_bytes()
+        with self.assertRaisesRegex(context.ContextError, "TRUTH_SOURCE_OWNER_MISMATCH"):
+            context.observe_truth_source(
+                self.task_id,
+                source_id="TS-STATUS",
+                actor="executor-01",
+                verification_refs=["review:1"],
+                base_dir=self.base,
+            )
+        self.assertEqual(self.events_bytes(), before)
+        with self.assertRaisesRegex(context.ContextError, "TRUTH_SOURCE_VERIFICATION_REFS_INVALID"):
+            context.observe_truth_source(
+                self.task_id,
+                source_id="TS-STATUS",
+                actor="publisher",
+                verification_refs=["not a stable reference"],
+                base_dir=self.base,
+            )
+        self.assertEqual(self.events_bytes(), before)
+
+    def test_observe_binds_current_contract_generation_fingerprint_and_time(self) -> None:
+        result = context.observe_truth_source(
+            self.task_id,
+            source_id="TS-STATUS",
+            actor="publisher",
+            verification_refs=["review:initial"],
+            base_dir=self.base,
+        )
+        event = self.events()[-1]
+        self.assertEqual(set(result), {
+            "event_id", "source_id", "observed_generation", "fingerprint", "observed_at",
+        })
+        self.assertEqual(result["event_id"], event["event_id"])
+        self.assertEqual(result["source_id"], "TS-STATUS")
+        self.assertEqual(result["observed_generation"], 1)
+        self.assertEqual(result["fingerprint"], "sha256:" + hashlib.sha256(self.status.read_bytes()).hexdigest())
+        self.assertEqual(result["observed_at"], event["created_at"])
+        self.assertEqual(event["payload"]["observed_generation"], 1)
+        self.assertNotIn("verification_refs", result)
+
+    def test_observe_rejects_undeclared_file_change_until_marked_dirty(self) -> None:
+        context.observe_truth_source(
+            self.task_id,
+            source_id="TS-STATUS",
+            actor="publisher",
+            verification_refs=["review:baseline"],
+            base_dir=self.base,
+        )
+        self.status.write_text("changed authoritative status\n", encoding="utf-8")
+        before = self.events_bytes()
+        with self.assertRaisesRegex(context.ContextError, "TRUTH_SOURCE_UNDECLARED_CHANGE"):
+            context.observe_truth_source(
+                self.task_id,
+                source_id="TS-STATUS",
+                actor="publisher",
+                verification_refs=["review:changed"],
+                base_dir=self.base,
+            )
+        self.assertEqual(self.events_bytes(), before)
+        context.mark_truth_sources_dirty(
+            self.task_id,
+            change_kind="implementation-change",
+            actor="executor-01",
+            reason="status implementation changed",
+            base_dir=self.base,
+        )
+        result = context.observe_truth_source(
+            self.task_id,
+            source_id="TS-STATUS",
+            actor="publisher",
+            verification_refs=["review:changed"],
+            base_dir=self.base,
+        )
+        self.assertEqual(result["observed_generation"], 2)
+
+    def test_repeated_same_fingerprint_observe_refreshes_same_generation(self) -> None:
+        first = context.observe_truth_source(
+            self.task_id,
+            source_id="TS-STATUS",
+            actor="publisher",
+            verification_refs=["review:first"],
+            base_dir=self.base,
+        )
+        second = context.observe_truth_source(
+            self.task_id,
+            source_id="TS-STATUS",
+            actor="publisher",
+            verification_refs=["review:refresh"],
+            base_dir=self.base,
+        )
+        self.assertEqual(first["fingerprint"], second["fingerprint"])
+        self.assertEqual(first["observed_generation"], second["observed_generation"])
+        state = self.snapshot()["truth_sources"]["sources"]["TS-STATUS"]
+        self.assertEqual(state["observed_generation"], 1)
+        self.assertEqual(state["observation"]["verification_refs"], ["review:refresh"])
+
+    def test_resolver_failure_writes_no_event(self) -> None:
+        before = self.events_bytes()
+        with patch.object(context, "resolve_file_source", return_value={
+            "status": "unknown", "code": "TRUTH_SOURCE_TRANSIENT_IO", "fingerprint": None,
+        }):
+            with self.assertRaisesRegex(context.ContextError, "TRUTH_SOURCE_TRANSIENT_IO"):
+                context.observe_truth_source(
+                    self.task_id,
+                    source_id="TS-STATUS",
+                    actor="publisher",
+                    verification_refs=["review:retry"],
+                    base_dir=self.base,
+                )
+        self.assertEqual(self.events_bytes(), before)
+
+    def test_uncommitted_contract_writes_no_event(self) -> None:
+        uncommitted_base = Path(self.temp.name) / "uncommitted" / ".prime" / "context"
+        with patch.object(context, "_append_event_locked", side_effect=OSError("event cut")):
+            with self.assertRaises(OSError):
+                context.publish_contract(self.contract(), confirmed_by="publisher", base_dir=uncommitted_base)
+        paths = context._paths(self.task_id, uncommitted_base)
+        before_exists = paths["events"].exists()
+        with self.assertRaisesRegex(context.ContextError, "CONTRACT_COMMIT_MISSING_EVENT"):
+            context.mark_truth_sources_dirty(
+                self.task_id,
+                change_kind="implementation-change",
+                actor="executor-01",
+                reason="must not repair an uncommitted contract",
+                base_dir=uncommitted_base,
+            )
+        self.assertEqual(paths["events"].exists(), before_exists)
+
+
 class TruthSourceReducerTests(_TruthSourceContractFixture):
     maxDiff = None
 
@@ -659,12 +849,12 @@ class TruthSourceReducerTests(_TruthSourceContractFixture):
         digest = events[0]["payload"]["integrity_digest"]
         events.extend([
             context._new_event("TSC-03", "truth-source-dirtied", "publisher", {
-                "contract_digest": digest, "generation": 1, "change_kind": "implementation-change",
-                "reason": "changed", "source_ids": ["TS-A"],
+                "contract_digest": digest, "generation": 2, "change_kind": "implementation-change",
+                "reason": "changed", "affected_source_ids": ["TS-A"],
             }),
             context._new_event("TSC-03", "truth-source-dirtied", "publisher", {
-                "contract_digest": digest, "generation": 2, "change_kind": "implementation-change",
-                "reason": "changed again", "source_ids": ["TS-A"],
+                "contract_digest": digest, "generation": 3, "change_kind": "implementation-change",
+                "reason": "changed again", "affected_source_ids": ["TS-A"],
             }),
         ])
         snapshot = context._rebuild_snapshot("TSC-03", events)
@@ -695,7 +885,7 @@ class TruthSourceReducerTests(_TruthSourceContractFixture):
         self.publish()
         event = context._new_event("TSC-03", "truth-source-dirtied", "publisher", {
             "contract_digest": "sha256:" + "0" * 64, "generation": 3,
-            "change_kind": "implementation-change", "reason": "bad", "source_ids": ["MISSING"],
+            "change_kind": "implementation-change", "reason": "bad", "affected_source_ids": ["MISSING"],
         })
         with self.assertRaisesRegex(context.ContextError, "truth-source-dirtied"):
             context._rebuild_snapshot("TSC-03", [*self.events(), event])
@@ -706,12 +896,11 @@ class TruthSourceReducerTests(_TruthSourceContractFixture):
         digest = events[0]["payload"]["integrity_digest"]
         events.append(context._new_event("TSC-03", "truth-source-dirtied", "publisher", {
             "contract_digest": digest, "generation": 4, "change_kind": "implementation-change",
-            "reason": "poison", "source_ids": ["TS-STATUS"],
+            "reason": "poison", "affected_source_ids": ["TS-STATUS"],
         }))
         events.append(context._new_event("TSC-03", "truth-source-observed", "publisher", {
-            "contract_digest": digest, "generation": 1, "source_id": "TS-STATUS",
+            "contract_digest": digest, "observed_generation": 1, "source_id": "TS-STATUS",
             "fingerprint": "sha256:" + "1" * 64, "verification_refs": ["review:1"],
-            "observed_at": "2026-08-31T03:00:00+00:00",
         }))
         with self.assertRaisesRegex(context.ContextError, "generation"):
             context._rebuild_snapshot("TSC-03", events)

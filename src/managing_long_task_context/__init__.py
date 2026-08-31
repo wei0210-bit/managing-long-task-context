@@ -22,7 +22,13 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from .evidence import MAX_CLOCK_SKEW_SECONDS, canonical_json_bytes, evaluate_evidence
-from .truth_sources import CAPABILITY, truth_sources_enabled, validate_truth_source_contract
+from .truth_sources import (
+    CAPABILITY,
+    VERIFICATION_REF_RE,
+    resolve_file_source,
+    truth_sources_enabled,
+    validate_truth_source_contract,
+)
 
 try:  # Prime Agent targets macOS/Linux; keep a safe fallback for other runtimes.
     import fcntl  # type: ignore
@@ -516,10 +522,14 @@ def _truth_event_error(event_type: object, message: str) -> ContextError:
 
 
 def _validate_truth_event_envelope(event: Mapping[str, Any], event_type: str) -> None:
-    if not isinstance(event.get("actor"), str) or not event["actor"].strip():
+    if not _truth_single_line(event.get("actor")):
         raise _truth_event_error(event_type, "actor must be a non-empty string")
     if not _valid_explicit_utc_timestamp(event.get("created_at")):
         raise _truth_event_error(event_type, "created_at must be an explicit UTC timestamp")
+
+
+def _truth_single_line(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and "\n" not in value and "\r" not in value
 
 
 def _apply_truth_control_event(snapshot: dict[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
@@ -542,26 +552,26 @@ def _apply_truth_control_event(snapshot: dict[str, Any], event: Mapping[str, Any
         raise _truth_event_error(event_type, "has no active truth source contract")
     if payload.get("contract_digest") != digest:
         raise _truth_event_error(event_type, "contract_digest does not match active contract")
-    generation = payload.get("generation")
-    if type(generation) is not int or generation < 1:
-        raise _truth_event_error(event_type, "generation must be a positive integer")
 
     if event_type == "truth-source-dirtied":
-        allowed = {"contract_digest", "generation", "change_kind", "reason", "source_ids"}
+        allowed = {"contract_digest", "generation", "change_kind", "reason", "affected_source_ids"}
         if set(payload) != allowed:
             raise _truth_event_error(event_type, "payload fields are invalid")
-        if generation != truth["generation"]:
-            raise _truth_event_error(event_type, "generation must equal current generation")
-        if not isinstance(payload.get("change_kind"), str) or not payload["change_kind"].strip():
+        generation = payload.get("generation")
+        if type(generation) is not int or generation < 1:
+            raise _truth_event_error(event_type, "generation must be a positive integer")
+        if generation != truth["generation"] + 1:
+            raise _truth_event_error(event_type, "generation must increment current generation once")
+        if not _truth_single_line(payload.get("change_kind")):
             raise _truth_event_error(event_type, "change_kind must be a non-empty string")
-        if not isinstance(payload.get("reason"), str) or not payload["reason"].strip():
+        if not _truth_single_line(payload.get("reason")):
             raise _truth_event_error(event_type, "reason must be a non-empty string")
-        source_ids = payload.get("source_ids")
+        source_ids = payload.get("affected_source_ids")
         if not isinstance(source_ids, list) or not source_ids or not all(isinstance(item, str) for item in source_ids) or len(set(source_ids)) != len(source_ids):
-            raise _truth_event_error(event_type, "source_ids must be a unique non-empty list")
+            raise _truth_event_error(event_type, "affected_source_ids must be a unique non-empty list")
         if any(source_id not in sources for source_id in source_ids):
-            raise _truth_event_error(event_type, "source_ids contains an unknown source")
-        next_generation = generation + 1
+            raise _truth_event_error(event_type, "affected_source_ids contains an unknown source")
+        next_generation = generation
         updated_sources = deepcopy(dict(sources))
         for source_id in source_ids:
             source = updated_sources[source_id]
@@ -572,7 +582,7 @@ def _apply_truth_control_event(snapshot: dict[str, Any], event: Mapping[str, Any
         result["truth_sources"] = {"generation": next_generation, "sources": updated_sources}
         return result
 
-    allowed = {"contract_digest", "generation", "source_id", "fingerprint", "verification_refs", "observed_at"}
+    allowed = {"contract_digest", "observed_generation", "source_id", "fingerprint", "verification_refs"}
     if set(payload) != allowed:
         raise _truth_event_error(event_type, "payload fields are invalid")
     source_id = payload.get("source_id")
@@ -580,24 +590,23 @@ def _apply_truth_control_event(snapshot: dict[str, Any], event: Mapping[str, Any
         raise _truth_event_error(event_type, "source_id must name an active source")
     source = sources[source_id]
     required = source.get("required_generation") if isinstance(source, Mapping) else None
-    if generation != required:
-        raise _truth_event_error(event_type, "generation must equal source required_generation")
+    observed_generation = payload.get("observed_generation")
+    if type(observed_generation) is not int or observed_generation != required:
+        raise _truth_event_error(event_type, "observed_generation must equal source required_generation")
     fingerprint = payload.get("fingerprint")
     if not isinstance(fingerprint, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint) is None:
         raise _truth_event_error(event_type, "fingerprint must be sha256:<64 lowercase hex>")
     refs = payload.get("verification_refs")
     if not isinstance(refs, list) or not refs or not all(isinstance(item, str) and item.strip() for item in refs) or len(set(refs)) != len(refs):
         raise _truth_event_error(event_type, "verification_refs must be a unique non-empty list")
-    if not _valid_explicit_utc_timestamp(payload.get("observed_at")):
-        raise _truth_event_error(event_type, "observed_at must be an explicit UTC timestamp")
     updated_sources = deepcopy(dict(sources))
     updated_sources[source_id] = {
         "required_generation": required,
-        "observed_generation": generation,
+        "observed_generation": observed_generation,
         "observation": {
             "fingerprint": fingerprint,
             "verification_refs": deepcopy(refs),
-            "observed_at": payload["observed_at"],
+            "observed_at": event["created_at"],
         },
         "status": "observed",
     }
@@ -1105,6 +1114,138 @@ def publish_contract(
         event = _new_event(task_id, "contract-published", confirmed_by, payload)
         _append_event_locked(paths, snapshot, event)
     return value
+
+
+def mark_truth_sources_dirty(
+    task_id: str,
+    *,
+    change_kind: str,
+    actor: str,
+    reason: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Record one declared change that invalidates matching truth sources."""
+
+    if not _truth_single_line(actor):
+        raise ContextError("TRUTH_SOURCE_ACTOR_INVALID")
+    if not _truth_single_line(change_kind):
+        raise ContextError("TRUTH_SOURCE_CHANGE_KIND_INVALID")
+    if not _truth_single_line(reason):
+        raise ContextError("TRUTH_SOURCE_REASON_INVALID")
+    paths = _paths(task_id, base_dir)
+    with _locked(paths["root"]):
+        view = _load_committed_task_view_locked(task_id, paths)
+        truth = view["contract"].get("truth_sources")
+        items = truth.get("items") if isinstance(truth, Mapping) else None
+        if not isinstance(items, list):
+            raise ContextError("TRUTH_SOURCE_CHANGE_KIND_UNDECLARED")
+        affected_source_ids = sorted(
+            item["id"]
+            for item in items
+            if isinstance(item, Mapping)
+            and isinstance(item.get("id"), str)
+            and isinstance(item.get("invalidate_on_change_kinds"), list)
+            and change_kind in item["invalidate_on_change_kinds"]
+        )
+        if not affected_source_ids:
+            raise ContextError("TRUTH_SOURCE_CHANGE_KIND_UNDECLARED")
+        generation = view["snapshot"]["truth_sources"]["generation"] + 1
+        payload = {
+            "contract_digest": view["contract_digest"],
+            "generation": generation,
+            "change_kind": change_kind,
+            "reason": reason,
+            "affected_source_ids": affected_source_ids,
+        }
+        event = _new_event(task_id, "truth-source-dirtied", actor, payload)
+        _append_event_locked(paths, view["snapshot"], event)
+    return {
+        "event_id": event["event_id"],
+        "generation": generation,
+        "affected_source_ids": affected_source_ids,
+    }
+
+
+def observe_truth_source(
+    task_id: str,
+    *,
+    source_id: str,
+    actor: str,
+    verification_refs: Sequence[str],
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Bind one owner readback to the current sealed source generation."""
+
+    if not isinstance(source_id, str) or not source_id:
+        raise ContextError("TRUTH_SOURCE_NOT_DECLARED")
+    if not _truth_single_line(actor):
+        raise ContextError("TRUTH_SOURCE_ACTOR_INVALID")
+    if (
+        isinstance(verification_refs, (str, bytes))
+        or not isinstance(verification_refs, Sequence)
+        or not verification_refs
+        or not all(isinstance(ref, str) and VERIFICATION_REF_RE.fullmatch(ref) for ref in verification_refs)
+        or len(set(verification_refs)) != len(verification_refs)
+    ):
+        raise ContextError("TRUTH_SOURCE_VERIFICATION_REFS_INVALID")
+    refs = list(verification_refs)
+    paths = _paths(task_id, base_dir)
+    with _locked(paths["root"]):
+        view = _load_committed_task_view_locked(task_id, paths)
+        truth = view["contract"].get("truth_sources")
+        items = truth.get("items") if isinstance(truth, Mapping) else None
+        source = next(
+            (
+                item for item in items
+                if isinstance(item, Mapping) and item.get("id") == source_id
+            ),
+            None,
+        ) if isinstance(items, list) else None
+        if not isinstance(source, Mapping):
+            raise ContextError("TRUTH_SOURCE_NOT_DECLARED")
+        if actor != source.get("owner"):
+            raise ContextError("TRUTH_SOURCE_OWNER_MISMATCH")
+        sources = view["snapshot"].get("truth_sources", {}).get("sources", {})
+        source_state = sources.get(source_id) if isinstance(sources, Mapping) else None
+        if not isinstance(source_state, Mapping) or type(source_state.get("required_generation")) is not int:
+            raise ContextError("TRUTH_SOURCE_STATE_INVALID")
+        resolution = resolve_file_source(view["contract"]["workspace_root"], source["source_ref"])
+        if not isinstance(resolution, Mapping):
+            raise ContextError("TRUTH_SOURCE_RESOLVER_UNKNOWN")
+        fingerprint = resolution.get("fingerprint")
+        if (
+            resolution.get("status") != "pass"
+            or resolution.get("code") is not None
+            or not isinstance(fingerprint, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint) is None
+        ):
+            code = resolution.get("code")
+            raise ContextError(code if isinstance(code, str) and code else "TRUTH_SOURCE_RESOLVER_UNKNOWN")
+        previous = source_state.get("observation")
+        if source_state.get("status") == "observed":
+            if not isinstance(previous, Mapping) or not isinstance(previous.get("fingerprint"), str):
+                raise ContextError("TRUTH_SOURCE_STATE_INVALID")
+            if previous["fingerprint"] != fingerprint:
+                raise ContextError("TRUTH_SOURCE_UNDECLARED_CHANGE")
+        elif source_state.get("status") not in {"unobserved", "dirty"}:
+            raise ContextError("TRUTH_SOURCE_STATE_INVALID")
+        observed_generation = source_state["required_generation"]
+        payload = {
+            "source_id": source_id,
+            "contract_digest": view["contract_digest"],
+            "observed_generation": observed_generation,
+            "fingerprint": fingerprint,
+            "verification_refs": refs,
+        }
+        event = _new_event(task_id, "truth-source-observed", actor, payload)
+        _append_event_locked(paths, view["snapshot"], event)
+    return {
+        "event_id": event["event_id"],
+        "source_id": source_id,
+        "observed_generation": observed_generation,
+        "fingerprint": fingerprint,
+        "observed_at": event["created_at"],
+    }
 
 
 def record(
@@ -2868,6 +3009,8 @@ async def run(action: str, **kwargs: Any) -> Any:
 
     actions = {
         "publish_contract": publish_contract,
+        "mark_truth_sources_dirty": mark_truth_sources_dirty,
+        "observe_truth_source": observe_truth_source,
         "record": record,
         "update_item": update_item,
         "checkpoint": checkpoint,
@@ -2889,6 +3032,8 @@ async def run(action: str, **kwargs: Any) -> Any:
 __all__ = [
     "ContextError",
     "publish_contract",
+    "mark_truth_sources_dirty",
+    "observe_truth_source",
     "record",
     "update_item",
     "checkpoint",
