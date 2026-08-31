@@ -581,5 +581,262 @@ class SecureFileResolverTests(unittest.TestCase):
             self.assertNotIn(canary, repr(self.resolve()))
 
 
+class _TruthSourceContractFixture(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name) / ".prime" / "context"
+        self.workspace = Path(self.temp.name) / "workspace"
+        self.workspace.mkdir()
+        self.addCleanup(self.temp.cleanup)
+
+    def contract(self, version: int = 1, ids: tuple[str, ...] = ("TS-STATUS",)) -> dict[str, object]:
+        return {
+            "schema": 1,
+            "task_id": "TSC-03",
+            "version": version,
+            "issued_by": "publisher",
+            "issued_at": "2026-08-31T02:00:00+00:00",
+            "authorized_approvers": [],
+            "objective": "Persist truth control state",
+            "scope": ["strict context"],
+            "out_of_scope": [],
+            "constraints": [],
+            "acceptance_criteria": [{
+                "id": "AC-01",
+                "criterion": "Truth control remains replayable",
+                "required_evidence_types": ["test-report"],
+            }],
+            "workspace_root": str(self.workspace),
+            "required_capabilities": ["truth-sources/v1"],
+            "truth_sources": {
+                "schema": "truth-sources/v1",
+                "items": [{
+                    "id": source_id,
+                    "purpose": "Authoritative status",
+                    "source_ref": {"kind": "file", "locator": f"docs/{source_id}.md"},
+                    "owner": "publisher",
+                    "max_age_seconds": 60,
+                    "validation_method": "owner-readback",
+                    "invalidate_on_change_kinds": ["implementation-change"],
+                } for source_id in ids],
+            },
+        }
+
+    def publish(self, version: int = 1, ids: tuple[str, ...] = ("TS-STATUS",)) -> dict[str, object]:
+        return context.publish_contract(self.contract(version, ids), confirmed_by="publisher", base_dir=self.base)
+
+    def events(self) -> list[dict[str, object]]:
+        return context._read_events(context._paths("TSC-03", self.base)["events"])
+
+
+class TruthSourceReducerTests(_TruthSourceContractFixture):
+    maxDiff = None
+
+    def test_first_truth_enabled_publish_creates_generation_one_reset(self) -> None:
+        self.publish()
+        snapshot = context._rebuild_snapshot("TSC-03", self.events())
+        self.assertEqual(snapshot["truth_sources"], {
+            "generation": 1,
+            "sources": {
+                "TS-STATUS": {
+                    "required_generation": 1,
+                    "observed_generation": None,
+                    "observation": None,
+                    "status": "unobserved",
+                }
+            },
+        })
+
+    def test_repeated_dirty_increments_once_per_event_and_preserves_unaffected_sources(self) -> None:
+        self.publish(ids=("TS-A", "TS-B"))
+        events = self.events()
+        digest = events[0]["payload"]["integrity_digest"]
+        events.extend([
+            context._new_event("TSC-03", "truth-source-dirtied", "publisher", {
+                "contract_digest": digest, "generation": 1, "change_kind": "implementation-change",
+                "reason": "changed", "source_ids": ["TS-A"],
+            }),
+            context._new_event("TSC-03", "truth-source-dirtied", "publisher", {
+                "contract_digest": digest, "generation": 2, "change_kind": "implementation-change",
+                "reason": "changed again", "source_ids": ["TS-A"],
+            }),
+        ])
+        snapshot = context._rebuild_snapshot("TSC-03", events)
+        self.assertEqual(snapshot["truth_sources"]["generation"], 3)
+        self.assertEqual(snapshot["truth_sources"]["sources"]["TS-A"]["required_generation"], 3)
+        self.assertEqual(snapshot["truth_sources"]["sources"]["TS-B"]["required_generation"], 1)
+
+    def test_contract_update_atomically_replaces_sources_and_removes_deleted_ids(self) -> None:
+        self.publish(ids=("TS-A", "TS-B"))
+        self.publish(version=2, ids=("TS-B", "TS-C"))
+        snapshot = context._rebuild_snapshot("TSC-03", self.events())
+        self.assertEqual(snapshot["truth_sources"]["generation"], 2)
+        self.assertEqual(set(snapshot["truth_sources"]["sources"]), {"TS-B", "TS-C"})
+
+    def test_capability_removal_and_later_no_truth_versions_keep_empty_resets_monotonic(self) -> None:
+        self.publish()
+        removed = self.contract(2)
+        removed.pop("required_capabilities")
+        removed.pop("truth_sources")
+        context.publish_contract(removed, confirmed_by="publisher", base_dir=self.base)
+        later = dict(removed)
+        later["version"] = 3
+        context.publish_contract(later, confirmed_by="publisher", base_dir=self.base)
+        snapshot = context._rebuild_snapshot("TSC-03", self.events())
+        self.assertEqual(snapshot["truth_sources"], {"generation": 3, "sources": {}})
+
+    def test_rebuild_rejects_jump_unknown_source_and_malformed_control_event(self) -> None:
+        self.publish()
+        event = context._new_event("TSC-03", "truth-source-dirtied", "publisher", {
+            "contract_digest": "sha256:" + "0" * 64, "generation": 3,
+            "change_kind": "implementation-change", "reason": "bad", "source_ids": ["MISSING"],
+        })
+        with self.assertRaisesRegex(context.ContextError, "truth-source-dirtied"):
+            context._rebuild_snapshot("TSC-03", [*self.events(), event])
+
+    def test_poisoned_event_cannot_be_healed_by_later_observation(self) -> None:
+        self.publish()
+        events = self.events()
+        digest = events[0]["payload"]["integrity_digest"]
+        events.append(context._new_event("TSC-03", "truth-source-dirtied", "publisher", {
+            "contract_digest": digest, "generation": 4, "change_kind": "implementation-change",
+            "reason": "poison", "source_ids": ["TS-STATUS"],
+        }))
+        events.append(context._new_event("TSC-03", "truth-source-observed", "publisher", {
+            "contract_digest": digest, "generation": 1, "source_id": "TS-STATUS",
+            "fingerprint": "sha256:" + "1" * 64, "verification_refs": ["review:1"],
+            "observed_at": "2026-08-31T03:00:00+00:00",
+        }))
+        with self.assertRaisesRegex(context.ContextError, "generation"):
+            context._rebuild_snapshot("TSC-03", events)
+
+
+class TruthSourceRecoveryTests(_TruthSourceContractFixture):
+    def test_missing_publish_event_same_version_retry_repairs_without_reseal(self) -> None:
+        original_write = context._append_event_locked
+        with patch.object(context, "_append_event_locked", side_effect=OSError("event cut")):
+            with self.assertRaises(OSError):
+                self.publish()
+        contract_path = context._paths("TSC-03", self.base)["contract"]
+        sealed = json.loads(contract_path.read_text(encoding="utf-8"))
+        repaired = self.publish()
+        self.assertEqual(repaired["seal"], sealed["seal"])
+        matching = context._matching_contract_publish_events(repaired, self.events())
+        self.assertEqual(len(matching), 1)
+
+    def test_duplicate_or_mismatched_latest_publish_event_fails_closed(self) -> None:
+        sealed = self.publish()
+        paths = context._paths("TSC-03", self.base)
+        snapshot = context._rebuild_snapshot("TSC-03", self.events())
+        duplicate = context._new_event("TSC-03", "contract-published", "publisher", {
+            "task_id": "TSC-03", "version": 1,
+            "integrity_digest": sealed["seal"]["integrity_digest"],
+            "confirmed_by": sealed["seal"]["confirmed_by"],
+            "confirmed_at": sealed["seal"]["confirmed_at"],
+            "truth_source_reset": {"schema": "truth-sources/v1", "generation": 2, "source_ids": ["TS-STATUS"]},
+        })
+        self.assertEqual(
+            context._committed_contract_errors(sealed, [*self.events(), duplicate], snapshot),
+            ["CONTRACT_COMMIT_DUPLICATE_EVENT"],
+        )
+
+    def test_snapshot_write_failure_rebuilds_from_complete_event_log(self) -> None:
+        original = context._atomic_write_json
+        def write_contract_only(path: Path, value: object) -> None:
+            if path.name == "task-contract.json":
+                original(path, value)
+                return
+            raise OSError("snapshot cut")
+        with patch.object(context, "_atomic_write_json", side_effect=write_contract_only):
+            with self.assertRaises(OSError):
+                self.publish()
+        view = context._load_committed_task_view_locked("TSC-03", context._paths("TSC-03", self.base))
+        self.assertEqual(view["snapshot"], context._rebuild_snapshot("TSC-03", view["events"]))
+
+    def test_capability_add_modify_remove_fail_closed_at_every_publish_write_cut(self) -> None:
+        # The four write cuts leave either no sealed replacement, a recoverable
+        # missing-event contract, or one event-backed committed view.
+        for phase in ("contract", "event", "snapshot"):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as temporary_dir:
+                self.base = Path(temporary_dir) / ".prime" / "context"
+                if phase == "contract":
+                    with patch.object(context, "_atomic_write_json", side_effect=OSError("contract cut")):
+                        with self.assertRaises(OSError):
+                            self.publish()
+                elif phase == "event":
+                    with patch.object(context, "_append_event_locked", side_effect=OSError("event cut")):
+                        with self.assertRaises(OSError):
+                            self.publish()
+                    self.publish()
+                else:
+                    original = context._atomic_write_json
+                    def write_contract_only(path: Path, value: object) -> None:
+                        if path.name == "task-contract.json":
+                            original(path, value)
+                            return
+                        raise OSError("snapshot cut")
+                    with patch.object(context, "_atomic_write_json", side_effect=write_contract_only):
+                        with self.assertRaises(OSError):
+                            self.publish()
+                    self.assertEqual(
+                        context._load_committed_task_view_locked("TSC-03", context._paths("TSC-03", self.base))["event_count"],
+                        1,
+                    )
+
+    def test_add_modify_remove_cover_every_publish_cut(self) -> None:
+        def legacy(version: int) -> dict[str, object]:
+            value = self.contract(version)
+            value.pop("required_capabilities")
+            value.pop("truth_sources")
+            return value
+
+        for operation in ("add", "modify", "remove"):
+            for cut in ("contract-write", "contract-replace", "event-append", "snapshot-write"):
+                with self.subTest(operation=operation, cut=cut), tempfile.TemporaryDirectory() as temporary_dir:
+                    self.base = Path(temporary_dir) / ".prime" / "context"
+                    if operation == "add":
+                        context.publish_contract(legacy(1), confirmed_by="publisher", base_dir=self.base)
+                        candidate = self.contract(2, ("TS-A",))
+                    elif operation == "modify":
+                        self.publish(ids=("TS-A",))
+                        candidate = self.contract(2, ("TS-B",))
+                    else:
+                        self.publish(ids=("TS-A",))
+                        candidate = legacy(2)
+                    paths = context._paths("TSC-03", self.base)
+                    if cut == "event-append":
+                        failure = patch.object(context, "_append_event_locked", side_effect=OSError("event cut"))
+                    elif cut == "snapshot-write":
+                        original = context._atomic_write_json
+                        def write_contract_only(path: Path, value: object) -> None:
+                            if path.name == "task-contract.json":
+                                original(path, value)
+                                return
+                            raise OSError("snapshot cut")
+                        failure = patch.object(context, "_atomic_write_json", side_effect=write_contract_only)
+                    elif cut == "contract-replace":
+                        original_replace = context.os.replace
+                        failure = patch.object(
+                            context.os,
+                            "replace",
+                            side_effect=lambda source, destination: (_ for _ in ()).throw(OSError("replace cut")) if Path(destination) == paths["contract"] else original_replace(source, destination),
+                        )
+                    else:
+                        failure = patch.object(context, "_atomic_write_json", side_effect=OSError("write cut"))
+                    with failure:
+                        with self.assertRaises(OSError):
+                            context.publish_contract(candidate, confirmed_by="publisher", base_dir=self.base)
+                    if cut in {"contract-write", "contract-replace"}:
+                        self.assertTrue(context.audit("TSC-03", base_dir=self.base, emit=False)["passed"])
+                    elif cut == "event-append":
+                        report = context.audit("TSC-03", base_dir=self.base, emit=False)
+                        self.assertEqual(report["errors"], ["CONTRACT_COMMIT_MISSING_EVENT"])
+                        repaired = context.publish_contract(candidate, confirmed_by="publisher", base_dir=self.base)
+                        self.assertEqual(len(context._matching_contract_publish_events(repaired, self.events())), 1)
+                    else:
+                        view = context._load_committed_task_view_locked("TSC-03", paths)
+                        self.assertEqual(view["snapshot"], context._rebuild_snapshot("TSC-03", view["events"]))
+
+
 if __name__ == "__main__":
     unittest.main()

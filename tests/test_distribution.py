@@ -15,6 +15,7 @@ COPIED_FILES = (
     Path("examples/strict_completion.py"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
+    Path("src/managing_long_task_context/truth_sources.py"),
     Path("tests/test_context.py"),
     Path("tests/test_evidence.py"),
 )
