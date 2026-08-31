@@ -2210,6 +2210,45 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self.assertIn("criterion AC-01 evidence EV-GATE is fail", result["errors"])
         self.assertEqual(result["truth_source_results"][0]["status"], "unknown")
 
+    def test_locked_entry_context_errors_propagate_for_noncompletion_truth_gates(self) -> None:
+        for stage in ("release", "resume", "handoff"):
+            with self.subTest(stage=stage), patch.object(
+                context,
+                "_truth_gate_entry_locked",
+                side_effect=context.ContextError(f"ordinary-{stage}-body-context-error"),
+            ):
+                with self.assertRaisesRegex(
+                    context.ContextError,
+                    f"ordinary-{stage}-body-context-error",
+                ):
+                    context.gate(self.task_id, stage=stage, base_dir=self.base, emit=False)
+
+    def test_invalid_completion_final_context_error_propagates(self) -> None:
+        with patch.object(
+            context,
+            "_truth_gate_final",
+            side_effect=context.ContextError("ordinary-invalid-completion-final-context-error"),
+        ):
+            with self.assertRaisesRegex(
+                context.ContextError,
+                "ordinary-invalid-completion-final-context-error",
+            ):
+                context.gate(self.task_id, stage="completion", base_dir=self.base, emit=False)
+
+    def test_noncompletion_final_context_errors_propagate(self) -> None:
+        self._observe()
+        for stage in ("release", "resume", "handoff"):
+            with self.subTest(stage=stage), patch.object(
+                context,
+                "_truth_gate_final",
+                side_effect=context.ContextError(f"ordinary-{stage}-final-context-error"),
+            ):
+                with self.assertRaisesRegex(
+                    context.ContextError,
+                    f"ordinary-{stage}-final-context-error",
+                ):
+                    context.gate(self.task_id, stage=stage, base_dir=self.base, emit=False)
+
     def test_completion_final_context_error_propagates_after_entry_callback(self) -> None:
         self._prepare_passing_completion()
         evidence_resolver_calls = 0
