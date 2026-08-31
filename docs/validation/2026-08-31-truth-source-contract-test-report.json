@@ -1,0 +1,12 @@
+{
+  "artifact_digest": "sha256:9f1b1c8784500ed1bd316124aacf309a82d36c1e3fc0e74626c4e704e6c0794e",
+  "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v && (cd skills/context-strict && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v) && PYTHONDONTWRITEBYTECODE=1 python3 examples/truth_source_contract.py --base-dir .prime/context --spec docs/superpowers/specs/2026-08-31-truth-source-contract-design.md --fixture tests/fixtures/truth_source_pilot.md",
+  "exit_status": 0,
+  "generated_at": "2026-08-31T11:33:34.234309+00:00",
+  "repo_revision": "bbd9d77988dce68d977670aea587e00d405d70f7",
+  "schema": "context-test-report/v1",
+  "scope": {
+    "feature": "truth-sources/v1",
+    "repository": "managing-long-task-context"
+  }
+}
