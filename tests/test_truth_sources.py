@@ -2148,6 +2148,68 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self.assertIn("criterion AC-01 missing required delivery types: ['receipt']", report["errors"])
         self.assertIn("criterion AC-01 independent validation is unknown: ['MISSING_VALIDATED_AT']", report["errors"])
 
+    def test_malformed_truth_entry_reports_zero_actual_truth_resolution_attempts(self) -> None:
+        paths = context._paths(self.task_id, self.base)
+        with context._locked(paths["root"]):
+            with paths["events"].open("ab") as handle:
+                handle.write(b"{malformed-entry\n")
+        with patch.object(context, "evaluate_truth_sources", wraps=context.evaluate_truth_sources) as evaluator, \
+             patch.object(context, "resolve_file_source", wraps=truth_sources.resolve_file_source) as resolver:
+            report = context.gate(self.task_id, stage="release", base_dir=self.base, emit=False)
+        self.assertFalse(report["passed"])
+        self.assertEqual(evaluator.call_count, 0)
+        self.assertEqual(resolver.call_count, 0)
+        self.assertEqual(report["contract_version"], 1)
+        self.assertEqual(report["truth_source_results"], [{
+            "id": "TS-STATUS", "status": "unknown", "codes": ["TRUTH_SOURCE_RESOLVER_UNKNOWN"],
+        }])
+        self.assertEqual(report["stats"]["truth_sources_checked"], 0)
+        self.assertEqual(report["stats"]["truth_source_resolution_attempts"], 0)
+
+    def test_completion_tail_lock_removal_preserves_entry_work_and_truth_stats(self) -> None:
+        self._prepare_passing_completion()
+        entered = threading.Event()
+        allow_return = threading.Event()
+        evidence_resolver_calls = 0
+
+        def blocking_evidence_resolver(evidence, criterion, contract, now):
+            nonlocal evidence_resolver_calls
+            evidence_resolver_calls += 1
+            entered.set()
+            self.assertTrue(allow_return.wait(2))
+            return {
+                "resolve": {"status": "fail", "codes": ["EVIDENCE_FAIL"]},
+                "integrity_and_freshness": {"status": "pass", "codes": []},
+                "scope": {"status": "pass", "codes": []},
+                "claim": {"status": "pass", "codes": []},
+            }
+
+        result: dict[str, object] = {}
+        with patch.object(context, "resolve_file_source", wraps=truth_sources.resolve_file_source) as truth_resolver:
+            thread = threading.Thread(target=lambda: result.update(context.gate(
+                self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+                resolvers={"custom": blocking_evidence_resolver},
+                verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+                base_dir=self.base, emit=False,
+            )))
+            thread.start()
+            self.assertTrue(entered.wait(2))
+            context._paths(self.task_id, self.base)["lock"].unlink()
+            allow_return.set()
+            thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(evidence_resolver_calls, 1)
+        self.assertEqual(truth_resolver.call_count, 1)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["contract_version"], 2)
+        self.assertEqual(result["stats"]["truth_sources_checked"], 1)
+        self.assertEqual(result["stats"]["truth_source_resolution_attempts"], 1)
+        self.assertEqual(result["stats"]["criteria_checked"], 1)
+        self.assertEqual(result["stats"]["evidence_attempts"], 1)
+        self.assertEqual(result["criteria"]["AC-01"]["status"], "fail")
+        self.assertIn("criterion AC-01 evidence EV-GATE is fail", result["errors"])
+        self.assertEqual(result["truth_source_results"][0]["status"], "unknown")
+
     def test_release_verdict_is_fixed_before_writer_can_finish(self) -> None:
         self._observe()
         entered = threading.Event()
@@ -2198,24 +2260,26 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
             return self._passing_resolver(evidence, criterion, contract, now)
 
         result: dict[str, object] = {}
-        thread = threading.Thread(target=lambda: result.update(context.gate(
-            self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
-            resolvers={"custom": blocking_resolver},
-            verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
-            base_dir=self.base, emit=False,
-        )))
-        thread.start()
-        self.assertTrue(entered.wait(2))
-        legacy = self.legacy_contract(3)
-        legacy["acceptance_criteria"] = [{"id": "AC-01", "criterion": "legacy", "required_evidence_types": ["custom"]}]
-        context.publish_contract(legacy, confirmed_by="publisher", base_dir=self.base)
-        allow_return.set()
-        thread.join(2)
+        with patch.object(context, "resolve_file_source", wraps=truth_sources.resolve_file_source) as truth_resolver:
+            thread = threading.Thread(target=lambda: result.update(context.gate(
+                self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+                resolvers={"custom": blocking_resolver},
+                verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+                base_dir=self.base, emit=False,
+            )))
+            thread.start()
+            self.assertTrue(entered.wait(2))
+            legacy = self.legacy_contract(3)
+            legacy["acceptance_criteria"] = [{"id": "AC-01", "criterion": "legacy", "required_evidence_types": ["custom"]}]
+            context.publish_contract(legacy, confirmed_by="publisher", base_dir=self.base)
+            allow_return.set()
+            thread.join(2)
         self.assertFalse(thread.is_alive())
         self.assertFalse(result["passed"])
         self.assertEqual(result["contract_version"], 2)
         self.assertIn("truth_source_results", result)
         self.assertEqual(resolver_calls, 1)
+        self.assertEqual(truth_resolver.call_count, 1)
         self.assertIn("truth_source_resolution_attempts", result["stats"])
         self.assertEqual(result["stats"]["truth_source_resolution_attempts"], 1)
         self.assertEqual(result["stats"]["truth_sources_checked"], 1)
@@ -2234,25 +2298,27 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
             return self._passing_resolver(evidence, criterion, contract, now)
 
         result: dict[str, object] = {}
-        thread = threading.Thread(target=lambda: result.update(context.gate(
-            self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
-            resolvers={"custom": blocking_resolver},
-            verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
-            base_dir=self.base, emit=False,
-        )))
-        thread.start()
-        self.assertTrue(entered.wait(2))
-        paths = context._paths(self.task_id, self.base)
-        with context._locked(paths["root"]):
-            with paths["events"].open("ab") as handle:
-                handle.write(b"{malformed-tail\n")
-        allow_return.set()
-        thread.join(2)
+        with patch.object(context, "resolve_file_source", wraps=truth_sources.resolve_file_source) as truth_resolver:
+            thread = threading.Thread(target=lambda: result.update(context.gate(
+                self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+                resolvers={"custom": blocking_resolver},
+                verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+                base_dir=self.base, emit=False,
+            )))
+            thread.start()
+            self.assertTrue(entered.wait(2))
+            paths = context._paths(self.task_id, self.base)
+            with context._locked(paths["root"]):
+                with paths["events"].open("ab") as handle:
+                    handle.write(b"{malformed-tail\n")
+            allow_return.set()
+            thread.join(2)
         self.assertFalse(thread.is_alive())
         self.assertFalse(result["passed"])
         self.assertEqual(result["contract_version"], 2)
         self.assertIn("truth_source_results", result)
         self.assertEqual(resolver_calls, 1)
+        self.assertEqual(truth_resolver.call_count, 1)
         self.assertEqual(result["stats"]["truth_source_resolution_attempts"], 1)
         self.assertEqual(result["stats"]["truth_sources_checked"], 1)
 

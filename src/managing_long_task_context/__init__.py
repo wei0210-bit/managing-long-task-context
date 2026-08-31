@@ -2697,7 +2697,7 @@ def _truth_unknown_gate_report(
     })
     report["stats"].update({
         "criteria_checked": 0, "evidence_attempts": 0,
-        "truth_sources_checked": len(results), "truth_source_resolution_attempts": 0,
+        "truth_sources_checked": 0, "truth_source_resolution_attempts": 0,
         "brief_status": "unavailable", "brief_overflow_kind": None,
         "brief_fixed_prompt_chars": None, "brief_mandatory_prompt_chars": None,
     })
@@ -2801,41 +2801,56 @@ def _gate_truth_enabled(
                 _append_completion_errors(errors, criterion_id, criterion_report)
     final_truth = entry_truth
     paths = _paths(task_id, base_dir)
-    with _shared_locked_existing(paths["root"]):
-        tail_evaluated = False
-        if not errors:
-            try:
-                tail_view = _load_committed_task_view_locked(task_id, paths)
-                tail_now = clock().astimezone(timezone.utc)
-                tail_truth = _evaluate_truth_phase_locked(tail_view, now=tail_now)
-                if tail_truth is None:
-                    raise ContextError("truth capability removed during completion")
-                tail_evaluated = True
-            except ContextError as exc:
-                errors.append(f"truth source tail unavailable: {type(exc).__name__}")
-                tail_truth = deepcopy(entry_truth)
-                for item in tail_truth.get("results", []):
-                    if isinstance(item, dict):
-                        item["status"] = "unknown"
-                        item["codes"] = ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
-            else:
-                if _truth_entry_token(tail_view) != entry["token"]:
-                    errors.append("truth source control changed during completion")
-                if not tail_truth["passed"]:
-                    errors.extend(_truth_gate_errors(tail_truth))
-            final_truth = tail_truth
-            entry_stats = entry_truth.get("stats", {})
-            tail_stats = tail_truth.get("stats", {}) if tail_evaluated else {}
-            final_truth = deepcopy(tail_truth)
-            final_truth["stats"] = {
-                "truth_sources_checked": entry_stats.get("truth_sources_checked", 0) + tail_stats.get("truth_sources_checked", 0),
-                "truth_source_resolution_attempts": entry_stats.get("truth_source_resolution_attempts", 0) + tail_stats.get("truth_source_resolution_attempts", 0),
-            }
+    try:
+        with _shared_locked_existing(paths["root"]):
+            tail_evaluated = False
+            if not errors:
+                try:
+                    tail_view = _load_committed_task_view_locked(task_id, paths)
+                    tail_now = clock().astimezone(timezone.utc)
+                    tail_truth = _evaluate_truth_phase_locked(tail_view, now=tail_now)
+                    if tail_truth is None:
+                        raise ContextError("truth capability removed during completion")
+                    tail_evaluated = True
+                except ContextError as exc:
+                    errors.append(f"truth source tail unavailable: {type(exc).__name__}")
+                    tail_truth = deepcopy(entry_truth)
+                    for item in tail_truth.get("results", []):
+                        if isinstance(item, dict):
+                            item["status"] = "unknown"
+                            item["codes"] = ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
+                else:
+                    if _truth_entry_token(tail_view) != entry["token"]:
+                        errors.append("truth source control changed during completion")
+                    if not tail_truth["passed"]:
+                        errors.extend(_truth_gate_errors(tail_truth))
+                final_truth = tail_truth
+                entry_stats = entry_truth.get("stats", {})
+                tail_stats = tail_truth.get("stats", {}) if tail_evaluated else {}
+                final_truth = deepcopy(tail_truth)
+                final_truth["stats"] = {
+                    "truth_sources_checked": entry_stats.get("truth_sources_checked", 0) + tail_stats.get("truth_sources_checked", 0),
+                    "truth_source_resolution_attempts": entry_stats.get("truth_source_resolution_attempts", 0) + tail_stats.get("truth_source_resolution_attempts", 0),
+                }
+            return _truth_gate_final(
+                stage="completion", report=entry["report"], errors=errors, warnings=warnings,
+                criteria=criterion_reports, criteria_checked=criteria_checked,
+                evidence_attempts=evidence_attempts, brief_report=entry["brief_report"],
+                contract=entry_view["contract"], evaluation=final_truth, emit=emit,
+            )
+    except ContextError as exc:
+        errors.append(f"truth source tail unavailable: {type(exc).__name__}")
+        final_truth = deepcopy(entry_truth)
+        for item in final_truth.get("results", []):
+            if isinstance(item, dict):
+                item["status"] = "unknown"
+                item["codes"] = ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
+        final_truth["stats"] = deepcopy(entry_truth.get("stats", {}))
         return _truth_gate_final(
-        stage="completion", report=entry["report"], errors=errors, warnings=warnings,
-        criteria=criterion_reports, criteria_checked=criteria_checked,
-        evidence_attempts=evidence_attempts, brief_report=entry["brief_report"],
-        contract=entry_view["contract"], evaluation=final_truth, emit=emit,
+            stage="completion", report=entry["report"], errors=errors, warnings=warnings,
+            criteria=criterion_reports, criteria_checked=criteria_checked,
+            evidence_attempts=evidence_attempts, brief_report=entry["brief_report"],
+            contract=entry_view["contract"], evaluation=final_truth, emit=emit,
         )
 
 
