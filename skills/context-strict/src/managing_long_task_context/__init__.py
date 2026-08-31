@@ -2802,6 +2802,7 @@ def _gate_truth_enabled(
     final_truth = entry_truth
     paths = _paths(task_id, base_dir)
     with _shared_locked_existing(paths["root"]):
+        tail_evaluated = False
         if not errors:
             try:
                 tail_view = _load_committed_task_view_locked(task_id, paths)
@@ -2809,6 +2810,7 @@ def _gate_truth_enabled(
                 tail_truth = _evaluate_truth_phase_locked(tail_view, now=tail_now)
                 if tail_truth is None:
                     raise ContextError("truth capability removed during completion")
+                tail_evaluated = True
             except ContextError as exc:
                 errors.append(f"truth source tail unavailable: {type(exc).__name__}")
                 tail_truth = deepcopy(entry_truth)
@@ -2823,7 +2825,7 @@ def _gate_truth_enabled(
                     errors.extend(_truth_gate_errors(tail_truth))
             final_truth = tail_truth
             entry_stats = entry_truth.get("stats", {})
-            tail_stats = tail_truth.get("stats", {})
+            tail_stats = tail_truth.get("stats", {}) if tail_evaluated else {}
             final_truth = deepcopy(tail_truth)
             final_truth["stats"] = {
                 "truth_sources_checked": entry_stats.get("truth_sources_checked", 0) + tail_stats.get("truth_sources_checked", 0),

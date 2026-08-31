@@ -2200,6 +2200,40 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self.assertEqual(result["contract_version"], 2)
         self.assertIn("truth_source_results", result)
         self.assertIn("truth_source_resolution_attempts", result["stats"])
+        self.assertEqual(result["stats"]["truth_source_resolution_attempts"], 1)
+        self.assertEqual(result["stats"]["truth_sources_checked"], 1)
+
+    def test_completion_tail_malformed_event_reports_only_entry_resolution_attempt(self) -> None:
+        self._prepare_passing_completion()
+        entered = threading.Event()
+        allow_return = threading.Event()
+
+        def blocking_resolver(evidence, criterion, contract, now):
+            entered.set()
+            self.assertTrue(allow_return.wait(2))
+            return self._passing_resolver(evidence, criterion, contract, now)
+
+        result: dict[str, object] = {}
+        thread = threading.Thread(target=lambda: result.update(context.gate(
+            self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+            resolvers={"custom": blocking_resolver},
+            verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+            base_dir=self.base, emit=False,
+        )))
+        thread.start()
+        self.assertTrue(entered.wait(2))
+        paths = context._paths(self.task_id, self.base)
+        with context._locked(paths["root"]):
+            with paths["events"].open("ab") as handle:
+                handle.write(b"{malformed-tail\n")
+        allow_return.set()
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["contract_version"], 2)
+        self.assertIn("truth_source_results", result)
+        self.assertEqual(result["stats"]["truth_source_resolution_attempts"], 1)
+        self.assertEqual(result["stats"]["truth_sources_checked"], 1)
 
 
 if __name__ == "__main__":
