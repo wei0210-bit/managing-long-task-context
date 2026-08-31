@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import threading
 from typing import Any, Iterable, Mapping, Sequence
 
 from .evidence import MAX_CLOCK_SKEW_SECONDS, canonical_json_bytes, evaluate_evidence
@@ -69,6 +70,8 @@ _TRUTH_SOURCE_RESOLVER_FAILURES = {
     "TRUTH_SOURCE_CHANGED_DURING_READ": "unknown",
     "TRUTH_SOURCE_RESOLVER_UNKNOWN": "unknown",
 }
+_PROCESS_LOCKS_GUARD = threading.Lock()
+_PROCESS_LOCKS: dict[str, threading.Lock] = {}
 
 
 class ContextError(RuntimeError):
@@ -123,38 +126,52 @@ def _paths(task_id: str, base_dir: str | Path | None = None) -> dict[str, Path]:
     }
 
 
+def _process_lock_guard(root: Path) -> threading.Lock:
+    """Serialize local threads; ``flock`` alone is process-scoped on macOS."""
+
+    key = str(root)
+    with _PROCESS_LOCKS_GUARD:
+        guard = _PROCESS_LOCKS.get(key)
+        if guard is None:
+            guard = threading.Lock()
+            _PROCESS_LOCKS[key] = guard
+        return guard
+
+
 @contextmanager
 def _locked(root: Path):
-    root.mkdir(parents=True, exist_ok=True)
-    lock_path = root / ".lock"
-    with lock_path.open("a+", encoding="utf-8") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
+    with _process_lock_guard(root):
+        root.mkdir(parents=True, exist_ok=True)
+        lock_path = root / ".lock"
+        with lock_path.open("a+", encoding="utf-8") as handle:
             if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 @contextmanager
 def _shared_locked_existing(root: Path):
     if fcntl is None:
         raise ContextError("READ_LOCK_UNAVAILABLE: shared locking is unsupported")
-    lock_path = root / ".lock"
-    try:
-        handle = lock_path.open("r", encoding="utf-8")
-    except OSError as exc:
-        raise ContextError("READ_LOCK_UNAVAILABLE: existing task lock is unreadable") from exc
-    with handle:
+    with _process_lock_guard(root):
+        lock_path = root / ".lock"
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+            handle = lock_path.open("r", encoding="utf-8")
         except OSError as exc:
-            raise ContextError("READ_LOCK_UNAVAILABLE: shared lock acquisition failed") from exc
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            raise ContextError("READ_LOCK_UNAVAILABLE: existing task lock is unreadable") from exc
+        with handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+            except OSError as exc:
+                raise ContextError("READ_LOCK_UNAVAILABLE: shared lock acquisition failed") from exc
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _json_clone(value: Any) -> Any:
@@ -2233,6 +2250,21 @@ def _audit_core(
     """Audit contract, event/snapshot consistency, item quality, staleness, and pointers."""
 
     paths = _paths(task_id, base_dir)
+    # Truth-enabled reads consume one committed view.  The structural audit is
+    # deliberately separate from live source evaluation.
+    try:
+        view = _load_committed_task_view_locked(task_id, paths)
+    except ContextError:
+        view = None
+    if isinstance(view, Mapping) and truth_sources_enabled(view["contract"]):
+        report = _audit_from_view(
+            task_id, contract=view["contract"], snapshot=view["snapshot"],
+            events=view["events"], documents=documents,
+            max_pointer_lag_seconds=max_pointer_lag_seconds, now=now, run_probe=run_probe,
+        )
+        if emit:
+            _emit_report(report)
+        return report
     errors: list[str] = []
     warnings: list[str] = []
     scan_counts = {
@@ -2439,6 +2471,335 @@ def audit(
         return _read_lock_unavailable_audit(task_id, exc, emit=emit)
 
 
+def _evaluate_truth_phase_locked(
+    view: Mapping[str, Any], *, now: datetime,
+) -> dict[str, Any] | None:
+    """Evaluate declared sources from one already-locked committed view."""
+
+    contract = view.get("contract")
+    snapshot = view.get("snapshot")
+    if not isinstance(contract, Mapping) or not isinstance(snapshot, Mapping):
+        return {
+            "status": "unknown",
+            "passed": False,
+            "results": [],
+            "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0},
+        }
+    if not truth_sources_enabled(contract):
+        return None
+    return evaluate_truth_sources(
+        contract, snapshot, now=now, resolver=resolve_file_source,
+    )
+
+
+def _truth_entry_token(view: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only control-plane fields that must remain stable across completion."""
+
+    contract = view.get("contract") if isinstance(view.get("contract"), Mapping) else {}
+    snapshot = view.get("snapshot") if isinstance(view.get("snapshot"), Mapping) else {}
+    truth = snapshot.get("truth_sources") if isinstance(snapshot.get("truth_sources"), Mapping) else {}
+    sources = truth.get("sources") if isinstance(truth.get("sources"), Mapping) else {}
+    declared = contract.get("truth_sources") if isinstance(contract.get("truth_sources"), Mapping) else {}
+    source_items = declared.get("items") if isinstance(declared.get("items"), list) else []
+    required_generations: list[tuple[str, Any]] = []
+    for item in source_items:
+        source_id = item.get("id") if isinstance(item, Mapping) else None
+        state = sources.get(source_id) if isinstance(source_id, str) and isinstance(sources, Mapping) else None
+        required_generations.append((source_id if isinstance(source_id, str) else "", state.get("required_generation") if isinstance(state, Mapping) else None))
+    return {
+        "contract_digest": view.get("contract_digest"),
+        "event_tail_id": view.get("event_tail_id"),
+        "event_count": view.get("event_count"),
+        "truth_generation": truth.get("generation") if isinstance(truth, Mapping) else None,
+        "required_generations": required_generations,
+    }
+
+
+def _audit_from_view(
+    task_id: str,
+    *,
+    contract: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    events: Sequence[Mapping[str, Any]],
+    documents: Sequence[str | Path] | None,
+    max_pointer_lag_seconds: float,
+    now: datetime,
+    run_probe: bool,
+) -> dict[str, Any]:
+    """Audit an already-loaded committed view without truth-source I/O."""
+
+    errors = list(_validate_sealed_contract(contract))
+    warnings: list[str] = []
+    probe = {
+        "id": "PROBE-COMPLETION-EMPTY-EVIDENCE", "scanned": 0,
+        "expected": "reject", "actual": "not-run", "status": "not-run",
+    }
+    if run_probe:
+        try:
+            probe = _run_bad_sample_probe(now)
+        except Exception as exc:
+            probe = {
+                "id": "PROBE-COMPLETION-EMPTY-EVIDENCE", "scanned": 0,
+                "expected": "reject", "actual": "error", "status": "fail",
+            }
+            errors.append(f"completion bad-sample probe raised {type(exc).__name__}")
+        if probe["status"] != "pass":
+            errors.append(
+                f"completion bad-sample probe {probe['id']} failed: "
+                f"expected {probe['expected']}, got {probe['actual']}"
+            )
+    items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
+    counts = {item_type: 0 for item_type in ITEM_TYPES}
+    stale_count = 0
+    conflict_count = 0
+    for identifier, item in items.items():
+        if not isinstance(item, dict):
+            errors.append(f"{identifier}: item is not an object")
+            continue
+        item_errors, item_warnings = _item_errors(item)
+        errors.extend(item_errors)
+        warnings.extend(item_warnings)
+        if item.get("type") in counts:
+            counts[item["type"]] += 1
+        if item.get("status") == "conflicted":
+            conflict_count += 1
+        if _item_is_stale(item):
+            stale_count += 1
+    pointer_checked = 0
+    if documents:
+        document_errors, document_warnings, pointer_checked = _audit_documents(
+            documents, max_pointer_lag_seconds,
+        )
+        errors.extend(document_errors)
+        warnings.extend(document_warnings)
+    return {
+        "stage": "audit", "passed": not errors, "errors": errors, "warnings": warnings,
+        "stats": {
+            "checked": len(items), "events": snapshot.get("event_count", 0),
+            "probe": probe["status"], "probe_id": probe["id"],
+            "probe_scanned": probe["scanned"], "probe_expected_rejection": probe["expected"],
+            "stale": stale_count, "conflicts": conflict_count,
+            "contracts_checked": 1, "events_checked": len(events), "items_checked": len(items),
+            "pointers_checked": pointer_checked, "probes_checked": 1 if run_probe else 0,
+            **counts,
+        },
+        "contract_version": contract.get("version"),
+    }
+
+
+def _truth_gate_errors(evaluation: Mapping[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for result in evaluation.get("results", []):
+        if not isinstance(result, Mapping) or result.get("status") == "pass":
+            continue
+        source_id = result.get("id", "unknown")
+        codes = result.get("codes") if isinstance(result.get("codes"), list) else ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
+        errors.append(f"truth source {source_id} is {result.get('status', 'unknown')}: {codes}")
+    if not errors and not evaluation.get("passed"):
+        errors.append("truth source evaluation is unknown: ['TRUTH_SOURCE_RESOLVER_UNKNOWN']")
+    return errors
+
+
+def _truth_gate_base_checks(
+    stage: str, snapshot: Mapping[str, Any], required_item_ids: Sequence[str] | None,
+    errors: list[str],
+) -> None:
+    if stage not in {"resume", "handoff", "completion"}:
+        return
+    items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
+    globally_blocked: set[str] = set()
+    if stage == "completion":
+        for identifier, item in sorted(items.items()):
+            if not isinstance(item, Mapping) or item.get("status") == "superseded":
+                continue
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+            if item.get("status") == "conflicted":
+                errors.append(f"required context item is conflicted: {identifier}")
+                globally_blocked.add(identifier)
+            if metadata.get("blocking") is True or metadata.get("blocker") is True:
+                errors.append(f"blocking context item remains: {identifier}")
+                globally_blocked.add(identifier)
+    targets = ({identifier for identifier, item in items.items() if not isinstance(item, Mapping) or item.get("status") != "superseded"}
+               if required_item_ids is None else set(required_item_ids))
+    for identifier in sorted(targets):
+        item = items.get(identifier)
+        if not isinstance(item, dict):
+            errors.append(f"required context item missing: {identifier}")
+        elif item.get("status") == "superseded":
+            errors.append(f"required context item is superseded: {identifier}")
+        elif item.get("status") == "conflicted" and identifier not in globally_blocked:
+            errors.append(f"required context item is conflicted: {identifier}")
+        elif _item_is_stale(item):
+            errors.append(f"required mutable fact is stale: {identifier}")
+        else:
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+            if identifier not in globally_blocked and (metadata.get("blocking") is True or metadata.get("blocker") is True):
+                errors.append(f"blocking context item remains: {identifier}")
+    if stage == "handoff":
+        checkpoint_value = snapshot.get("latest_checkpoint")
+        if not isinstance(checkpoint_value, dict):
+            errors.append("handoff requires a checkpoint")
+        elif not checkpoint_value.get("next_action"):
+            errors.append("handoff checkpoint requires next_action")
+
+
+def _truth_gate_final(
+    *, stage: str, report: Mapping[str, Any], errors: list[str], warnings: list[str],
+    criteria: Mapping[str, Any], criteria_checked: int, evidence_attempts: int,
+    brief_report: Mapping[str, Any] | None, contract: Mapping[str, Any],
+    evaluation: Mapping[str, Any], emit: bool,
+) -> dict[str, Any]:
+    final = {
+        "stage": stage, "passed": not errors, "errors": errors, "warnings": warnings,
+        "criteria": dict(criteria), "truth_source_results": deepcopy(evaluation.get("results", [])),
+        "stats": {
+            **report["stats"], "criteria_checked": criteria_checked,
+            "evidence_attempts": evidence_attempts,
+            "truth_sources_checked": evaluation.get("stats", {}).get("truth_sources_checked", 0),
+            "truth_source_resolution_attempts": evaluation.get("stats", {}).get("truth_source_resolution_attempts", 0),
+            "brief_status": (brief_report or {}).get("status", "unavailable"),
+            "brief_overflow_kind": ((brief_report or {}).get("overflow") or {}).get("kind"),
+            "brief_fixed_prompt_chars": (brief_report or {}).get("budget", {}).get("fixed_prompt_chars"),
+            "brief_mandatory_prompt_chars": (brief_report or {}).get("budget", {}).get("mandatory_prompt_chars"),
+        },
+        "contract_version": contract.get("version"),
+    }
+    if emit:
+        _emit_report(final)
+    return final
+
+
+def _truth_unknown_gate_report(
+    *, task_id: str, stage: str, contract: Mapping[str, Any], error: ContextError,
+    emit: bool,
+) -> dict[str, Any]:
+    declared = contract.get("truth_sources") if isinstance(contract.get("truth_sources"), Mapping) else {}
+    items = declared.get("items") if isinstance(declared.get("items"), list) else []
+    results = [
+        {"id": item.get("id"), "status": "unknown", "codes": ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]}
+        for item in items if isinstance(item, Mapping)
+    ]
+    report = _read_lock_unavailable_audit(task_id, error, emit=False)
+    report.update({
+        "stage": stage,
+        "criteria": {},
+        "truth_source_results": results,
+        "contract_version": contract.get("version"),
+    })
+    report["stats"].update({
+        "criteria_checked": 0, "evidence_attempts": 0,
+        "truth_sources_checked": len(results), "truth_source_resolution_attempts": 0,
+        "brief_status": "unavailable", "brief_overflow_kind": None,
+        "brief_fixed_prompt_chars": None, "brief_mandatory_prompt_chars": None,
+    })
+    if emit:
+        _emit_report(report)
+    return report
+
+
+def _gate_truth_enabled(
+    task_id: str, *, stage: str, evidence_map: Mapping[str, Mapping[str, Any]] | None,
+    required_item_ids: Sequence[str] | None, documents: Sequence[str | Path] | None,
+    resolvers: Mapping[str, Any] | None, verifiers: Mapping[str, Any] | None,
+    emit: bool, base_dir: str | Path | None, run_probe: bool, clock: Any,
+) -> dict[str, Any]:
+    paths = _paths(task_id, base_dir)
+    try:
+        with _shared_locked_existing(paths["root"]):
+            entry_view = _load_committed_task_view_locked(task_id, paths)
+            entry_now = clock().astimezone(timezone.utc)
+            audit_report = _audit_from_view(
+                task_id, contract=entry_view["contract"], snapshot=entry_view["snapshot"],
+                events=entry_view["events"], documents=documents, max_pointer_lag_seconds=0,
+                now=entry_now, run_probe=run_probe,
+            )
+            entry_truth = _evaluate_truth_phase_locked(entry_view, now=entry_now)
+            assert entry_truth is not None
+            entry_token = _truth_entry_token(entry_view)
+            brief_report: dict[str, Any] | None = None
+            if stage in {"release", "resume", "handoff"}:
+                brief_plan = _plan_brief_from_view(
+                    task_id, contract=entry_view["contract"], snapshot=entry_view["snapshot"],
+                    truth_evaluation=entry_truth, phase=None, include=None, max_items=None, max_chars=8000,
+                )
+                brief_report = _brief_diagnostics_from_plan(brief_plan)
+    except ContextError as exc:
+        try:
+            contract = _read_json(paths["contract"])
+        except ContextError:
+            contract = {}
+        return _truth_unknown_gate_report(
+            task_id=task_id, stage=stage, contract=contract, error=exc, emit=emit,
+        )
+    errors = list(audit_report["errors"])
+    warnings = list(audit_report["warnings"])
+    if not entry_truth["passed"]:
+        errors.extend(_truth_gate_errors(entry_truth))
+    if brief_report is not None:
+        overflow = brief_report.get("overflow")
+        if isinstance(overflow, Mapping):
+            message = str(overflow.get("message", "BRIEF_REQUIRED_OVERFLOW"))
+            if stage == "handoff":
+                errors.append(message)
+            else:
+                warnings.append(f"brief preflight: {message}")
+    _truth_gate_base_checks(stage, entry_view["snapshot"], required_item_ids, errors)
+    criterion_reports: dict[str, Any] = {}
+    criteria_checked = 0
+    evidence_attempts = 0
+    if stage == "completion" and entry_truth["passed"]:
+        if not isinstance(evidence_map, Mapping):
+            errors.append("completion gate requires evidence_map")
+        else:
+            criteria = deepcopy(entry_view["contract"].get("acceptance_criteria", []))
+            for criterion in criteria if isinstance(criteria, list) else []:
+                if not isinstance(criterion, dict):
+                    continue
+                criteria_checked += 1
+                criterion_id = criterion.get("id")
+                evidence_entry = deepcopy(evidence_map.get(criterion_id)) if isinstance(criterion_id, str) else None
+                try:
+                    criterion_report = _evaluate_completion_criterion(
+                        deepcopy(criterion), evidence_entry, deepcopy(entry_view["contract"]),
+                        resolvers=resolvers, verifiers=verifiers, now=entry_now,
+                    )
+                except Exception as exc:
+                    criterion_report = {"status": "unknown", "evidence_results": [], "missing_evidence_types": [], "missing_hops": [], "missing_delivery_types": [], "independent_validation": {"status": "unknown", "codes": ["CRITERION_EVALUATION_ERROR"]}}
+                    warnings.append(f"criterion {criterion_id} evaluation raised {type(exc).__name__}")
+                evidence_attempts += len(criterion_report.get("evidence_results", []))
+                criterion_reports[str(criterion_id)] = criterion_report
+                if criterion_report.get("status") != "pass":
+                    errors.append(f"criterion {criterion_id} status is {criterion_report.get('status', 'unknown')}")
+    elif stage == "completion" and not entry_truth["passed"]:
+        # Invalid truth at entry is a strict short circuit: no criterion callbacks.
+        pass
+    final_truth = entry_truth
+    if stage == "completion" and entry_truth["passed"] and not errors:
+        with _shared_locked_existing(paths["root"]):
+            tail_view = _load_committed_task_view_locked(task_id, paths)
+            tail_now = clock().astimezone(timezone.utc)
+            tail_truth = _evaluate_truth_phase_locked(tail_view, now=tail_now)
+            assert tail_truth is not None
+            if _truth_entry_token(tail_view) != entry_token:
+                errors.append("truth source control changed during completion")
+            if not tail_truth["passed"]:
+                errors.extend(_truth_gate_errors(tail_truth))
+            final_truth = tail_truth
+            entry_stats = entry_truth.get("stats", {})
+            tail_stats = tail_truth.get("stats", {})
+            final_truth = deepcopy(tail_truth)
+            final_truth["stats"] = {
+                "truth_sources_checked": entry_stats.get("truth_sources_checked", 0) + tail_stats.get("truth_sources_checked", 0),
+                "truth_source_resolution_attempts": entry_stats.get("truth_source_resolution_attempts", 0) + tail_stats.get("truth_source_resolution_attempts", 0),
+            }
+    return _truth_gate_final(
+        stage=stage, report=audit_report, errors=errors, warnings=warnings,
+        criteria=criterion_reports, criteria_checked=criteria_checked,
+        evidence_attempts=evidence_attempts, brief_report=brief_report,
+        contract=entry_view["contract"], evaluation=final_truth, emit=emit,
+    )
+
+
 def _gate_core(
     task_id: str,
     *,
@@ -2448,7 +2809,7 @@ def _gate_core(
     documents: Sequence[str | Path] | None = None,
     resolvers: Mapping[str, Any] | None = None,
     verifiers: Mapping[str, Any] | None = None,
-    now: datetime | None = None,
+    clock: Any = _trusted_utc_now,
     emit: bool = True,
     base_dir: str | Path | None = None,
     run_probe: bool,
@@ -2457,7 +2818,7 @@ def _gate_core(
 
     if stage not in GATE_STAGES:
         raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
-    observed_now = (now or _trusted_utc_now()).astimezone(timezone.utc)
+    observed_now = clock().astimezone(timezone.utc)
     paths = _paths(task_id, base_dir)
     report = _audit_core(
         task_id,
@@ -3001,18 +3362,21 @@ def gate(
     paths = _paths(task_id, base_dir)
     try:
         with _shared_locked_existing(paths["root"]):
+            contract = _read_json(paths["contract"])
+            truth_enabled = truth_sources_enabled(contract)
+        if truth_enabled:
+            return _gate_truth_enabled(
+                task_id, stage=stage, evidence_map=evidence_map,
+                required_item_ids=required_item_ids, documents=documents,
+                resolvers=resolvers, verifiers=verifiers, emit=emit,
+                base_dir=base_dir, run_probe=True, clock=_trusted_utc_now,
+            )
+        with _shared_locked_existing(paths["root"]):
             return _gate_core(
-                task_id,
-                stage=stage,
-                evidence_map=evidence_map,
-                required_item_ids=required_item_ids,
-                documents=documents,
-                resolvers=resolvers,
-                verifiers=verifiers,
-                now=_trusted_utc_now(),
-                emit=emit,
-                base_dir=base_dir,
-                run_probe=True,
+                task_id, stage=stage, evidence_map=evidence_map,
+                required_item_ids=required_item_ids, documents=documents,
+                resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
+                emit=emit, base_dir=base_dir, run_probe=True,
             )
     except ContextError as exc:
         audit_report = _read_lock_unavailable_audit(task_id, exc, emit=False)

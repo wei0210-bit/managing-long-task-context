@@ -4,7 +4,9 @@ import asyncio
 import hashlib
 import json
 import errno
+import multiprocessing
 import os
+import builtins
 import sys
 import tempfile
 import threading
@@ -66,6 +68,26 @@ def _hash_json(value: object) -> str:
 
 def _hash_file(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _exclusive_lock_probe(lock_path: str, result_queue: object) -> None:
+    """Independent process proof: only a nonblocking-lock failure is blocked."""
+    import fcntl as child_fcntl
+
+    try:
+        with Path(lock_path).open("r", encoding="utf-8") as handle:
+            try:
+                child_fcntl.flock(handle.fileno(), child_fcntl.LOCK_EX | child_fcntl.LOCK_NB)
+            except BlockingIOError:
+                result_queue.put("blocked")
+                return
+            except OSError as exc:
+                result_queue.put("blocked" if exc.errno in {errno.EACCES, errno.EAGAIN} else f"errno:{exc.errno}")
+                return
+            child_fcntl.flock(handle.fileno(), child_fcntl.LOCK_UN)
+            result_queue.put("acquired")
+    except Exception as exc:
+        result_queue.put(f"error:{type(exc).__name__}")
 
 
 class LegacyTruthSourceCompatibilityTests(unittest.TestCase):
@@ -1703,6 +1725,392 @@ class TruthSourceBriefTests(_TruthSourceContractFixture):
             legacy_diagnostics = context.brief_diagnostics("LEGACY-GOLDEN", base_dir=legacy_base)
         self.assertNotIn("truth_sources", legacy_packet)
         self.assertNotIn("truth_sources", legacy_diagnostics)
+
+
+class TruthSourceGateTests(_TruthSourceContractFixture):
+    """Four gates must consume the committed truth-source projection."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.workspace = self.workspace.resolve()
+        documents = self.workspace / "docs"
+        documents.mkdir()
+        self.status = documents / "TS-STATUS.md"
+        self.status.write_text("gate baseline\n", encoding="utf-8")
+        self.publish()
+        self.task_id = "TSC-03"
+
+    def _observe(self) -> None:
+        context.observe_truth_source(
+            self.task_id,
+            source_id="TS-STATUS",
+            actor="publisher",
+            verification_refs=["review:gate-baseline"],
+            base_dir=self.base,
+        )
+
+    def _prepare_passing_completion(self) -> None:
+        contract = self.contract(2)
+        contract["acceptance_criteria"] = [{
+            "id": "AC-01", "criterion": "Tail validation requires one callback",
+            "required_evidence_types": ["custom"],
+        }]
+        context.publish_contract(contract, confirmed_by="publisher", base_dir=self.base)
+        self._observe()
+
+    @staticmethod
+    def _passing_resolver(evidence, criterion, contract, now):
+        return {
+            "resolve": {"status": "pass", "codes": []},
+            "integrity_and_freshness": {"status": "pass", "codes": []},
+            "scope": {"status": "pass", "codes": []},
+            "claim": {"status": "pass", "codes": []},
+        }
+
+    def _passing_evidence_map(self) -> dict[str, object]:
+        return {"AC-01": {"evidence": [{"evidence_id": "EV-GATE", "kind": "custom"}]}}
+
+    def _invalid_state(self, state: str) -> str:
+        if state == "unobserved":
+            return "TRUTH_SOURCE_UNOBSERVED"
+        self._observe()
+        if state == "dirty":
+            context.mark_truth_sources_dirty(
+                self.task_id,
+                change_kind="implementation-change",
+                actor="executor-01",
+                reason="gate test dirty state",
+                base_dir=self.base,
+            )
+            return "TRUTH_SOURCE_DIRTY"
+        if state == "changed":
+            self.status.write_text("gate source changed\n", encoding="utf-8")
+            return "TRUTH_SOURCE_CHANGED"
+        if state == "missing":
+            self.status.unlink()
+            return "TRUTH_SOURCE_NOT_FOUND"
+        raise AssertionError(f"unknown test state: {state}")
+
+    def test_all_four_stages_fail_closed_for_every_invalid_truth_state(self) -> None:
+        for state in ("unobserved", "dirty", "stale", "changed", "missing", "permission", "malformed"):
+            for stage in ("release", "resume", "handoff", "completion"):
+                with self.subTest(state=state, stage=stage):
+                    self.temp.cleanup()
+                    self.setUp()
+                    if state == "stale":
+                        self._observe()
+                        observed_at = context._read_json(context._paths(self.task_id, self.base)["snapshot"])["truth_sources"]["sources"]["TS-STATUS"]["observation"]["observed_at"]
+                        observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+                        expected = "TRUTH_SOURCE_STALE"
+                        with patch.object(context, "_trusted_utc_now", return_value=observed + timedelta(seconds=61)):
+                            report = context.gate(self.task_id, stage=stage, evidence_map={} if stage == "completion" else None, base_dir=self.base, emit=False)
+                    elif state == "permission":
+                        self._observe()
+                        expected = "TRUTH_SOURCE_PERMISSION_DENIED"
+                        with patch.object(context, "resolve_file_source", return_value={
+                            "status": "unknown", "code": expected, "fingerprint": None,
+                        }):
+                            report = context.gate(self.task_id, stage=stage, evidence_map={} if stage == "completion" else None, base_dir=self.base, emit=False)
+                    elif state == "malformed":
+                        self._observe()
+                        expected = "TRUTH_SOURCE_RESOLVER_UNKNOWN"
+                        with context._locked(context._paths(self.task_id, self.base)["root"]):
+                            with context._paths(self.task_id, self.base)["events"].open("ab") as handle:
+                                handle.write(b"{malformed-event\n")
+                        report = context.gate(self.task_id, stage=stage, evidence_map={} if stage == "completion" else None, base_dir=self.base, emit=False)
+                    else:
+                        expected = self._invalid_state(state)
+                        report = context.gate(
+                            self.task_id, stage=stage,
+                            evidence_map={} if stage == "completion" else None,
+                            base_dir=self.base, emit=False,
+                        )
+                    self.assertFalse(report["passed"])
+                    self.assertIn("truth_source_results", report)
+                    results = report["truth_source_results"]
+                    self.assertTrue(any(expected in item["codes"] for item in results))
+
+    def test_completion_entry_invalid_calls_zero_evidence_resolvers_and_verifiers(self) -> None:
+        calls: list[str] = []
+
+        def resolver(*args):
+            calls.append("resolver")
+            return self._passing_resolver(*args)
+
+        def verifier(*args):
+            calls.append("verifier")
+            return {"status": "pass", "codes": []}
+
+        report = context.gate(
+            self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+            resolvers={"custom": resolver}, verifiers={"custom": verifier},
+            base_dir=self.base, emit=False,
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual(calls, [])
+        self.assertEqual(report["stats"]["criteria_checked"], 0)
+        self.assertEqual(report["stats"]["evidence_attempts"], 0)
+        self.assertIn("TRUTH_SOURCE_UNOBSERVED", report["truth_source_results"][0]["codes"])
+
+    def test_completion_tail_detects_mark_during_evidence_callback(self) -> None:
+        self._prepare_passing_completion()
+        callback_entered = threading.Event()
+        allow_callback_return = threading.Event()
+
+        def blocking_resolver(evidence, criterion, contract, now):
+            callback_entered.set()
+            self.assertTrue(allow_callback_return.wait(2))
+            return self._passing_resolver(evidence, criterion, contract, now)
+
+        result: dict[str, object] = {}
+        thread = threading.Thread(target=lambda: result.update(context.gate(
+            self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+            resolvers={"custom": blocking_resolver},
+            verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+            base_dir=self.base, emit=False,
+        )))
+        thread.start()
+        self.assertTrue(callback_entered.wait(2))
+        context.mark_truth_sources_dirty(
+            self.task_id, change_kind="implementation-change", actor="executor-01",
+            reason="changed during completion", base_dir=self.base,
+        )
+        allow_callback_return.set()
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["stats"]["truth_source_resolution_attempts"], 1)
+        self.assertIn("TRUTH_SOURCE_DIRTY", result["truth_source_results"][0]["codes"])
+
+    def test_completion_tail_detects_contract_update_during_callback(self) -> None:
+        self._prepare_passing_completion()
+        callback_entered = threading.Event()
+        allow_callback_return = threading.Event()
+
+        def blocking_resolver(evidence, criterion, contract, now):
+            callback_entered.set()
+            self.assertTrue(allow_callback_return.wait(2))
+            return self._passing_resolver(evidence, criterion, contract, now)
+
+        result: dict[str, object] = {}
+        thread = threading.Thread(target=lambda: result.update(context.gate(
+            self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+            resolvers={"custom": blocking_resolver},
+            verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+            base_dir=self.base, emit=False,
+        )))
+        thread.start()
+        self.assertTrue(callback_entered.wait(2))
+        next_contract = self.contract(3)
+        next_contract["acceptance_criteria"] = [{
+            "id": "AC-01", "criterion": "Updated contract", "required_evidence_types": ["custom"],
+        }]
+        context.publish_contract(next_contract, confirmed_by="publisher", base_dir=self.base)
+        allow_callback_return.set()
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(result["passed"])
+        self.assertIn("truth source control changed during completion", result["errors"])
+
+    def test_completion_tail_detects_file_change_during_callback(self) -> None:
+        self._prepare_passing_completion()
+        callback_entered = threading.Event()
+        allow_callback_return = threading.Event()
+
+        def blocking_resolver(evidence, criterion, contract, now):
+            callback_entered.set()
+            self.assertTrue(allow_callback_return.wait(2))
+            return self._passing_resolver(evidence, criterion, contract, now)
+
+        result: dict[str, object] = {}
+        thread = threading.Thread(target=lambda: result.update(context.gate(
+            self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+            resolvers={"custom": blocking_resolver},
+            verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+            base_dir=self.base, emit=False,
+        )))
+        thread.start()
+        self.assertTrue(callback_entered.wait(2))
+        self.status.write_text("tail changed source\n", encoding="utf-8")
+        allow_callback_return.set()
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(result["passed"])
+        self.assertIn("TRUTH_SOURCE_CHANGED", result["truth_source_results"][0]["codes"])
+
+    def test_completion_tail_uses_new_clock_and_detects_freshness_expiry(self) -> None:
+        self._prepare_passing_completion()
+        observed_at = context._read_json(context._paths(self.task_id, self.base)["snapshot"])["truth_sources"]["sources"]["TS-STATUS"]["observation"]["observed_at"]
+        observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        with patch.object(context, "_trusted_utc_now", side_effect=[
+            observed + timedelta(seconds=1), observed + timedelta(seconds=61),
+        ]) as clock:
+            report = context.gate(
+                self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+                resolvers={"custom": self._passing_resolver},
+                verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+                base_dir=self.base, emit=False,
+            )
+        self.assertFalse(report["passed"])
+        self.assertEqual(clock.call_count, 2)
+        self.assertIn("TRUTH_SOURCE_STALE", report["truth_source_results"][0]["codes"])
+
+    def _assert_child_sees_shared_lock(self, gate_thread: threading.Thread) -> None:
+        queue = multiprocessing.Queue()
+        child = multiprocessing.Process(
+            target=_exclusive_lock_probe,
+            args=(str(context._paths(self.task_id, self.base)["lock"]), queue),
+        )
+        child.start()
+        child.join(2)
+        self.assertFalse(child.is_alive())
+        self.assertEqual(child.exitcode, 0)
+        self.assertEqual(queue.get(timeout=2), "blocked")
+        self.assertTrue(gate_thread.is_alive())
+
+    def test_release_resume_handoff_hold_shared_lock_until_verdict_is_fixed(self) -> None:
+        for stage in ("release", "resume", "handoff"):
+            with self.subTest(stage=stage):
+                self.temp.cleanup()
+                self.setUp()
+                self._observe()
+                resolver_entered = threading.Event()
+                allow_resolver_return = threading.Event()
+
+                def blocking_resolver(*args):
+                    resolver_entered.set()
+                    self.assertTrue(allow_resolver_return.wait(2))
+                    return truth_sources.resolve_file_source(*args)
+
+                result: dict[str, object] = {}
+                with patch.object(context, "resolve_file_source", side_effect=blocking_resolver):
+                    thread = threading.Thread(target=lambda: result.update(context.gate(
+                        self.task_id, stage=stage, base_dir=self.base, emit=False,
+                    )))
+                    thread.start()
+                    self.assertTrue(resolver_entered.wait(2))
+                    self._assert_child_sees_shared_lock(thread)
+                    allow_resolver_return.set()
+                    thread.join(2)
+                self.assertFalse(thread.is_alive())
+                self.assertIn("truth_source_results", result)
+
+    def test_mark_cannot_enter_tail_control_file_verdict_critical_section(self) -> None:
+        self._prepare_passing_completion()
+        tail_entered = threading.Event()
+        allow_tail_return = threading.Event()
+        resolver_calls = 0
+
+        def tail_blocking_resolver(*args):
+            nonlocal resolver_calls
+            resolver_calls += 1
+            if resolver_calls == 2:
+                tail_entered.set()
+                self.assertTrue(allow_tail_return.wait(2))
+            return truth_sources.resolve_file_source(*args)
+
+        writer_attempting = threading.Event()
+        writer_finished = threading.Event()
+
+        def writer() -> None:
+            writer_attempting.set()
+            context.mark_truth_sources_dirty(
+                self.task_id, change_kind="implementation-change", actor="executor-01",
+                reason="writer waits for tail verdict", base_dir=self.base,
+            )
+            writer_finished.set()
+
+        result: dict[str, object] = {}
+        with patch.object(context, "resolve_file_source", side_effect=tail_blocking_resolver):
+            gate_thread = threading.Thread(target=lambda: result.update(context.gate(
+                self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+                resolvers={"custom": self._passing_resolver},
+                verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+                base_dir=self.base, emit=False,
+            )))
+            gate_thread.start()
+            self.assertTrue(tail_entered.wait(2))
+            self._assert_child_sees_shared_lock(gate_thread)
+            writer_thread = threading.Thread(target=writer)
+            writer_thread.start()
+            self.assertTrue(writer_attempting.wait(2))
+            self.assertFalse(writer_finished.is_set())
+            allow_tail_return.set()
+            gate_thread.join(2)
+            writer_thread.join(2)
+        self.assertFalse(gate_thread.is_alive())
+        self.assertFalse(writer_thread.is_alive())
+        self.assertTrue(writer_finished.is_set())
+        self.assertTrue(result["passed"])
+
+    def test_truth_enabled_read_apis_preserve_tree_bytes_and_reject_every_write_primitive(self) -> None:
+        self._observe()
+        task_root = context._paths(self.task_id, self.base)["root"]
+
+        def tree_map() -> dict[str, tuple[str, bytes | None]]:
+            return {
+                str(path.relative_to(task_root)): (
+                    "file", path.read_bytes()) if path.is_file() else ("directory", None)
+                for path in sorted(task_root.rglob("*"))
+            }
+
+        before = tree_map()
+        original_open = builtins.open
+        original_path_open = Path.open
+        original_os_open = os.open
+        write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+
+        def guarded_open(*args, **kwargs):
+            mode = kwargs.get("mode", args[1] if len(args) > 1 else "r")
+            if any(flag in mode for flag in "wax+"):
+                raise AssertionError("builtins.open write")
+            return original_open(*args, **kwargs)
+
+        def guarded_path_open(path, *args, **kwargs):
+            mode = kwargs.get("mode", args[0] if args else "r")
+            if any(flag in mode for flag in "wax+"):
+                raise AssertionError("Path.open write")
+            return original_path_open(path, *args, **kwargs)
+
+        def guarded_os_open(path, flags, *args, **kwargs):
+            if flags & write_flags:
+                raise AssertionError("os.open write")
+            return original_os_open(path, flags, *args, **kwargs)
+
+        with patch("builtins.open", side_effect=guarded_open), \
+             patch.object(Path, "open", new=guarded_path_open), \
+             patch.object(os, "open", side_effect=guarded_os_open), \
+             patch.object(context, "_append_event_locked", side_effect=AssertionError("event write")), \
+             patch.object(context, "_atomic_write_json", side_effect=AssertionError("json write")), \
+             patch.object(context.os, "replace", side_effect=AssertionError("replace")), \
+             patch("tempfile.TemporaryDirectory", side_effect=AssertionError("temporary directory")), \
+             patch.object(Path, "mkdir", side_effect=AssertionError("Path.mkdir")), \
+             patch.object(os, "mkdir", side_effect=AssertionError("os.mkdir")), \
+             patch.object(os, "makedirs", side_effect=AssertionError("os.makedirs")):
+            context.audit(self.task_id, base_dir=self.base, emit=False)
+            context.brief(self.task_id, base_dir=self.base)
+            context.brief_diagnostics(self.task_id, base_dir=self.base)
+            for stage in ("release", "resume", "handoff", "completion"):
+                context.gate(
+                    self.task_id, stage=stage, evidence_map={} if stage == "completion" else None,
+                    base_dir=self.base, emit=False,
+                )
+        self.assertEqual(tree_map(), before)
+
+    def test_legacy_gate_has_zero_truth_io_and_unchanged_shape(self) -> None:
+        legacy_base = Path(self.temp.name) / "legacy" / ".prime" / "context"
+        context.publish_contract(LEGACY_CONTRACT, confirmed_by="publisher", base_dir=legacy_base)
+        with patch.object(context, "evaluate_truth_sources", side_effect=AssertionError("legacy evaluator")), \
+             patch.object(context, "resolve_file_source", side_effect=AssertionError("legacy resolver")):
+            for stage in ("release", "resume", "handoff", "completion"):
+                report = context.gate(
+                    "LEGACY-GOLDEN", stage=stage,
+                    evidence_map={} if stage == "completion" else None,
+                    base_dir=legacy_base, emit=False,
+                )
+                self.assertNotIn("truth_source_results", report)
+                self.assertNotIn("truth_sources_checked", report["stats"])
+                self.assertNotIn("truth_source_resolution_attempts", report["stats"])
 
 
 if __name__ == "__main__":
