@@ -57,6 +57,17 @@ _DELIVERY_RECEIPT_STRING_FIELDS = (
     "verification_method",
 )
 _DELIVERY_RECEIPT_TIME_FIELDS = ("sent_at", "observed_at")
+_TRUTH_SOURCE_RESOLVER_FAILURES = {
+    "TRUTH_SOURCE_NOT_FOUND": "fail",
+    "TRUTH_SOURCE_PERMISSION_DENIED": "unknown",
+    "TRUTH_SOURCE_TRANSIENT_IO": "unknown",
+    "TRUTH_SOURCE_UNSAFE_PATH": "fail",
+    "TRUTH_SOURCE_SYMLINK": "fail",
+    "TRUTH_SOURCE_NOT_REGULAR_FILE": "fail",
+    "TRUTH_SOURCE_TOO_LARGE": "fail",
+    "TRUTH_SOURCE_CHANGED_DURING_READ": "unknown",
+    "TRUTH_SOURCE_RESOLVER_UNKNOWN": "unknown",
+}
 
 
 class ContextError(RuntimeError):
@@ -597,7 +608,12 @@ def _apply_truth_control_event(snapshot: dict[str, Any], event: Mapping[str, Any
     if not isinstance(fingerprint, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint) is None:
         raise _truth_event_error(event_type, "fingerprint must be sha256:<64 lowercase hex>")
     refs = payload.get("verification_refs")
-    if not isinstance(refs, list) or not refs or not all(isinstance(item, str) and item.strip() for item in refs) or len(set(refs)) != len(refs):
+    if (
+        not isinstance(refs, list)
+        or not refs
+        or not all(isinstance(item, str) and VERIFICATION_REF_RE.fullmatch(item) for item in refs)
+        or len(set(refs)) != len(refs)
+    ):
         raise _truth_event_error(event_type, "verification_refs must be a unique non-empty list")
     updated_sources = deepcopy(dict(sources))
     updated_sources[source_id] = {
@@ -607,6 +623,7 @@ def _apply_truth_control_event(snapshot: dict[str, Any], event: Mapping[str, Any
             "fingerprint": fingerprint,
             "verification_refs": deepcopy(refs),
             "observed_at": event["created_at"],
+            "actor": event["actor"],
         },
         "status": "observed",
     }
@@ -1213,14 +1230,18 @@ def observe_truth_source(
         if not isinstance(resolution, Mapping):
             raise ContextError("TRUTH_SOURCE_RESOLVER_UNKNOWN")
         fingerprint = resolution.get("fingerprint")
-        if (
-            resolution.get("status") != "pass"
-            or resolution.get("code") is not None
-            or not isinstance(fingerprint, str)
-            or re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint) is None
+        status = resolution.get("status")
+        code = resolution.get("code")
+        if status == "pass" and code is None and isinstance(fingerprint, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint):
+            pass
+        elif (
+            isinstance(code, str)
+            and _TRUTH_SOURCE_RESOLVER_FAILURES.get(code) == status
+            and fingerprint is None
         ):
-            code = resolution.get("code")
-            raise ContextError(code if isinstance(code, str) and code else "TRUTH_SOURCE_RESOLVER_UNKNOWN")
+            raise ContextError(code)
+        else:
+            raise ContextError("TRUTH_SOURCE_RESOLVER_UNKNOWN")
         previous = source_state.get("observation")
         if source_state.get("status") == "observed":
             if not isinstance(previous, Mapping) or not isinstance(previous.get("fingerprint"), str):

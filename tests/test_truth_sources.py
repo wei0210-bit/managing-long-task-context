@@ -807,6 +807,30 @@ class TruthSourceApiTests(_TruthSourceContractFixture):
                 )
         self.assertEqual(self.events_bytes(), before)
 
+    def test_observe_normalizes_unknown_or_malformed_resolver_results_without_writing(self) -> None:
+        canary = "TRUTH_SOURCE_RESOLVER_CANARY_DO_NOT_LEAK"
+        expected_fingerprint = "sha256:" + "a" * 64
+        bad_results = (
+            {"status": "fail", "code": canary, "fingerprint": None},
+            {"status": "pass", "code": "TRUTH_SOURCE_NOT_FOUND", "fingerprint": expected_fingerprint},
+            {"status": "unknown", "code": "TRUTH_SOURCE_TRANSIENT_IO", "fingerprint": expected_fingerprint},
+            {"status": "invalid", "code": "TRUTH_SOURCE_NOT_FOUND", "fingerprint": None},
+        )
+        for result in bad_results:
+            with self.subTest(result=result):
+                before = self.events_bytes()
+                with patch.object(context, "resolve_file_source", return_value=result):
+                    with self.assertRaisesRegex(context.ContextError, "^TRUTH_SOURCE_RESOLVER_UNKNOWN$") as raised:
+                        context.observe_truth_source(
+                            self.task_id,
+                            source_id="TS-STATUS",
+                            actor="publisher",
+                            verification_refs=["review:resolver"],
+                            base_dir=self.base,
+                        )
+                self.assertNotIn(canary, str(raised.exception))
+                self.assertEqual(self.events_bytes(), before)
+
     def test_uncommitted_contract_writes_no_event(self) -> None:
         uncommitted_base = Path(self.temp.name) / "uncommitted" / ".prime" / "context"
         with patch.object(context, "_append_event_locked", side_effect=OSError("event cut")):
@@ -904,6 +928,43 @@ class TruthSourceReducerTests(_TruthSourceContractFixture):
         }))
         with self.assertRaisesRegex(context.ContextError, "generation"):
             context._rebuild_snapshot("TSC-03", events)
+
+    def test_replay_preserves_observer_actor_for_later_owner_validation(self) -> None:
+        self.publish()
+        digest = self.events()[0]["payload"]["integrity_digest"]
+        event = context._new_event("TSC-03", "truth-source-observed", "other-actor", {
+            "contract_digest": digest,
+            "observed_generation": 1,
+            "source_id": "TS-STATUS",
+            "fingerprint": "sha256:" + "2" * 64,
+            "verification_refs": ["review:owner-check-later"],
+        })
+        snapshot = context._rebuild_snapshot("TSC-03", [*self.events(), event])
+        observation = snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"]
+        self.assertEqual(observation["actor"], "other-actor")
+        self.assertNotEqual(observation["actor"], self.contract()["truth_sources"]["items"][0]["owner"])
+
+    def test_replay_rejects_invalid_verification_refs_and_later_event_cannot_heal(self) -> None:
+        self.publish()
+        digest = self.events()[0]["payload"]["integrity_digest"]
+        for invalid_ref in ("review:line\nbreak", "not a stable reference"):
+            with self.subTest(invalid_ref=invalid_ref):
+                malformed = context._new_event("TSC-03", "truth-source-observed", "publisher", {
+                    "contract_digest": digest,
+                    "observed_generation": 1,
+                    "source_id": "TS-STATUS",
+                    "fingerprint": "sha256:" + "3" * 64,
+                    "verification_refs": [invalid_ref],
+                })
+                later_valid = context._new_event("TSC-03", "truth-source-observed", "publisher", {
+                    "contract_digest": digest,
+                    "observed_generation": 1,
+                    "source_id": "TS-STATUS",
+                    "fingerprint": "sha256:" + "3" * 64,
+                    "verification_refs": ["review:valid-later"],
+                })
+                with self.assertRaisesRegex(context.ContextError, "verification_refs"):
+                    context._rebuild_snapshot("TSC-03", [*self.events(), malformed, later_valid])
 
 
 class TruthSourceRecoveryTests(_TruthSourceContractFixture):
