@@ -2565,6 +2565,15 @@ def _audit_from_view(
             conflict_count += 1
         if _item_is_stale(item):
             stale_count += 1
+        source = item.get("source") if isinstance(item.get("source"), Mapping) else {}
+        evidence_refs = item.get("evidence") if isinstance(item.get("evidence"), list) else []
+        for ref in [source.get("ref"), *evidence_refs]:
+            if isinstance(ref, str) and ref.startswith("file:"):
+                file_path = Path(ref[5:]).expanduser()
+                if not file_path.is_absolute():
+                    file_path = Path.cwd() / file_path
+                if not file_path.exists():
+                    errors.append(f"{identifier}: missing file reference {ref}")
     pointer_checked = 0
     if documents:
         document_errors, document_warnings, pointer_checked = _audit_documents(
@@ -2697,57 +2706,78 @@ def _truth_unknown_gate_report(
     return report
 
 
-def _gate_truth_enabled(
-    task_id: str, *, stage: str, evidence_map: Mapping[str, Mapping[str, Any]] | None,
+def _truth_gate_entry_locked(
+    task_id: str, *, view: Mapping[str, Any], stage: str,
     required_item_ids: Sequence[str] | None, documents: Sequence[str | Path] | None,
-    resolvers: Mapping[str, Any] | None, verifiers: Mapping[str, Any] | None,
-    emit: bool, base_dir: str | Path | None, run_probe: bool, clock: Any,
+    clock: Any, run_probe: bool,
 ) -> dict[str, Any]:
-    paths = _paths(task_id, base_dir)
-    try:
-        with _shared_locked_existing(paths["root"]):
-            entry_view = _load_committed_task_view_locked(task_id, paths)
-            entry_now = clock().astimezone(timezone.utc)
-            audit_report = _audit_from_view(
-                task_id, contract=entry_view["contract"], snapshot=entry_view["snapshot"],
-                events=entry_view["events"], documents=documents, max_pointer_lag_seconds=0,
-                now=entry_now, run_probe=run_probe,
-            )
-            entry_truth = _evaluate_truth_phase_locked(entry_view, now=entry_now)
-            assert entry_truth is not None
-            entry_token = _truth_entry_token(entry_view)
-            brief_report: dict[str, Any] | None = None
-            if stage in {"release", "resume", "handoff"}:
-                brief_plan = _plan_brief_from_view(
-                    task_id, contract=entry_view["contract"], snapshot=entry_view["snapshot"],
-                    truth_evaluation=entry_truth, phase=None, include=None, max_items=None, max_chars=8000,
-                )
-                brief_report = _brief_diagnostics_from_plan(brief_plan)
-    except ContextError as exc:
-        try:
-            contract = _read_json(paths["contract"])
-        except ContextError:
-            contract = {}
-        return _truth_unknown_gate_report(
-            task_id=task_id, stage=stage, contract=contract, error=exc, emit=emit,
+    """Build all entry verdict inputs while the caller holds the shared lock."""
+    entry_now = clock().astimezone(timezone.utc)
+    report = _audit_from_view(
+        task_id, contract=view["contract"], snapshot=view["snapshot"], events=view["events"],
+        documents=documents, max_pointer_lag_seconds=0, now=entry_now, run_probe=run_probe,
+    )
+    truth = _evaluate_truth_phase_locked(view, now=entry_now)
+    if truth is None:
+        truth = {"status": "unknown", "passed": False, "results": [],
+                 "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0}}
+    errors = list(report["errors"])
+    warnings = list(report["warnings"])
+    if not truth["passed"]:
+        errors.extend(_truth_gate_errors(truth))
+    brief_report: dict[str, Any] | None = None
+    if stage in {"release", "resume", "handoff"}:
+        plan = _plan_brief_from_view(
+            task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=truth,
+            phase=None, include=None, max_items=None, max_chars=8000,
         )
-    errors = list(audit_report["errors"])
-    warnings = list(audit_report["warnings"])
-    if not entry_truth["passed"]:
-        errors.extend(_truth_gate_errors(entry_truth))
-    if brief_report is not None:
+        brief_report = _brief_diagnostics_from_plan(plan)
         overflow = brief_report.get("overflow")
         if isinstance(overflow, Mapping):
             message = str(overflow.get("message", "BRIEF_REQUIRED_OVERFLOW"))
-            if stage == "handoff":
-                errors.append(message)
-            else:
-                warnings.append(f"brief preflight: {message}")
-    _truth_gate_base_checks(stage, entry_view["snapshot"], required_item_ids, errors)
+            (errors if stage == "handoff" else warnings).append(
+                message if stage == "handoff" else f"brief preflight: {message}"
+            )
+        filtered = brief_report.get("items", {}).get("filtered_mandatory_ids", [])
+        if filtered:
+            warnings.append(f"brief preflight filtered mandatory items: {filtered}")
+    _truth_gate_base_checks(stage, view["snapshot"], required_item_ids, errors)
+    return {"view": view, "now": entry_now, "report": report, "truth": truth,
+            "token": _truth_entry_token(view), "errors": errors, "warnings": warnings,
+            "brief_report": brief_report}
+
+
+def _append_completion_errors(errors: list[str], criterion_id: Any, result: Mapping[str, Any]) -> None:
+    if result.get("status") == "pass":
+        return
+    errors.append(f"criterion {criterion_id} status is {result.get('status', 'unknown')}")
+    for evidence_result in result.get("evidence_results", []):
+        if isinstance(evidence_result, Mapping) and evidence_result.get("status") != "pass":
+            errors.append(f"criterion {criterion_id} evidence {evidence_result.get('evidence_id')} is {evidence_result.get('status', 'unknown')}")
+    for field, label in (("missing_evidence_types", "missing required evidence types"),
+                         ("missing_hops", "missing chain-hop coverage"),
+                         ("missing_delivery_types", "missing required delivery types")):
+        if result.get(field):
+            errors.append(f"criterion {criterion_id} {label}: {result[field]}")
+    independence = result.get("independent_validation")
+    if isinstance(independence, Mapping) and independence.get("status") != "pass":
+        errors.append(f"criterion {criterion_id} independent validation is {independence.get('status')}: {independence.get('codes', [])}")
+
+
+def _gate_truth_enabled(
+    task_id: str, *, entry: Mapping[str, Any], evidence_map: Mapping[str, Mapping[str, Any]] | None,
+    resolvers: Mapping[str, Any] | None, verifiers: Mapping[str, Any] | None,
+    emit: bool, base_dir: str | Path | None, clock: Any,
+) -> dict[str, Any]:
+    """Run completion callbacks outside the entry lock, then fix its tail verdict under lock."""
+    entry_view = entry["view"]
+    errors = list(entry["errors"])
+    warnings = list(entry["warnings"])
+    entry_truth = entry["truth"]
     criterion_reports: dict[str, Any] = {}
     criteria_checked = 0
     evidence_attempts = 0
-    if stage == "completion" and entry_truth["passed"]:
+    if entry_truth["passed"]:
         if not isinstance(evidence_map, Mapping):
             errors.append("completion gate requires evidence_map")
         else:
@@ -2761,29 +2791,36 @@ def _gate_truth_enabled(
                 try:
                     criterion_report = _evaluate_completion_criterion(
                         deepcopy(criterion), evidence_entry, deepcopy(entry_view["contract"]),
-                        resolvers=resolvers, verifiers=verifiers, now=entry_now,
+                        resolvers=resolvers, verifiers=verifiers, now=entry["now"],
                     )
                 except Exception as exc:
                     criterion_report = {"status": "unknown", "evidence_results": [], "missing_evidence_types": [], "missing_hops": [], "missing_delivery_types": [], "independent_validation": {"status": "unknown", "codes": ["CRITERION_EVALUATION_ERROR"]}}
                     warnings.append(f"criterion {criterion_id} evaluation raised {type(exc).__name__}")
                 evidence_attempts += len(criterion_report.get("evidence_results", []))
                 criterion_reports[str(criterion_id)] = criterion_report
-                if criterion_report.get("status") != "pass":
-                    errors.append(f"criterion {criterion_id} status is {criterion_report.get('status', 'unknown')}")
-    elif stage == "completion" and not entry_truth["passed"]:
-        # Invalid truth at entry is a strict short circuit: no criterion callbacks.
-        pass
+                _append_completion_errors(errors, criterion_id, criterion_report)
     final_truth = entry_truth
-    if stage == "completion" and entry_truth["passed"] and not errors:
-        with _shared_locked_existing(paths["root"]):
-            tail_view = _load_committed_task_view_locked(task_id, paths)
-            tail_now = clock().astimezone(timezone.utc)
-            tail_truth = _evaluate_truth_phase_locked(tail_view, now=tail_now)
-            assert tail_truth is not None
-            if _truth_entry_token(tail_view) != entry_token:
-                errors.append("truth source control changed during completion")
-            if not tail_truth["passed"]:
-                errors.extend(_truth_gate_errors(tail_truth))
+    paths = _paths(task_id, base_dir)
+    with _shared_locked_existing(paths["root"]):
+        if not errors:
+            try:
+                tail_view = _load_committed_task_view_locked(task_id, paths)
+                tail_now = clock().astimezone(timezone.utc)
+                tail_truth = _evaluate_truth_phase_locked(tail_view, now=tail_now)
+                if tail_truth is None:
+                    raise ContextError("truth capability removed during completion")
+            except ContextError as exc:
+                errors.append(f"truth source tail unavailable: {type(exc).__name__}")
+                tail_truth = deepcopy(entry_truth)
+                for item in tail_truth.get("results", []):
+                    if isinstance(item, dict):
+                        item["status"] = "unknown"
+                        item["codes"] = ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
+            else:
+                if _truth_entry_token(tail_view) != entry["token"]:
+                    errors.append("truth source control changed during completion")
+                if not tail_truth["passed"]:
+                    errors.extend(_truth_gate_errors(tail_truth))
             final_truth = tail_truth
             entry_stats = entry_truth.get("stats", {})
             tail_stats = tail_truth.get("stats", {})
@@ -2792,12 +2829,12 @@ def _gate_truth_enabled(
                 "truth_sources_checked": entry_stats.get("truth_sources_checked", 0) + tail_stats.get("truth_sources_checked", 0),
                 "truth_source_resolution_attempts": entry_stats.get("truth_source_resolution_attempts", 0) + tail_stats.get("truth_source_resolution_attempts", 0),
             }
-    return _truth_gate_final(
-        stage=stage, report=audit_report, errors=errors, warnings=warnings,
+        return _truth_gate_final(
+        stage="completion", report=entry["report"], errors=errors, warnings=warnings,
         criteria=criterion_reports, criteria_checked=criteria_checked,
-        evidence_attempts=evidence_attempts, brief_report=brief_report,
+        evidence_attempts=evidence_attempts, brief_report=entry["brief_report"],
         contract=entry_view["contract"], evaluation=final_truth, emit=emit,
-    )
+        )
 
 
 def _gate_core(
@@ -3360,16 +3397,49 @@ def gate(
     if stage not in GATE_STAGES:
         raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
     paths = _paths(task_id, base_dir)
+    truth_contract: Mapping[str, Any] | None = None
     try:
         with _shared_locked_existing(paths["root"]):
-            contract = _read_json(paths["contract"])
-            truth_enabled = truth_sources_enabled(contract)
-        if truth_enabled:
+            contract_hint = _read_json(paths["contract"])
+            if truth_sources_enabled(contract_hint):
+                truth_contract = contract_hint
+            try:
+                view = _load_committed_task_view_locked(task_id, paths)
+            except ContextError:
+                if truth_contract is not None:
+                    raise
+                return _gate_core(
+                    task_id, stage=stage, evidence_map=evidence_map,
+                    required_item_ids=required_item_ids, documents=documents,
+                    resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
+                    emit=emit, base_dir=base_dir, run_probe=True,
+                )
+            if truth_sources_enabled(view["contract"]):
+                truth_contract = view["contract"]
+                entry = _truth_gate_entry_locked(
+                    task_id, view=view, stage=stage, required_item_ids=required_item_ids,
+                    documents=documents, clock=_trusted_utc_now, run_probe=True,
+                )
+                if stage != "completion" or not entry["truth"]["passed"]:
+                    return _truth_gate_final(
+                        stage=stage, report=entry["report"], errors=entry["errors"],
+                        warnings=entry["warnings"], criteria={}, criteria_checked=0,
+                        evidence_attempts=0, brief_report=entry["brief_report"],
+                        contract=view["contract"], evaluation=entry["truth"], emit=emit,
+                    )
+            else:
+                # The route and legacy verdict are both protected by this lock.
+                return _gate_core(
+                    task_id, stage=stage, evidence_map=evidence_map,
+                    required_item_ids=required_item_ids, documents=documents,
+                    resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
+                    emit=emit, base_dir=base_dir, run_probe=True,
+                )
+        if truth_contract is not None:
             return _gate_truth_enabled(
-                task_id, stage=stage, evidence_map=evidence_map,
-                required_item_ids=required_item_ids, documents=documents,
+                task_id, entry=entry, evidence_map=evidence_map,
                 resolvers=resolvers, verifiers=verifiers, emit=emit,
-                base_dir=base_dir, run_probe=True, clock=_trusted_utc_now,
+                base_dir=base_dir, clock=_trusted_utc_now,
             )
         with _shared_locked_existing(paths["root"]):
             return _gate_core(
@@ -3379,6 +3449,10 @@ def gate(
                 emit=emit, base_dir=base_dir, run_probe=True,
             )
     except ContextError as exc:
+        if truth_contract is not None:
+            return _truth_unknown_gate_report(
+                task_id=task_id, stage=stage, contract=truth_contract, error=exc, emit=emit,
+            )
         audit_report = _read_lock_unavailable_audit(task_id, exc, emit=False)
         report = {
             "stage": stage,

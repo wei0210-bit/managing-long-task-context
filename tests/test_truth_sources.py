@@ -2112,6 +2112,95 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
                 self.assertNotIn("truth_sources_checked", report["stats"])
                 self.assertNotIn("truth_source_resolution_attempts", report["stats"])
 
+    def test_truth_audit_and_release_retain_missing_file_reference_checks(self) -> None:
+        self._observe()
+        context.record(
+            self.task_id, statement="missing source pointer", item_type="observation", actor="publisher",
+            source={"kind": "file", "ref": "file:does-not-exist.txt"}, base_dir=self.base,
+        )
+        for report in (
+            context.audit(self.task_id, base_dir=self.base, emit=False),
+            context.gate(self.task_id, stage="release", base_dir=self.base, emit=False),
+        ):
+            self.assertFalse(report["passed"])
+            self.assertTrue(any("missing file reference file:does-not-exist.txt" in error for error in report["errors"]))
+
+    def test_truth_completion_preserves_detailed_criterion_errors(self) -> None:
+        self._prepare_passing_completion()
+        report = context.gate(
+            self.task_id, stage="completion", evidence_map={"AC-01": {"evidence": []}},
+            base_dir=self.base, emit=False,
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn("criterion AC-01 status is unknown", report["errors"])
+        self.assertIn("criterion AC-01 missing required evidence types: ['custom']", report["errors"])
+
+    def test_release_verdict_is_fixed_before_writer_can_finish(self) -> None:
+        self._observe()
+        entered = threading.Event()
+        allow_return = threading.Event()
+        writer_finished = threading.Event()
+        original = context._truth_gate_base_checks
+
+        def blocking_checks(*args):
+            entered.set()
+            self.assertTrue(allow_return.wait(2))
+            return original(*args)
+
+        def writer() -> None:
+            context.mark_truth_sources_dirty(
+                self.task_id, change_kind="implementation-change", actor="executor-01",
+                reason="must wait for verdict", base_dir=self.base,
+            )
+            writer_finished.set()
+
+        result: dict[str, object] = {}
+        with patch.object(context, "_truth_gate_base_checks", side_effect=blocking_checks):
+            thread = threading.Thread(target=lambda: result.update(context.gate(
+                self.task_id, stage="release", base_dir=self.base, emit=False,
+            )))
+            thread.start()
+            self.assertTrue(entered.wait(2))
+            writer_thread = threading.Thread(target=writer)
+            writer_thread.start()
+            self.assertFalse(writer_finished.is_set())
+            allow_return.set()
+            thread.join(2)
+            writer_thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(result["passed"])
+        self.assertTrue(writer_finished.is_set())
+
+    def test_completion_tail_capability_removal_returns_truth_shaped_failure(self) -> None:
+        self._prepare_passing_completion()
+        entered = threading.Event()
+        allow_return = threading.Event()
+
+        def blocking_resolver(evidence, criterion, contract, now):
+            entered.set()
+            self.assertTrue(allow_return.wait(2))
+            return self._passing_resolver(evidence, criterion, contract, now)
+
+        result: dict[str, object] = {}
+        thread = threading.Thread(target=lambda: result.update(context.gate(
+            self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+            resolvers={"custom": blocking_resolver},
+            verifiers={"custom": lambda *args: {"status": "pass", "codes": []}},
+            base_dir=self.base, emit=False,
+        )))
+        thread.start()
+        self.assertTrue(entered.wait(2))
+        legacy = self.legacy_contract(3)
+        legacy["acceptance_criteria"] = [{"id": "AC-01", "criterion": "legacy", "required_evidence_types": ["custom"]}]
+        context.publish_contract(legacy, confirmed_by="publisher", base_dir=self.base)
+        allow_return.set()
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["contract_version"], 2)
+        self.assertIn("truth_source_results", result)
+        self.assertIn("truth_source_resolution_attempts", result["stats"])
+
 
 if __name__ == "__main__":
     unittest.main()
