@@ -34,6 +34,23 @@ diagnostics = context.brief_diagnostics("TASK-001")
 合同发布后会生成完整性摘要。它检测发布后的内容变化（包括确认者和确认时间），但不认证谁作出了确认；身份认证需要外部签名或受信存储。任何修改都会使摘要失效；变更必须提高版本并由发布者或授权人重新确认。
 `fits=false` 时按 overflow 信息外置明细并保留简洁稳定引用、解冲突或拆任务；禁止删除验收标准或 mandatory 条目。
 
+### Truth Sources（可选）
+
+仅当任务的决策确实依赖会变化的本地原件时，才从
+`assets/truth-source-contract.example.json` 声明 `truth_sources` 和
+`required_capabilities: ["truth-sources/v1"]`；完整可运行流程见
+`examples/truth_source_contract.py`。固定顺序是：发布合同 → owner 对**所有**声明原件执行
+`observe_truth_source` → `gate(..., stage="release")`。声明范围内发生真实变更后，先由
+调用方显式 `mark_truth_sources_dirty`，owner 重新读取原件并观测，才可 handoff 或 completion。
+
+brief 只携带稳定路径和控制元数据；执行者必须自行读取原件，不能把 brief、聊天摘要或上游转述当作
+原件。未观测、dirty、过期、字节变化、不可读和 unknown 都会阻断质量门；truth observation 只是
+上下文控制，不是 completion evidence，也不能证明 owner 理解了原件语义。
+
+该能力不保存原始 bytes，不自动推断变更、不提供 actor 身份认证，也没有事件 hash chain。启用前，
+参与同一任务的每个 runtime 都必须升级；旧 runtime 可能忽略 capability。未声明时不会执行
+truth-source 扫描，也不会向 prompt 注入 truth-source 控制块。
+
 ### 2. Record context without laundering assumptions into facts
 
 ```python

@@ -13,3 +13,24 @@ full boundary. Both skills are independently installable. The root Strict source
 remain the compatibility and development source during migration; run
 `python3 scripts/sync_context_strict_skill.py` before validating or publishing the
 `skills/context-strict/` distribution. Transfer is not implemented in this MVP.
+
+## Context Strict truth sources
+
+Truth sources are optional controls for local originals whose current bytes matter to a
+task decision. Start with
+[`assets/truth-source-contract.example.json`](assets/truth-source-contract.example.json),
+then use the public lifecycle demonstrated by
+[`examples/truth_source_contract.py`](examples/truth_source_contract.py):
+
+```bash
+python3 examples/truth_source_contract.py
+```
+
+The lifecycle is publish → observe every declared source → release. A declared change
+must be marked dirty, then re-read and observed by its owner before handoff can pass.
+Briefs carry paths and control metadata only; executors read originals themselves.
+Unknown or failed truth observations block the gate, but do not substitute for completion
+evidence. The runtime does not retain raw bytes, infer changes automatically, authenticate
+actors, or provide an event hash chain. Upgrade every participating runtime before
+declaring `truth-sources/v1`; without the declaration, no truth-source scan or prompt block
+is added.

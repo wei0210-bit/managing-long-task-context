@@ -13,12 +13,16 @@ DESTINATION = ROOT / "skills" / "context-strict"
 COPIED_FILES = (
     Path("pyproject.toml"),
     Path("assets/task-contract.example.json"),
+    Path("assets/truth-source-contract.example.json"),
     Path("examples/strict_completion.py"),
+    Path("examples/truth_source_contract.py"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
     Path("tests/test_context.py"),
     Path("tests/test_evidence.py"),
+    Path("tests/test_truth_sources.py"),
+    Path("tests/fixtures/truth_source_pilot.md"),
 )
 
 

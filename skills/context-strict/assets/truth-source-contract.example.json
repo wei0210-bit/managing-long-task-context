@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "task_id": "TASK-001",
+  "version": 1,
+  "issued_by": "task-publisher",
+  "issued_at": "2026-08-31T03:00:00Z",
+  "authorized_approvers": [],
+  "workspace_root": "/absolute/workspace",
+  "required_capabilities": [
+    "truth-sources/v1"
+  ],
+  "objective": "重构认证模块且不依赖过期状态说明",
+  "scope": [
+    "认证模块"
+  ],
+  "out_of_scope": [],
+  "constraints": [],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "criterion": "现有认证回归测试通过",
+      "required_evidence_types": [
+        "test-report"
+      ]
+    }
+  ],
+  "truth_sources": {
+    "schema": "truth-sources/v1",
+    "items": [
+      {
+        "id": "TS-STATUS",
+        "purpose": "项目当前状态的正式原件",
+        "source_ref": {
+          "kind": "file",
+          "locator": "STATUS.md"
+        },
+        "owner": "project-lead",
+        "max_age_seconds": 86400,
+        "validation_method": "owner-readback",
+        "invalidate_on_change_kinds": [
+          "implementation-change",
+          "configuration-change"
+        ]
+      }
+    ]
+  }
+}

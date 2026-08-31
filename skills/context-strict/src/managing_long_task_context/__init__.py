@@ -3425,6 +3425,7 @@ def gate(
         raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
     paths = _paths(task_id, base_dir)
     truth_contract: Mapping[str, Any] | None = None
+    initial_route_pending = True
     try:
         with _shared_locked_existing(paths["root"]):
             contract_hint = _read_json(paths["contract"])
@@ -3441,6 +3442,7 @@ def gate(
                     resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
                     emit=emit, base_dir=base_dir, run_probe=True,
                 )
+            initial_route_pending = False
             if truth_sources_enabled(view["contract"]):
                 truth_contract = view["contract"]
                 entry = _truth_gate_entry_locked(
@@ -3463,6 +3465,8 @@ def gate(
                     emit=emit, base_dir=base_dir, run_probe=True,
                 )
     except ContextError as exc:
+        if not initial_route_pending:
+            raise
         if truth_contract is not None:
             return _truth_unknown_gate_report(
                 task_id=task_id, stage=stage, contract=truth_contract, error=exc, emit=emit,
@@ -3488,19 +3492,11 @@ def gate(
         if emit:
             _emit_report(report)
         return report
-    if truth_contract is not None:
-        return _gate_truth_enabled(
-            task_id, entry=entry, evidence_map=evidence_map,
-            resolvers=resolvers, verifiers=verifiers, emit=emit,
-            base_dir=base_dir, clock=_trusted_utc_now,
-        )
-    with _shared_locked_existing(paths["root"]):
-        return _gate_core(
-            task_id, stage=stage, evidence_map=evidence_map,
-            required_item_ids=required_item_ids, documents=documents,
-            resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
-            emit=emit, base_dir=base_dir, run_probe=True,
-        )
+    return _gate_truth_enabled(
+        task_id, entry=entry, evidence_map=evidence_map,
+        resolvers=resolvers, verifiers=verifiers, emit=emit,
+        base_dir=base_dir, clock=_trusted_utc_now,
+    )
 
 
 def workspace_observation(path: str | Path = ".") -> dict[str, Any]:
