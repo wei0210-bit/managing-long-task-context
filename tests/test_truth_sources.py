@@ -364,6 +364,16 @@ class SecureFileResolverTests(unittest.TestCase):
         self.assertRegex(result["fingerprint"], r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(set(result), {"status", "code", "fingerprint"})
 
+    def test_non_mapping_source_ref_fails_closed_with_exact_result_shape(self) -> None:
+        for source_ref in (None, [], "not-a-mapping"):
+            with self.subTest(source_ref=source_ref):
+                result = resolve_file_source(self.root.resolve(), source_ref)
+                self.assertEqual(result, {
+                    "status": "fail",
+                    "code": "TRUTH_SOURCE_UNSAFE_PATH",
+                    "fingerprint": None,
+                })
+
     def test_rejects_absolute_escape_glob_and_dot_segments_without_open(self) -> None:
         locators = (
             "/etc/passwd", "../escape", "docs/./status.md", "docs/../status.md",
@@ -504,6 +514,52 @@ class SecureFileResolverTests(unittest.TestCase):
             self.assertEqual(self.resolve(), {"status": "unknown", "code": "TRUTH_SOURCE_RESOLVER_UNKNOWN", "fingerprint": None})
         with patch.object(truth_sources.os, "read", return_value=b""):
             self.assertEqual(self.resolve(), {"status": "unknown", "code": "TRUTH_SOURCE_TRANSIENT_IO", "fingerprint": None})
+
+    def test_missing_none_and_non_integer_nonblocking_flag_fail_closed(self) -> None:
+        original_nonblocking = truth_sources.os.O_NONBLOCK
+        delattr(truth_sources.os, "O_NONBLOCK")
+        try:
+            self.assertEqual(self.resolve(), {
+                "status": "unknown",
+                "code": "TRUTH_SOURCE_RESOLVER_UNKNOWN",
+                "fingerprint": None,
+            })
+        finally:
+            truth_sources.os.O_NONBLOCK = original_nonblocking
+        for value in (None, "not-an-integer"):
+            with self.subTest(value=value), patch.object(truth_sources.os, "O_NONBLOCK", value):
+                self.assertEqual(self.resolve(), {
+                    "status": "unknown",
+                    "code": "TRUTH_SOURCE_RESOLVER_UNKNOWN",
+                    "fingerprint": None,
+                })
+
+    def test_close_failure_returns_unknown_and_never_retries_a_descriptor(self) -> None:
+        original_open, original_close = truth_sources.os.open, truth_sources.os.close
+        opened: list[int] = []
+        closed: list[int] = []
+
+        def counting_open(*args: object, **kwargs: object) -> int:
+            descriptor = original_open(*args, **kwargs)
+            opened.append(descriptor)
+            return descriptor
+
+        def close_once_then_fail(descriptor: int) -> None:
+            closed.append(descriptor)
+            original_close(descriptor)
+            if len(closed) == 1:
+                raise OSError(errno.EIO, "synthetic close failure")
+
+        with patch.object(truth_sources.os, "open", side_effect=counting_open), \
+             patch.object(truth_sources.os, "close", side_effect=close_once_then_fail):
+            result = self.resolve()
+        self.assertEqual(result, {
+            "status": "unknown",
+            "code": "TRUTH_SOURCE_RESOLVER_UNKNOWN",
+            "fingerprint": None,
+        })
+        self.assertEqual(closed, list(reversed(opened)))
+        self.assertEqual(len(closed), len(set(closed)))
 
     def test_result_and_exception_never_contain_file_canary(self) -> None:
         canary = "TRUTH_SOURCE_FILE_CANARY_DO_NOT_LEAK"

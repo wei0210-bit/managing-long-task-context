@@ -183,15 +183,16 @@ def _validate_source_ref(value: object, path: str, errors: list[str]) -> None:
 
 
 def _required_flags() -> tuple[int, int] | None:
+    readonly = getattr(os, "O_RDONLY", None)
     nofollow = getattr(os, "O_NOFOLLOW", None)
     cloexec = getattr(os, "O_CLOEXEC", None)
     directory = getattr(os, "O_DIRECTORY", None)
-    if not all(isinstance(flag, int) for flag in (nofollow, cloexec, directory)):
+    # Non-blocking is mandatory: without it, a FIFO/device final target can
+    # hang before fstat has a chance to reject it as non-regular.
+    nonblocking = getattr(os, "O_NONBLOCK", None)
+    if not all(isinstance(flag, int) for flag in (readonly, nofollow, cloexec, directory, nonblocking)):
         return None
-    # Non-blocking prevents opening a FIFO/device final target from hanging
-    # before its fstat can reject it as non-regular.
-    nonblocking = getattr(os, "O_NONBLOCK", 0)
-    return os.O_RDONLY | nofollow | cloexec | directory, os.O_RDONLY | nofollow | cloexec | nonblocking
+    return readonly | nofollow | cloexec | directory, readonly | nofollow | cloexec | nonblocking
 
 
 def _map_os_error(error: OSError) -> dict[str, Any]:
@@ -221,8 +222,34 @@ def _openat_without_symlink(parent_fd: int, component: str, flags: int) -> int:
     return os.open(component, flags, dir_fd=parent_fd)
 
 
+def _fingerprint_open_file(file_descriptor: int) -> dict[str, Any]:
+    before = os.fstat(file_descriptor)
+    if not stat.S_ISREG(before.st_mode):
+        return _result("fail", "TRUTH_SOURCE_NOT_REGULAR_FILE")
+    if before.st_size > MAX_SOURCE_BYTES:
+        return _result("fail", "TRUTH_SOURCE_TOO_LARGE")
+    digest = hashlib.sha256()
+    bytes_read = 0
+    while True:
+        chunk = os.read(file_descriptor, READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        bytes_read += len(chunk)
+        if bytes_read > MAX_SOURCE_BYTES:
+            return _result("fail", "TRUTH_SOURCE_TOO_LARGE")
+        digest.update(chunk)
+    after = os.fstat(file_descriptor)
+    if _metadata_token(before) != _metadata_token(after):
+        return _result("unknown", "TRUTH_SOURCE_CHANGED_DURING_READ")
+    if bytes_read != before.st_size:
+        return _result("unknown", "TRUTH_SOURCE_TRANSIENT_IO")
+    return _result("pass", None, "sha256:" + digest.hexdigest())
+
+
 def resolve_file_source(workspace_root: str | Path, source_ref: Mapping[str, Any]) -> dict[str, Any]:
     """Hash one safe, regular workspace-relative file without exposing its contents."""
+    if not isinstance(source_ref, Mapping):
+        return _result("fail", "TRUTH_SOURCE_UNSAFE_PATH")
     if not _safe_locator(source_ref.get("locator")) or source_ref.get("kind") != "file":
         return _result("fail", "TRUTH_SOURCE_UNSAFE_PATH")
     if not isinstance(workspace_root, (str, Path)):
@@ -235,6 +262,7 @@ def resolve_file_source(workspace_root: str | Path, source_ref: Mapping[str, Any
         return _result("unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN")
     directory_flags, file_flags = flags
     owned_fds: list[int] = []
+    outcome = _result("unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN")
     try:
         current_fd = os.open(os.sep, directory_flags)
         owned_fds.append(current_fd)
@@ -249,34 +277,18 @@ def resolve_file_source(workspace_root: str | Path, source_ref: Mapping[str, Any
             owned_fds.append(current_fd)
         file_fd = _openat_without_symlink(current_fd, segments[-1], file_flags)
         owned_fds.append(file_fd)
-        before = os.fstat(file_fd)
-        if not stat.S_ISREG(before.st_mode):
-            return _result("fail", "TRUTH_SOURCE_NOT_REGULAR_FILE")
-        if before.st_size > MAX_SOURCE_BYTES:
-            return _result("fail", "TRUTH_SOURCE_TOO_LARGE")
-        digest = hashlib.sha256()
-        bytes_read = 0
-        while True:
-            chunk = os.read(file_fd, READ_CHUNK_BYTES)
-            if not chunk:
-                break
-            bytes_read += len(chunk)
-            if bytes_read > MAX_SOURCE_BYTES:
-                return _result("fail", "TRUTH_SOURCE_TOO_LARGE")
-            digest.update(chunk)
-        after = os.fstat(file_fd)
-        if _metadata_token(before) != _metadata_token(after):
-            return _result("unknown", "TRUTH_SOURCE_CHANGED_DURING_READ")
-        if bytes_read != before.st_size:
-            return _result("unknown", "TRUTH_SOURCE_TRANSIENT_IO")
-        return _result("pass", None, "sha256:" + digest.hexdigest())
+        outcome = _fingerprint_open_file(file_fd)
     except OSError as error:
-        return _map_os_error(error)
+        outcome = _map_os_error(error)
     except (AttributeError, TypeError, ValueError):
-        return _result("unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN")
+        outcome = _result("unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN")
     finally:
+        cleanup_failed = False
         for file_descriptor in reversed(owned_fds):
             try:
                 os.close(file_descriptor)
-            except OSError:
-                pass
+            except (AttributeError, OSError, TypeError, ValueError):
+                cleanup_failed = True
+        if cleanup_failed:
+            outcome = _result("unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN")
+    return outcome
