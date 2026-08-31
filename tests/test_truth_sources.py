@@ -2116,7 +2116,8 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self._observe()
         context.record(
             self.task_id, statement="missing source pointer", item_type="observation", actor="publisher",
-            source={"kind": "file", "ref": "file:does-not-exist.txt"}, base_dir=self.base,
+            source={"kind": "file", "ref": "file:does-not-exist.txt"},
+            evidence=["file:also-does-not-exist.txt"], base_dir=self.base,
         )
         for report in (
             context.audit(self.task_id, base_dir=self.base, emit=False),
@@ -2124,16 +2125,28 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         ):
             self.assertFalse(report["passed"])
             self.assertTrue(any("missing file reference file:does-not-exist.txt" in error for error in report["errors"]))
+            self.assertTrue(any("missing file reference file:also-does-not-exist.txt" in error for error in report["errors"]))
 
     def test_truth_completion_preserves_detailed_criterion_errors(self) -> None:
         self._prepare_passing_completion()
-        report = context.gate(
-            self.task_id, stage="completion", evidence_map={"AC-01": {"evidence": []}},
-            base_dir=self.base, emit=False,
-        )
+        failing = {
+            "status": "fail", "evidence_results": [{"evidence_id": "EV-FAIL", "status": "fail"}],
+            "missing_evidence_types": ["custom"], "missing_hops": ["build"],
+            "missing_delivery_types": ["receipt"],
+            "independent_validation": {"status": "unknown", "codes": ["MISSING_VALIDATED_AT"]},
+        }
+        with patch.object(context, "_evaluate_completion_criterion", return_value=failing):
+            report = context.gate(
+                self.task_id, stage="completion", evidence_map=self._passing_evidence_map(),
+                base_dir=self.base, emit=False,
+            )
         self.assertFalse(report["passed"])
-        self.assertIn("criterion AC-01 status is unknown", report["errors"])
+        self.assertIn("criterion AC-01 status is fail", report["errors"])
+        self.assertIn("criterion AC-01 evidence EV-FAIL is fail", report["errors"])
         self.assertIn("criterion AC-01 missing required evidence types: ['custom']", report["errors"])
+        self.assertIn("criterion AC-01 missing chain-hop coverage: ['build']", report["errors"])
+        self.assertIn("criterion AC-01 missing required delivery types: ['receipt']", report["errors"])
+        self.assertIn("criterion AC-01 independent validation is unknown: ['MISSING_VALIDATED_AT']", report["errors"])
 
     def test_release_verdict_is_fixed_before_writer_can_finish(self) -> None:
         self._observe()
@@ -2175,8 +2188,11 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self._prepare_passing_completion()
         entered = threading.Event()
         allow_return = threading.Event()
+        resolver_calls = 0
 
         def blocking_resolver(evidence, criterion, contract, now):
+            nonlocal resolver_calls
+            resolver_calls += 1
             entered.set()
             self.assertTrue(allow_return.wait(2))
             return self._passing_resolver(evidence, criterion, contract, now)
@@ -2199,6 +2215,7 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self.assertFalse(result["passed"])
         self.assertEqual(result["contract_version"], 2)
         self.assertIn("truth_source_results", result)
+        self.assertEqual(resolver_calls, 1)
         self.assertIn("truth_source_resolution_attempts", result["stats"])
         self.assertEqual(result["stats"]["truth_source_resolution_attempts"], 1)
         self.assertEqual(result["stats"]["truth_sources_checked"], 1)
@@ -2207,8 +2224,11 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self._prepare_passing_completion()
         entered = threading.Event()
         allow_return = threading.Event()
+        resolver_calls = 0
 
         def blocking_resolver(evidence, criterion, contract, now):
+            nonlocal resolver_calls
+            resolver_calls += 1
             entered.set()
             self.assertTrue(allow_return.wait(2))
             return self._passing_resolver(evidence, criterion, contract, now)
@@ -2232,8 +2252,131 @@ class TruthSourceGateTests(_TruthSourceContractFixture):
         self.assertFalse(result["passed"])
         self.assertEqual(result["contract_version"], 2)
         self.assertIn("truth_source_results", result)
+        self.assertEqual(resolver_calls, 1)
         self.assertEqual(result["stats"]["truth_source_resolution_attempts"], 1)
         self.assertEqual(result["stats"]["truth_sources_checked"], 1)
+
+    def test_gate_route_is_linearized_for_legacy_to_truth_and_truth_to_legacy(self) -> None:
+        for direction in ("legacy-to-truth", "truth-to-legacy"):
+            with self.subTest(direction=direction):
+                self.temp.cleanup()
+                self.setUp()
+                if direction == "legacy-to-truth":
+                    context.publish_contract(self.legacy_contract(2), confirmed_by="publisher", base_dir=self.base)
+                    replacement = self.contract(3)
+                    expects_truth = False
+                    expected_version = 2
+                else:
+                    context.publish_contract(self.contract(2), confirmed_by="publisher", base_dir=self.base)
+                    self._observe()
+                    replacement = self.legacy_contract(3)
+                    expects_truth = True
+                    expected_version = 2
+                load_entered = threading.Event()
+                allow_load = threading.Event()
+                writer_attempting = threading.Event()
+                writer_finished = threading.Event()
+                original_load = context._load_committed_task_view_locked
+
+                def blocking_load(*args):
+                    load_entered.set()
+                    self.assertTrue(allow_load.wait(2))
+                    return original_load(*args)
+
+                def writer() -> None:
+                    writer_attempting.set()
+                    context.publish_contract(replacement, confirmed_by="publisher", base_dir=self.base)
+                    writer_finished.set()
+
+                result: dict[str, object] = {}
+                with patch.object(context, "_load_committed_task_view_locked", side_effect=blocking_load):
+                    gate_thread = threading.Thread(target=lambda: result.update(context.gate(
+                        self.task_id, stage="release", base_dir=self.base, emit=False,
+                    )))
+                    gate_thread.start()
+                    self.assertTrue(load_entered.wait(2))
+                    writer_thread = threading.Thread(target=writer)
+                    writer_thread.start()
+                    self.assertTrue(writer_attempting.wait(2))
+                    self._assert_child_sees_shared_lock(gate_thread)
+                    self.assertFalse(writer_finished.is_set())
+                    allow_load.set()
+                    gate_thread.join(2)
+                    writer_thread.join(2)
+                self.assertFalse(gate_thread.is_alive())
+                self.assertFalse(writer_thread.is_alive())
+                self.assertTrue(writer_finished.is_set())
+                self.assertEqual(result["contract_version"], expected_version)
+                self.assertEqual("truth_source_results" in result, expects_truth)
+                self.assertTrue(result["passed"])
+
+    def test_truth_final_construction_holds_lock_for_all_stages(self) -> None:
+        for stage in ("release", "resume", "handoff", "completion"):
+            with self.subTest(stage=stage):
+                self.temp.cleanup()
+                self.setUp()
+                if stage == "completion":
+                    self._prepare_passing_completion()
+                    gate_kwargs = {
+                        "evidence_map": self._passing_evidence_map(),
+                        "resolvers": {"custom": self._passing_resolver},
+                        "verifiers": {"custom": lambda *args: {"status": "pass", "codes": []}},
+                    }
+                else:
+                    self._observe()
+                    gate_kwargs = {}
+                    if stage == "handoff":
+                        context.checkpoint(self.task_id, phase="handoff", completed=[], evidence_added=[], next_action="continue", actor="publisher", base_dir=self.base)
+                entered = threading.Event()
+                allow_final = threading.Event()
+                writer_attempting = threading.Event()
+                writer_finished = threading.Event()
+                original_final = context._truth_gate_final
+
+                def blocking_final(*args, **kwargs):
+                    entered.set()
+                    self.assertTrue(allow_final.wait(2))
+                    return original_final(*args, **kwargs)
+
+                def writer() -> None:
+                    writer_attempting.set()
+                    context.mark_truth_sources_dirty(self.task_id, change_kind="implementation-change", actor="executor-01", reason="final lock probe", base_dir=self.base)
+                    writer_finished.set()
+
+                result: dict[str, object] = {}
+                with patch.object(context, "_truth_gate_final", side_effect=blocking_final):
+                    gate_thread = threading.Thread(target=lambda: result.update(context.gate(
+                        self.task_id, stage=stage, base_dir=self.base, emit=False, **gate_kwargs,
+                    )))
+                    gate_thread.start()
+                    self.assertTrue(entered.wait(2))
+                    writer_thread = threading.Thread(target=writer)
+                    writer_thread.start()
+                    self.assertTrue(writer_attempting.wait(2))
+                    self._assert_child_sees_shared_lock(gate_thread)
+                    self.assertFalse(writer_finished.is_set())
+                    allow_final.set()
+                    gate_thread.join(2)
+                    writer_thread.join(2)
+                self.assertFalse(gate_thread.is_alive())
+                self.assertFalse(writer_thread.is_alive())
+                self.assertTrue(writer_finished.is_set())
+                self.assertTrue(result["passed"])
+
+    def test_filtered_mandatory_warning_matches_truth_and_legacy_release(self) -> None:
+        expected = "brief preflight filtered mandatory items: ['REQ']"
+        diagnostics = {"status": "ready", "overflow": None, "items": {"filtered_mandatory_ids": ["REQ"]}, "budget": {}}
+        for declared in (True, False):
+            with self.subTest(declared=declared):
+                self.temp.cleanup()
+                self.setUp()
+                if declared:
+                    self._observe()
+                else:
+                    context.publish_contract(self.legacy_contract(2), confirmed_by="publisher", base_dir=self.base)
+                with patch.object(context, "_brief_diagnostics_from_plan", return_value=diagnostics):
+                    report = context.gate(self.task_id, stage="release", base_dir=self.base, emit=False)
+                self.assertIn(expected, report["warnings"])
 
 
 if __name__ == "__main__":
