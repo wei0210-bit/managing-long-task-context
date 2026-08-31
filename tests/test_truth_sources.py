@@ -1283,7 +1283,7 @@ class TruthSourceEvaluationTests(_TruthSourceContractFixture):
                 "actor": "other-owner",
             }), "TRUTH_SOURCE_OWNER_MISMATCH"),
             ("dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
-                "status": "dirty", "observed_generation": None, "observation": None,
+                "status": "dirty",
             }), "TRUTH_SOURCE_DIRTY"),
             ("generation", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
                 "observed_generation": 999,
@@ -1341,6 +1341,167 @@ class TruthSourceEvaluationTests(_TruthSourceContractFixture):
         assert evaluation is not None
         self.assertEqual(evaluation["results"][0]["codes"], ["TRUTH_SOURCE_RESOLVER_UNKNOWN"])
         self.assertNotIn("TRUTH_SOURCE_EXCEPTION_CANARY_DO_NOT_LEAK", repr(evaluation))
+
+    def test_malformed_controls_are_unknown_without_resolution(self) -> None:
+        contract_cases = (
+            ("truth-not-mapping", lambda contract: contract.update({"truth_sources": []})),
+            ("items-not-list", lambda contract: contract["truth_sources"].update({"items": {}})),
+            ("items-empty", lambda contract: contract["truth_sources"].update({"items": []})),
+            ("item-not-mapping", lambda contract: contract["truth_sources"].update({"items": [None]})),
+            ("duplicate-id", lambda contract: contract["truth_sources"].update({"items": [
+                contract["truth_sources"]["items"][0], contract["truth_sources"]["items"][0],
+            ]})),
+            ("invalid-id", lambda contract: contract["truth_sources"]["items"][0].update({"id": "bad id"})),
+        )
+        for name, mutate in contract_cases:
+            with self.subTest(name=name):
+                contract = json.loads(json.dumps(self.current_contract()))
+                mutate(contract)
+                resolver = Mock(side_effect=AssertionError("malformed control must not resolve"))
+                evaluation = truth_sources.evaluate_truth_sources(
+                    contract, self.current_snapshot(), now=self.now, resolver=resolver,
+                )
+                self.assertEqual(evaluation, {
+                    "status": "unknown", "passed": False, "results": [],
+                    "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0},
+                })
+                resolver.assert_not_called()
+
+        snapshot_cases = (
+            ("truth-not-mapping", lambda snapshot: snapshot.update({"truth_sources": []})),
+            ("sources-not-mapping", lambda snapshot: snapshot["truth_sources"].update({"sources": []})),
+        )
+        for name, mutate in snapshot_cases:
+            with self.subTest(name=name):
+                snapshot = json.loads(json.dumps(self.current_snapshot()))
+                mutate(snapshot)
+                resolver = Mock(side_effect=AssertionError("malformed snapshot must not resolve"))
+                evaluation = self.evaluate(snapshot, resolver)
+                self.assertEqual(evaluation, {
+                    "status": "unknown", "passed": False, "results": [],
+                    "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0},
+                })
+                resolver.assert_not_called()
+
+        state_cases = (
+            ("bad-status", lambda state: state.update({"status": "forged"})),
+            ("required-bool", lambda state: state.update({"required_generation": True})),
+            ("observed-bool", lambda state: state.update({"observed_generation": True})),
+            ("required-zero", lambda state: state.update({"required_generation": 0})),
+            ("observed-zero", lambda state: state.update({"observed_generation": 0})),
+            ("observed-missing-observation", lambda state: state.pop("observation")),
+            ("observed-bad-observation", lambda state: state.update({"observation": []})),
+        )
+        for name, mutate in state_cases:
+            with self.subTest(name=name):
+                snapshot = json.loads(json.dumps(self.current_snapshot()))
+                state = snapshot["truth_sources"]["sources"]["TS-STATUS"]
+                mutate(state)
+                resolver = Mock(side_effect=AssertionError("malformed state must not resolve"))
+                evaluation = self.evaluate(snapshot, resolver)
+                assert evaluation is not None
+                self.assertEqual(evaluation["status"], "unknown")
+                self.assertFalse(evaluation["passed"])
+                self.assertEqual(evaluation["results"][0]["codes"], ["TRUTH_SOURCE_RESOLVER_UNKNOWN"])
+                self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 0)
+                resolver.assert_not_called()
+
+    def test_hostile_mappings_never_leak_or_escape_normalization(self) -> None:
+        canary = "TSC05_HOSTILE_MAPPING_CANARY"
+
+        class HostileMapping(dict):
+            def get(self, *args: object, **kwargs: object) -> object:
+                raise RuntimeError(canary)
+
+        class IterationHostileMapping(dict):
+            def items(self) -> object:
+                raise RuntimeError(canary)
+
+        hostile_contract = HostileMapping(self.current_contract())
+        resolver = Mock(side_effect=AssertionError("hostile contract must not resolve"))
+        evaluation = truth_sources.evaluate_truth_sources(
+            hostile_contract, self.current_snapshot(), now=self.now, resolver=resolver,
+        )
+        self.assertFalse(evaluation["passed"])
+        self.assertEqual(evaluation["status"], "unknown")
+        self.assertNotIn(canary, repr(evaluation))
+        resolver.assert_not_called()
+
+        contract = self.current_contract()
+        contract["truth_sources"]["items"][0]["source_ref"] = IterationHostileMapping(
+            contract["truth_sources"]["items"][0]["source_ref"]
+        )
+        evaluation = truth_sources.evaluate_truth_sources(
+            contract, self.current_snapshot(), now=self.now, resolver=resolver,
+        )
+        self.assertFalse(evaluation["passed"])
+        self.assertEqual(evaluation["results"], [])
+        self.assertNotIn(canary, repr(evaluation))
+        resolver.assert_not_called()
+
+        contract = self.current_contract()
+        contract["truth_sources"] = HostileMapping(contract["truth_sources"])
+        evaluation = truth_sources.evaluate_truth_sources(
+            contract, self.current_snapshot(), now=self.now, resolver=resolver,
+        )
+        self.assertFalse(evaluation["passed"])
+        self.assertEqual(evaluation["status"], "unknown")
+        self.assertNotIn(canary, repr(evaluation))
+        resolver.assert_not_called()
+
+        contract = self.current_contract()
+        contract["truth_sources"]["items"][0] = HostileMapping(contract["truth_sources"]["items"][0])
+        evaluation = truth_sources.evaluate_truth_sources(
+            contract, self.current_snapshot(), now=self.now, resolver=resolver,
+        )
+        self.assertFalse(evaluation["passed"])
+        self.assertEqual(evaluation["results"], [])
+        self.assertNotIn(canary, repr(evaluation))
+        resolver.assert_not_called()
+
+        snapshot = self.current_snapshot()
+        snapshot["truth_sources"] = HostileMapping(snapshot["truth_sources"])
+        evaluation = self.evaluate(snapshot, resolver)
+        self.assertFalse(evaluation["passed"])
+        self.assertNotIn(canary, repr(evaluation))
+        resolver.assert_not_called()
+
+        hostile_resolver = Mock(return_value=HostileMapping())
+        evaluation = self.evaluate(resolver=hostile_resolver)
+        assert evaluation is not None
+        self.assertEqual(evaluation["results"][0]["codes"], ["TRUTH_SOURCE_RESOLVER_UNKNOWN"])
+        self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 1)
+        self.assertNotIn(canary, repr(evaluation))
+        with patch.object(context, "resolve_file_source", return_value=HostileMapping()):
+            packet = context.brief("TSC-03", base_dir=self.base)
+            diagnostics = context.brief_diagnostics("TSC-03", base_dir=self.base)
+        self.assertNotIn(canary, repr(packet))
+        self.assertNotIn(canary, repr(diagnostics))
+
+    def test_control_precedence_is_missing_then_digest_owner_generation_dirty(self) -> None:
+        cases = (
+            ("missing-before-digest", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
+                "status": "dirty", "observation": None,
+            }), lambda snapshot: snapshot["contract"].update({"integrity_digest": "sha256:" + "0" * 64}), "TRUTH_SOURCE_UNOBSERVED"),
+            ("digest-before-owner-dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty"}), lambda snapshot: (
+                snapshot["contract"].update({"integrity_digest": "sha256:" + "0" * 64}),
+                snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({"actor": "other"}),
+            ), "TRUTH_SOURCE_CONTRACT_MISMATCH"),
+            ("owner-before-dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty"}), lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({"actor": "other"}), "TRUTH_SOURCE_OWNER_MISMATCH"),
+            ("generation-before-dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty", "observed_generation": 2}), lambda snapshot: None, "TRUTH_SOURCE_GENERATION_MISMATCH"),
+            ("dirty-after-valid-controls", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty"}), lambda snapshot: None, "TRUTH_SOURCE_DIRTY"),
+        )
+        for name, first, second, expected_code in cases:
+            with self.subTest(name=name):
+                snapshot = json.loads(json.dumps(self.current_snapshot()))
+                first(snapshot)
+                second(snapshot)
+                resolver = Mock(side_effect=AssertionError("precedence failure must not resolve"))
+                evaluation = self.evaluate(snapshot, resolver)
+                assert evaluation is not None
+                self.assertEqual(evaluation["results"][0]["codes"], [expected_code])
+                self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 0)
+                resolver.assert_not_called()
 
 
 class TruthSourceBriefTests(_TruthSourceContractFixture):

@@ -325,19 +325,47 @@ def _parse_explicit_utc_timestamp(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _evaluation_item(source: Mapping[str, Any], state: Mapping[str, Any] | None) -> dict[str, Any]:
-    observation = state.get("observation") if isinstance(state, Mapping) else None
+_MISSING = object()
+
+
+def _safe_get(value: object, key: str, default: object = _MISSING) -> tuple[bool, object]:
+    if not isinstance(value, Mapping):
+        return False, default
+    try:
+        return True, value.get(key, default)
+    except Exception:
+        return False, default
+
+
+def _safe_copy(value: object) -> tuple[bool, object]:
+    try:
+        return True, deepcopy(value)
+    except Exception:
+        return False, None
+
+
+def _unknown_evaluation() -> dict[str, Any]:
     return {
-        "id": source.get("id"),
-        "purpose": source.get("purpose"),
-        "source_ref": deepcopy(source.get("source_ref")),
-        "owner": source.get("owner"),
+        "status": "unknown",
+        "passed": False,
+        "results": [],
+        "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0},
+    }
+
+
+def _evaluation_item(source: Mapping[str, Any], *, required_generation: object, observed_generation: object,
+                     observed_at: object, fingerprint: object) -> dict[str, Any]:
+    return {
+        "id": source["id"],
+        "purpose": source["purpose"],
+        "source_ref": source["source_ref"],
+        "owner": source["owner"],
         "status": "unknown",
         "codes": [],
-        "required_generation": state.get("required_generation") if isinstance(state, Mapping) else None,
-        "observed_generation": state.get("observed_generation") if isinstance(state, Mapping) else None,
-        "observed_at": observation.get("observed_at") if isinstance(observation, Mapping) else None,
-        "fingerprint": observation.get("fingerprint") if isinstance(observation, Mapping) else None,
+        "required_generation": required_generation if required_generation is not _MISSING else None,
+        "observed_generation": observed_generation if observed_generation is not _MISSING else None,
+        "observed_at": observed_at if observed_at is not _MISSING else None,
+        "fingerprint": fingerprint if fingerprint is not _MISSING else None,
     }
 
 
@@ -349,15 +377,18 @@ def _set_evaluation_outcome(item: dict[str, Any], status: str, code: str) -> dic
 
 def _normalized_resolution(value: object) -> tuple[str, str | None, str | None]:
     """Accept only resolver's stable public result shapes; never echo its data."""
-    if not isinstance(value, Mapping):
+    try:
+        if not isinstance(value, Mapping):
+            return "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN", None
+        status = value.get("status")
+        code = value.get("code")
+        fingerprint = value.get("fingerprint")
+        if status == "pass" and code is None and isinstance(fingerprint, str) and _FINGERPRINT_RE.fullmatch(fingerprint):
+            return "pass", None, fingerprint
+        if isinstance(code, str) and _RESOLVER_FAILURES.get(code) == status and fingerprint is None:
+            return status, code, None
+    except Exception:
         return "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN", None
-    status = value.get("status")
-    code = value.get("code")
-    fingerprint = value.get("fingerprint")
-    if status == "pass" and code is None and isinstance(fingerprint, str) and _FINGERPRINT_RE.fullmatch(fingerprint):
-        return "pass", None, fingerprint
-    if isinstance(code, str) and _RESOLVER_FAILURES.get(code) == status and fingerprint is None:
-        return status, code, None
     return "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN", None
 
 
@@ -366,69 +397,167 @@ def evaluate_truth_sources(
     resolver: TruthResolver | None = None,
 ) -> dict[str, Any] | None:
     """Evaluate sealed control state and one live fingerprint per valid source."""
-    if not truth_sources_enabled(contract):
+    try:
+        enabled = truth_sources_enabled(contract)
+    except Exception:
+        return _unknown_evaluation()
+    if not enabled:
         return None
 
-    truth = contract.get("truth_sources")
-    items = truth.get("items") if isinstance(truth, Mapping) else []
-    source_states = snapshot.get("truth_sources", {}).get("sources", {}) if isinstance(snapshot.get("truth_sources"), Mapping) else {}
-    sealed = contract.get("seal")
-    contract_digest = sealed.get("integrity_digest") if isinstance(sealed, Mapping) else None
-    projected = snapshot.get("contract")
-    projected_digest = projected.get("integrity_digest") if isinstance(projected, Mapping) else None
+    ok, truth = _safe_get(contract, "truth_sources")
+    if not ok or not isinstance(truth, Mapping):
+        return _unknown_evaluation()
+    ok, items = _safe_get(truth, "items")
+    if not ok or not isinstance(items, list) or not items:
+        return _unknown_evaluation()
+    sources: list[dict[str, Any]] = []
+    source_ids: set[str] = set()
+    for raw_source in items:
+        if not isinstance(raw_source, Mapping):
+            return _unknown_evaluation()
+        fields: dict[str, Any] = {}
+        for field in ("id", "purpose", "source_ref", "owner", "max_age_seconds"):
+            ok, value = _safe_get(raw_source, field)
+            if not ok or value is _MISSING:
+                return _unknown_evaluation()
+            fields[field] = value
+        if not isinstance(fields["id"], str) or SOURCE_ID_RE.fullmatch(fields["id"]) is None or fields["id"] in source_ids:
+            return _unknown_evaluation()
+        if not _single_line(fields["purpose"], 160) or not _single_line(fields["owner"], 128):
+            return _unknown_evaluation()
+        if not isinstance(fields["source_ref"], Mapping):
+            return _unknown_evaluation()
+        ok_kind, source_kind = _safe_get(fields["source_ref"], "kind")
+        ok_locator, locator = _safe_get(fields["source_ref"], "locator")
+        if not ok_kind or not ok_locator or source_kind != "file" or not _safe_locator(locator):
+            return _unknown_evaluation()
+        if not isinstance(fields["max_age_seconds"], int) or isinstance(fields["max_age_seconds"], bool) or fields["max_age_seconds"] <= 0:
+            return _unknown_evaluation()
+        copied: dict[str, Any] = {}
+        for field in ("purpose", "source_ref", "owner"):
+            ok, value = _safe_copy(fields[field])
+            if not ok:
+                return _unknown_evaluation()
+            copied[field] = value
+        source_ids.add(fields["id"])
+        sources.append({"id": fields["id"], **copied, "max_age_seconds": fields["max_age_seconds"]})
+
+    ok, truth_state = _safe_get(snapshot, "truth_sources")
+    if not ok or not isinstance(truth_state, Mapping):
+        return _unknown_evaluation()
+    ok, source_states = _safe_get(truth_state, "sources")
+    if not ok or not isinstance(source_states, Mapping):
+        return _unknown_evaluation()
+    ok, sealed = _safe_get(contract, "seal")
+    if not ok or not isinstance(sealed, Mapping):
+        return _unknown_evaluation()
+    ok, contract_digest = _safe_get(sealed, "integrity_digest")
+    if not ok or not isinstance(contract_digest, str):
+        return _unknown_evaluation()
+    ok, projected = _safe_get(snapshot, "contract")
+    if not ok or not isinstance(projected, Mapping):
+        return _unknown_evaluation()
+    ok, projected_digest = _safe_get(projected, "integrity_digest")
+    if not ok:
+        return _unknown_evaluation()
+    ok, workspace_root = _safe_get(contract, "workspace_root")
+    if not ok:
+        return _unknown_evaluation()
     resolve = resolver or resolve_file_source
     attempts = 0
     results: list[dict[str, Any]] = []
 
-    for source in items if isinstance(items, list) else []:
-        if not isinstance(source, Mapping):
-            continue
-        source_id = source.get("id")
-        state = source_states.get(source_id) if isinstance(source_states, Mapping) else None
-        item = _evaluation_item(source, state if isinstance(state, Mapping) else None)
-        observation = state.get("observation") if isinstance(state, Mapping) else None
-        if not isinstance(state, Mapping) or state.get("status") == "unobserved":
+    for source in sources:
+        ok, state = _safe_get(source_states, source["id"], None)
+        if not ok:
+            return _unknown_evaluation()
+        if state is None:
+            item = _evaluation_item(source, required_generation=_MISSING, observed_generation=_MISSING,
+                                    observed_at=_MISSING, fingerprint=_MISSING)
             results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_UNOBSERVED"))
             continue
-        if state.get("status") == "dirty":
-            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_DIRTY"))
+        if not isinstance(state, Mapping):
+            item = _evaluation_item(source, required_generation=_MISSING, observed_generation=_MISSING,
+                                    observed_at=_MISSING, fingerprint=_MISSING)
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        ok, status = _safe_get(state, "status")
+        ok_required, required_generation = _safe_get(state, "required_generation")
+        ok_observed, observed_generation = _safe_get(state, "observed_generation")
+        ok_observation, observation = _safe_get(state, "observation", None)
+        if not ok or not ok_required or not ok_observed or not ok_observation or status not in {"unobserved", "dirty", "observed"}:
+            item = _evaluation_item(source, required_generation=required_generation,
+                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        if status == "unobserved":
+            item = _evaluation_item(source, required_generation=required_generation,
+                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_UNOBSERVED"))
             continue
         if not isinstance(observation, Mapping):
-            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_UNOBSERVED"))
+            item = _evaluation_item(source, required_generation=required_generation,
+                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
+            if status == "dirty" and observation is None:
+                results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_UNOBSERVED"))
+            else:
+                results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
             continue
-        if (
-            projected_digest != contract_digest
-            or ("contract_digest" in observation and observation.get("contract_digest") != contract_digest)
+        ok, observed_at_value = _safe_get(observation, "observed_at")
+        ok_fingerprint, observed_fingerprint = _safe_get(observation, "fingerprint")
+        ok_actor, actor = _safe_get(observation, "actor")
+        ok_observation_digest, observation_digest = _safe_get(observation, "contract_digest", _MISSING)
+        item = _evaluation_item(source, required_generation=required_generation,
+                                observed_generation=observed_generation, observed_at=observed_at_value,
+                                fingerprint=observed_fingerprint)
+        if not all((ok, ok_fingerprint, ok_actor, ok_observation_digest)):
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        if observed_at_value is _MISSING:
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        if projected_digest != contract_digest or (
+            observation_digest is not _MISSING and observation_digest != contract_digest
         ):
             results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_CONTRACT_MISMATCH"))
             continue
-        if observation.get("actor") != source.get("owner"):
+        if actor != source["owner"]:
             results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_OWNER_MISMATCH"))
             continue
         if (
-            type(state.get("required_generation")) is not int
-            or state.get("observed_generation") != state.get("required_generation")
+            type(required_generation) is not int
+            or required_generation <= 0
+            or type(observed_generation) is not int
+            or observed_generation <= 0
         ):
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        if observed_generation != required_generation:
             results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_GENERATION_MISMATCH"))
             continue
-        observed_at = _parse_explicit_utc_timestamp(observation.get("observed_at"))
+        if status == "dirty":
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_DIRTY"))
+            continue
+        if not isinstance(observed_fingerprint, str) or _FINGERPRINT_RE.fullmatch(observed_fingerprint) is None:
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        observed_at = _parse_explicit_utc_timestamp(observed_at_value)
         if observed_at is None or observed_at > now + timedelta(seconds=300):
             results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
             continue
-        max_age = source.get("max_age_seconds")
-        if type(max_age) is not int or now - observed_at > timedelta(seconds=max_age):
+        if now - observed_at > timedelta(seconds=source["max_age_seconds"]):
             results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_STALE"))
             continue
 
         attempts += 1
         try:
-            resolution = resolve(contract.get("workspace_root"), source.get("source_ref"))
+            resolution = resolve(workspace_root, source["source_ref"])
         except Exception:
             resolution = None
         status, code, fingerprint = _normalized_resolution(resolution)
         if status != "pass":
             results.append(_set_evaluation_outcome(item, status, code or "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
-        elif fingerprint != observation.get("fingerprint"):
+        elif fingerprint != observed_fingerprint:
             results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_CHANGED"))
         else:
             item["status"] = "pass"
