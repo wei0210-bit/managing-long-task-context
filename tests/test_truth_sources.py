@@ -1500,6 +1500,67 @@ class TruthSourceEvaluationTests(_TruthSourceContractFixture):
                 self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 0)
                 resolver.assert_not_called()
 
+    def test_global_digest_precedes_state_and_observed_controls(self) -> None:
+        observed_snapshot = json.loads(json.dumps(self.current_snapshot()))
+        contract_mismatch = "sha256:" + "0" * 64
+        cases = (
+            (
+                "projected-before-owner-and-generation",
+                lambda snapshot: (
+                    snapshot["contract"].update({"integrity_digest": contract_mismatch}),
+                    snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"observed_generation": 2}),
+                    snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({"actor": "other"}),
+                ),
+                "TRUTH_SOURCE_CONTRACT_MISMATCH",
+            ),
+            (
+                "observation-digest-before-owner-and-generation",
+                lambda snapshot: (
+                    snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"observed_generation": 2}),
+                    snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({
+                        "actor": "other", "contract_digest": contract_mismatch,
+                    }),
+                ),
+                "TRUTH_SOURCE_CONTRACT_MISMATCH",
+            ),
+            (
+                "owner-before-generation",
+                lambda snapshot: (
+                    snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"observed_generation": 2}),
+                    snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({"actor": "other"}),
+                ),
+                "TRUTH_SOURCE_OWNER_MISMATCH",
+            ),
+            (
+                "generation-after-digests-and-owner",
+                lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"observed_generation": 2}),
+                "TRUTH_SOURCE_GENERATION_MISMATCH",
+            ),
+        )
+        for name, mutate, expected_code in cases:
+            with self.subTest(name=name):
+                snapshot = json.loads(json.dumps(observed_snapshot))
+                mutate(snapshot)
+                resolver = Mock(side_effect=AssertionError("control precedence must not resolve"))
+                evaluation = self.evaluate(snapshot, resolver)
+                assert evaluation is not None
+                self.assertEqual(evaluation["results"][0]["codes"], [expected_code])
+                self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 0)
+                resolver.assert_not_called()
+
+        context.mark_truth_sources_dirty(
+            "TSC-03", change_kind="implementation-change", actor="executor-01",
+            reason="authoritative implementation changed", base_dir=self.base,
+        )
+        dirty_snapshot = self.current_snapshot()
+        dirty_snapshot["contract"]["integrity_digest"] = contract_mismatch
+        resolver = Mock(side_effect=AssertionError("global contract mismatch must not resolve"))
+        evaluation = self.evaluate(dirty_snapshot, resolver)
+        assert evaluation is not None
+        self.assertEqual(evaluation["results"][0]["codes"], ["TRUTH_SOURCE_CONTRACT_MISMATCH"])
+        self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 0)
+        resolver.assert_not_called()
+
     def test_incomplete_schema_and_snapshot_envelope_are_unknown_without_resolution(self) -> None:
         contract_cases = (
             ("capability-only", lambda contract: contract.pop("truth_sources")),

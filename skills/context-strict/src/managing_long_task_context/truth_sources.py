@@ -485,6 +485,26 @@ def evaluate_truth_sources(
     ok, projected_digest = _safe_get(projected, "integrity_digest")
     if not ok or not isinstance(projected_digest, str):
         return _unknown_evaluation()
+    if projected_digest != contract_digest:
+        results = [
+            _set_evaluation_outcome(
+                _evaluation_item(
+                    source, required_generation=_MISSING, observed_generation=_MISSING,
+                    observed_at=_MISSING, fingerprint=_MISSING,
+                ),
+                "fail", "TRUTH_SOURCE_CONTRACT_MISMATCH",
+            )
+            for source in sources
+        ]
+        return {
+            "status": "fail",
+            "passed": False,
+            "results": results,
+            "stats": {
+                "truth_sources_checked": len(results),
+                "truth_source_resolution_attempts": 0,
+            },
+        }
     ok, workspace_root = _safe_get(contract, "workspace_root")
     if not ok:
         return _unknown_evaluation()
@@ -527,6 +547,33 @@ def evaluate_truth_sources(
             else:
                 results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
             continue
+        if not isinstance(observation, Mapping):
+            item = _evaluation_item(source, required_generation=required_generation,
+                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        ok_observation_digest, observation_digest = _safe_get(observation, "contract_digest", _MISSING)
+        if not ok_observation_digest:
+            item = _evaluation_item(source, required_generation=required_generation,
+                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        if observation_digest is not _MISSING and observation_digest != contract_digest:
+            item = _evaluation_item(source, required_generation=required_generation,
+                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_CONTRACT_MISMATCH"))
+            continue
+        ok_actor, actor = _safe_get(observation, "actor")
+        if not ok_actor:
+            item = _evaluation_item(source, required_generation=required_generation,
+                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        if actor != source["owner"]:
+            item = _evaluation_item(source, required_generation=required_generation,
+                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_OWNER_MISMATCH"))
+            continue
         if not valid_required_generation or type(observed_generation) is not int or observed_generation <= 0:
             item = _evaluation_item(source, required_generation=required_generation,
                                     observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
@@ -537,31 +584,13 @@ def evaluate_truth_sources(
                                     observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
             results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_GENERATION_MISMATCH"))
             continue
-        if not isinstance(observation, Mapping):
-            item = _evaluation_item(source, required_generation=required_generation,
-                                    observed_generation=observed_generation, observed_at=_MISSING, fingerprint=_MISSING)
-            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
-            continue
         ok, observed_at_value = _safe_get(observation, "observed_at")
         ok_fingerprint, observed_fingerprint = _safe_get(observation, "fingerprint")
-        ok_actor, actor = _safe_get(observation, "actor")
-        ok_observation_digest, observation_digest = _safe_get(observation, "contract_digest", _MISSING)
         item = _evaluation_item(source, required_generation=required_generation,
                                 observed_generation=observed_generation, observed_at=observed_at_value,
                                 fingerprint=observed_fingerprint)
-        if not all((ok, ok_fingerprint, ok_actor, ok_observation_digest)):
+        if not all((ok, ok_fingerprint)) or observed_at_value is _MISSING:
             results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
-            continue
-        if observed_at_value is _MISSING:
-            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
-            continue
-        if projected_digest != contract_digest or (
-            observation_digest is not _MISSING and observation_digest != contract_digest
-        ):
-            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_CONTRACT_MISMATCH"))
-            continue
-        if actor != source["owner"]:
-            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_OWNER_MISMATCH"))
             continue
         if not isinstance(observed_fingerprint, str) or _FINGERPRINT_RE.fullmatch(observed_fingerprint) is None:
             results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
