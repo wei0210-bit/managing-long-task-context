@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib.util
 import json
 import errno
 import multiprocessing
@@ -27,6 +28,15 @@ from managing_long_task_context.truth_sources import (
     resolve_file_source,
     validate_truth_source_contract,
 )
+
+
+def _truth_source_example_module() -> object:
+    path = ROOT / "examples" / "truth_source_contract.py"
+    spec = importlib.util.spec_from_file_location("truth_source_contract_example", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 LEGACY_HASHES = {
@@ -88,6 +98,58 @@ def _exclusive_lock_probe(lock_path: str, result_queue: object) -> None:
             result_queue.put("acquired")
     except Exception as exc:
         result_queue.put(f"error:{type(exc).__name__}")
+
+
+class TruthSourcePilotExampleTests(unittest.TestCase):
+    def test_run_pilot_reconciles_the_restored_fixture_for_future_public_gates(self) -> None:
+        example = _truth_source_example_module()
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir)
+            workspace = temporary_root / "workspace"
+            workspace.mkdir()
+            spec_path = workspace / "design-spec.md"
+            spec_path.write_text("temporary public pilot specification\n", encoding="utf-8")
+            fixture_path = workspace / "truth_source_pilot.md"
+            fixture_path.write_bytes((ROOT / "tests/fixtures/truth_source_pilot.md").read_bytes())
+            original_fixture = fixture_path.read_bytes()
+            expected_fingerprint = "sha256:" + hashlib.sha256(original_fixture).hexdigest()
+            base_dir = temporary_root / ".prime" / "context"
+
+            result = example.run_pilot(
+                base_dir=base_dir,
+                spec_path=spec_path,
+                fixture_path=fixture_path,
+            )
+
+            self.assertEqual(result, {
+                "explicit_dirty_release_passed": True,
+                "dirty_handoff_codes": ["TRUTH_SOURCE_DIRTY"],
+                "reobserved_handoff_passed": True,
+                "undeclared_change_code": "TRUTH_SOURCE_UNDECLARED_CHANGE",
+                "changed_handoff_codes": ["TRUTH_SOURCE_CHANGED"],
+                "recovered_handoff_passed": True,
+                "canary_leaked": False,
+                "fixture_restored": True,
+            })
+            self.assertEqual(fixture_path.read_bytes(), original_fixture)
+            brief = context.brief(example.TASK_ID, base_dir=base_dir)
+            fixture_brief = next(
+                item for item in brief["truth_sources"]["items"] if item["id"] == "TS-FIXTURE"
+            )
+            for stage in ("release", "handoff"):
+                with self.subTest(stage=stage):
+                    report = context.gate(
+                        example.TASK_ID, stage=stage, base_dir=base_dir, emit=False,
+                    )
+                    codes = [
+                        code
+                        for item in report["truth_source_results"]
+                        if item["id"] == "TS-FIXTURE"
+                        for code in item["codes"]
+                    ]
+                    self.assertNotIn("TRUTH_SOURCE_CHANGED", codes)
+                    self.assertTrue(report["passed"])
+            self.assertEqual(fixture_brief["fingerprint"], expected_fingerprint)
 
 
 class LegacyTruthSourceCompatibilityTests(unittest.TestCase):

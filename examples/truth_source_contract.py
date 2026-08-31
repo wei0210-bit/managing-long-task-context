@@ -162,21 +162,33 @@ def run_pilot(*, base_dir: Path, spec_path: Path, fixture_path: Path) -> dict[st
         )
         recovered_handoff = context.gate(TASK_ID, stage="handoff", base_dir=base_dir, emit=False)
         reports.append(recovered_handoff)
-        serialized = _json_artifacts(base_dir, contract, reports, errors)
-        result = {
-            "explicit_dirty_release_passed": release["passed"],
-            "dirty_handoff_codes": _failure_codes(dirty_handoff),
-            "reobserved_handoff_passed": reobserved_handoff["passed"],
-            "undeclared_change_code": undeclared_change_code,
-            "changed_handoff_codes": _failure_codes(changed_handoff),
-            "recovered_handoff_passed": recovered_handoff["passed"],
-            "canary_leaked": SPEC_CANARY in serialized or fixture_canary in serialized,
-            "fixture_restored": False,
-        }
     finally:
         fixture_path.write_bytes(original_fixture)
 
-    result["fixture_restored"] = fixture_path.read_bytes() == original_fixture
+    context.mark_truth_sources_dirty(
+        TASK_ID, change_kind="implementation-change", actor=OWNER,
+        reason="controlled source restored", base_dir=base_dir,
+    )
+    context.observe_truth_source(
+        TASK_ID, source_id="TS-FIXTURE", actor=OWNER,
+        verification_refs=["example:fixture-restored"], base_dir=base_dir,
+    )
+    restored_handoff = context.gate(TASK_ID, stage="handoff", base_dir=base_dir, emit=False)
+    reports.append(restored_handoff)
+    if not restored_handoff["passed"]:
+        raise RuntimeError("restored source handoff did not pass")
+
+    serialized = _json_artifacts(base_dir, contract, reports, errors)
+    result = {
+        "explicit_dirty_release_passed": release["passed"],
+        "dirty_handoff_codes": _failure_codes(dirty_handoff),
+        "reobserved_handoff_passed": reobserved_handoff["passed"],
+        "undeclared_change_code": undeclared_change_code,
+        "changed_handoff_codes": _failure_codes(changed_handoff),
+        "recovered_handoff_passed": recovered_handoff["passed"],
+        "canary_leaked": SPEC_CANARY in serialized or fixture_canary in serialized,
+        "fixture_restored": fixture_path.read_bytes() == original_fixture,
+    }
     expected = {
         "explicit_dirty_release_passed": True,
         "dirty_handoff_codes": ["TRUTH_SOURCE_DIRTY"],
