@@ -1283,7 +1283,7 @@ class TruthSourceEvaluationTests(_TruthSourceContractFixture):
                 "actor": "other-owner",
             }), "TRUTH_SOURCE_OWNER_MISMATCH"),
             ("dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
-                "status": "dirty",
+                "status": "dirty", "observed_generation": None, "observation": None,
             }), "TRUTH_SOURCE_DIRTY"),
             ("generation", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
                 "observed_generation": 999,
@@ -1480,16 +1480,13 @@ class TruthSourceEvaluationTests(_TruthSourceContractFixture):
 
     def test_control_precedence_is_missing_then_digest_owner_generation_dirty(self) -> None:
         cases = (
-            ("missing-before-digest", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
-                "status": "dirty", "observation": None,
-            }), lambda snapshot: snapshot["contract"].update({"integrity_digest": "sha256:" + "0" * 64}), "TRUTH_SOURCE_UNOBSERVED"),
-            ("digest-before-owner-dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty"}), lambda snapshot: (
+            ("digest-before-owner", lambda snapshot: None, lambda snapshot: (
                 snapshot["contract"].update({"integrity_digest": "sha256:" + "0" * 64}),
                 snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({"actor": "other"}),
             ), "TRUTH_SOURCE_CONTRACT_MISMATCH"),
-            ("owner-before-dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty"}), lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({"actor": "other"}), "TRUTH_SOURCE_OWNER_MISMATCH"),
-            ("generation-before-dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty", "observed_generation": 2}), lambda snapshot: None, "TRUTH_SOURCE_GENERATION_MISMATCH"),
-            ("dirty-after-valid-controls", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty"}), lambda snapshot: None, "TRUTH_SOURCE_DIRTY"),
+            ("owner-after-digest", lambda snapshot: None, lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({"actor": "other"}), "TRUTH_SOURCE_OWNER_MISMATCH"),
+            ("generation-after-owner", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"observed_generation": 2}), lambda snapshot: None, "TRUTH_SOURCE_GENERATION_MISMATCH"),
+            ("malformed-dirty-is-unknown", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({"status": "dirty"}), lambda snapshot: None, "TRUTH_SOURCE_RESOLVER_UNKNOWN"),
         )
         for name, first, second, expected_code in cases:
             with self.subTest(name=name):
@@ -1502,6 +1499,77 @@ class TruthSourceEvaluationTests(_TruthSourceContractFixture):
                 self.assertEqual(evaluation["results"][0]["codes"], [expected_code])
                 self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 0)
                 resolver.assert_not_called()
+
+    def test_incomplete_schema_and_snapshot_envelope_are_unknown_without_resolution(self) -> None:
+        contract_cases = (
+            ("capability-only", lambda contract: contract.pop("truth_sources")),
+            ("truth-only", lambda contract: contract.pop("required_capabilities")),
+            ("schema", lambda contract: contract["truth_sources"].update({"schema": "wrong/v1"})),
+            ("validation-method", lambda contract: contract["truth_sources"]["items"][0].update({"validation_method": "forged"})),
+            ("change-kinds", lambda contract: contract["truth_sources"]["items"][0].update({"invalidate_on_change_kinds": []})),
+            ("unknown-field", lambda contract: contract["truth_sources"]["items"][0].update({"extra": True})),
+            ("bad-owner", lambda contract: contract["truth_sources"]["items"][0].update({"owner": ""})),
+            ("bad-source-ref", lambda contract: contract["truth_sources"]["items"][0].update({"source_ref": {"kind": "file", "locator": "../escape"}})),
+            ("bad-age", lambda contract: contract["truth_sources"]["items"][0].update({"max_age_seconds": False})),
+        )
+        for name, mutate in contract_cases:
+            with self.subTest(name=name):
+                contract = json.loads(json.dumps(self.current_contract()))
+                mutate(contract)
+                resolver = Mock(side_effect=AssertionError("incomplete declaration must not resolve"))
+                evaluation = truth_sources.evaluate_truth_sources(
+                    contract, self.current_snapshot(), now=self.now, resolver=resolver,
+                )
+                self.assertEqual(evaluation, {
+                    "status": "unknown", "passed": False, "results": [],
+                    "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0},
+                })
+                resolver.assert_not_called()
+
+        legacy = self.current_contract()
+        legacy.pop("truth_sources")
+        legacy.pop("required_capabilities")
+        self.assertIsNone(truth_sources.evaluate_truth_sources(
+            legacy, self.current_snapshot(), now=self.now, resolver=Mock(),
+        ))
+
+        snapshot_cases = (
+            ("generation-missing", lambda snapshot: snapshot["truth_sources"].pop("generation")),
+            ("generation-zero", lambda snapshot: snapshot["truth_sources"].update({"generation": 0})),
+            ("generation-bool", lambda snapshot: snapshot["truth_sources"].update({"generation": True})),
+            ("source-missing", lambda snapshot: snapshot["truth_sources"]["sources"].pop("TS-STATUS")),
+            ("source-extra", lambda snapshot: snapshot["truth_sources"]["sources"].update({"EXTRA": {}})),
+        )
+        for name, mutate in snapshot_cases:
+            with self.subTest(name=name):
+                snapshot = json.loads(json.dumps(self.current_snapshot()))
+                mutate(snapshot)
+                resolver = Mock(side_effect=AssertionError("bad projection must not resolve"))
+                evaluation = self.evaluate(snapshot, resolver)
+                self.assertEqual(evaluation, {
+                    "status": "unknown", "passed": False, "results": [],
+                    "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0},
+                })
+                resolver.assert_not_called()
+
+    def test_public_dirty_sequence_projects_canonical_dirty_control(self) -> None:
+        result = context.mark_truth_sources_dirty(
+            "TSC-03", change_kind="implementation-change", actor="executor-01",
+            reason="authoritative implementation changed", base_dir=self.base,
+        )
+        snapshot = self.current_snapshot()
+        state = snapshot["truth_sources"]["sources"]["TS-STATUS"]
+        self.assertEqual(state, {
+            "required_generation": result["generation"], "observed_generation": None,
+            "observation": None, "status": "dirty",
+        })
+        resolver = Mock(side_effect=AssertionError("canonical dirty must not resolve"))
+        evaluation = self.evaluate(snapshot, resolver)
+        assert evaluation is not None
+        self.assertFalse(evaluation["passed"])
+        self.assertEqual(evaluation["results"][0]["codes"], ["TRUTH_SOURCE_DIRTY"])
+        self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 0)
+        resolver.assert_not_called()
 
 
 class TruthSourceBriefTests(_TruthSourceContractFixture):
