@@ -118,6 +118,26 @@ def _locked(root: Path):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+@contextmanager
+def _shared_locked_existing(root: Path):
+    if fcntl is None:
+        raise ContextError("READ_LOCK_UNAVAILABLE: shared locking is unsupported")
+    lock_path = root / ".lock"
+    try:
+        handle = lock_path.open("r", encoding="utf-8")
+    except OSError as exc:
+        raise ContextError("READ_LOCK_UNAVAILABLE: existing task lock is unreadable") from exc
+    with handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+        except OSError as exc:
+            raise ContextError("READ_LOCK_UNAVAILABLE: shared lock acquisition failed") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def _json_clone(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False))
 
@@ -1342,41 +1362,24 @@ def brief(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Generate a minimal active-context/handoff packet from controlled state."""
-    plan = _plan_brief(
-        task_id,
-        phase=phase,
-        include=include,
-        max_items=max_items,
-        max_chars=max_chars,
-        base_dir=base_dir,
-    )
-    overflow = plan["brief_overflow"]
-    if overflow is not None:
-        raise ContextError(overflow["message"])
-    return plan["packet"]
-
-
-def brief_diagnostics(
-    task_id: str,
-    *,
-    phase: str | None = None,
-    include: Sequence[str] | None = None,
-    max_items: int | None = None,
-    max_chars: int = 8000,
-    base_dir: str | Path | None = None,
-) -> dict[str, Any]:
-    """Measure brief fit without weakening or suppressing required-content overflow."""
-
-    diagnostics = deepcopy(
-        _plan_brief(
+    paths = _paths(task_id, base_dir)
+    with _shared_locked_existing(paths["root"]):
+        plan = _plan_brief(
             task_id,
             phase=phase,
             include=include,
             max_items=max_items,
             max_chars=max_chars,
             base_dir=base_dir,
-        )["diagnostics"]
-    )
+        )
+    overflow = plan["brief_overflow"]
+    if overflow is not None:
+        raise ContextError(overflow["message"])
+    return plan["packet"]
+
+
+def _brief_diagnostics_from_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    diagnostics = deepcopy(plan["diagnostics"])
     filtered = diagnostics["items"]["filtered_mandatory_ids"]
     if filtered and diagnostics["overflow"] is None:
         diagnostics["status"] = "overflow"
@@ -1389,6 +1392,29 @@ def brief_diagnostics(
             "largest_items": [],
         }
     return diagnostics
+
+
+def brief_diagnostics(
+    task_id: str,
+    *,
+    phase: str | None = None,
+    include: Sequence[str] | None = None,
+    max_items: int | None = None,
+    max_chars: int = 8000,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Measure brief fit without weakening or suppressing required-content overflow."""
+    paths = _paths(task_id, base_dir)
+    with _shared_locked_existing(paths["root"]):
+        plan = _plan_brief(
+            task_id,
+            phase=phase,
+            include=include,
+            max_items=max_items,
+            max_chars=max_chars,
+            base_dir=base_dir,
+        )
+    return _brief_diagnostics_from_plan(plan)
 
 
 def _brief_json(value: Any) -> str:
@@ -1538,44 +1564,38 @@ def _run_bad_sample_probe(now: datetime) -> dict[str, Any]:
     """Verify that the production completion gate rejects empty required evidence."""
 
     probe_id = "PROBE-COMPLETION-EMPTY-EVIDENCE"
-    with tempfile.TemporaryDirectory() as temporary_dir:
-        probe_base_dir = Path(temporary_dir) / ".prime" / "context"
-        contract = {
-            "schema": SCHEMA_VERSION,
-            "task_id": probe_id,
-            "version": 1,
-            "issued_by": "audit-probe",
-            "issued_at": "2026-08-27T00:00:00+00:00",
-            "authorized_approvers": [],
-            "objective": "Reject empty completion evidence",
-            "scope": ["audit probe"],
-            "out_of_scope": [],
-            "constraints": [],
-            "acceptance_criteria": [
-                {
-                    "id": "AC-EMPTY-EVIDENCE",
-                    "criterion": "Completion requires file evidence",
-                    "required_evidence": ["file"],
-                }
-            ],
-        }
-        publish_contract(contract, confirmed_by="audit-probe", base_dir=probe_base_dir)
-        report = _gate_core(
-            probe_id,
-            stage="completion",
-            evidence_map={},
-            now=now,
-            emit=False,
-            base_dir=probe_base_dir,
-            run_probe=False,
-        )
-        scanned = int(report.get("stats", {}).get("criteria_checked", 0))
+    contract = {
+        "schema": SCHEMA_VERSION,
+        "task_id": probe_id,
+        "version": 1,
+        "issued_by": "audit-probe",
+        "issued_at": "2026-08-27T00:00:00+00:00",
+        "authorized_approvers": [],
+        "objective": "Reject empty completion evidence",
+        "scope": ["audit probe"],
+        "out_of_scope": [],
+        "constraints": [],
+    }
+    criterion = {
+        "id": "AC-EMPTY-EVIDENCE",
+        "criterion": "Completion requires file evidence",
+        "required_evidence": ["file"],
+    }
+    report = _evaluate_completion_criterion(
+        criterion,
+        None,
+        contract,
+        resolvers=None,
+        verifiers=None,
+        now=now,
+    )
+    rejected = report.get("status") != "pass"
     return {
         "id": probe_id,
-        "scanned": scanned,
+        "scanned": 1,
         "expected": "reject",
-        "actual": "reject" if not report["passed"] else "pass",
-        "status": "pass" if not report["passed"] else "fail",
+        "actual": "reject" if rejected else "accept",
+        "status": "pass" if rejected else "fail",
     }
 
 
@@ -1722,6 +1742,35 @@ def _audit_core(
     return report
 
 
+def _read_lock_unavailable_audit(task_id: str, error: ContextError, *, emit: bool) -> dict[str, Any]:
+    report = {
+        "stage": "audit",
+        "passed": False,
+        "errors": [str(error)],
+        "warnings": [],
+        "stats": {
+            "checked": 0,
+            "events": 0,
+            "probe": "unknown",
+            "probe_id": "PROBE-COMPLETION-EMPTY-EVIDENCE",
+            "probe_scanned": 0,
+            "probe_expected_rejection": "reject",
+            "stale": 0,
+            "conflicts": 0,
+            "contracts_checked": 0,
+            "events_checked": 0,
+            "items_checked": 0,
+            "pointers_checked": 0,
+            "probes_checked": 0,
+            **{item_type: 0 for item_type in ITEM_TYPES},
+        },
+        "contract_version": None,
+    }
+    if emit:
+        _emit_report(report)
+    return report
+
+
 def audit(
     task_id: str,
     *,
@@ -1731,16 +1780,20 @@ def audit(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Audit a task and always execute the isolated production-path probe."""
-
-    return _audit_core(
-        task_id,
-        documents=documents,
-        max_pointer_lag_seconds=max_pointer_lag_seconds,
-        emit=emit,
-        base_dir=base_dir,
-        now=_trusted_utc_now(),
-        run_probe=True,
-    )
+    paths = _paths(task_id, base_dir)
+    try:
+        with _shared_locked_existing(paths["root"]):
+            return _audit_core(
+                task_id,
+                documents=documents,
+                max_pointer_lag_seconds=max_pointer_lag_seconds,
+                emit=emit,
+                base_dir=base_dir,
+                now=_trusted_utc_now(),
+                run_probe=True,
+            )
+    except ContextError as exc:
+        return _read_lock_unavailable_audit(task_id, exc, emit=emit)
 
 
 def _gate_core(
@@ -1789,7 +1842,15 @@ def _gate_core(
 
     if contract and stage in {"release", "resume", "handoff"}:
         try:
-            brief_report = brief_diagnostics(task_id, base_dir=base_dir)
+            brief_plan = _plan_brief(
+                task_id,
+                phase=None,
+                include=None,
+                max_items=None,
+                max_chars=8000,
+                base_dir=base_dir,
+            )
+            brief_report = _brief_diagnostics_from_plan(brief_plan)
         except (ContextError, ValueError) as exc:
             message = f"brief preflight unavailable: {exc}"
             if stage == "handoff":
@@ -2291,20 +2352,46 @@ def gate(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run a public gate; callers cannot disable its isolated audit probe."""
-
-    return _gate_core(
-        task_id,
-        stage=stage,
-        evidence_map=evidence_map,
-        required_item_ids=required_item_ids,
-        documents=documents,
-        resolvers=resolvers,
-        verifiers=verifiers,
-        now=_trusted_utc_now(),
-        emit=emit,
-        base_dir=base_dir,
-        run_probe=True,
-    )
+    if stage not in GATE_STAGES:
+        raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
+    paths = _paths(task_id, base_dir)
+    try:
+        with _shared_locked_existing(paths["root"]):
+            return _gate_core(
+                task_id,
+                stage=stage,
+                evidence_map=evidence_map,
+                required_item_ids=required_item_ids,
+                documents=documents,
+                resolvers=resolvers,
+                verifiers=verifiers,
+                now=_trusted_utc_now(),
+                emit=emit,
+                base_dir=base_dir,
+                run_probe=True,
+            )
+    except ContextError as exc:
+        audit_report = _read_lock_unavailable_audit(task_id, exc, emit=False)
+        report = {
+            "stage": stage,
+            "passed": False,
+            "errors": audit_report["errors"],
+            "warnings": [],
+            "criteria": {},
+            "stats": {
+                **audit_report["stats"],
+                "criteria_checked": 0,
+                "evidence_attempts": 0,
+                "brief_status": "unavailable",
+                "brief_overflow_kind": None,
+                "brief_fixed_prompt_chars": None,
+                "brief_mandatory_prompt_chars": None,
+            },
+            "contract_version": None,
+        }
+        if emit:
+            _emit_report(report)
+        return report
 
 
 def workspace_observation(path: str | Path = ".") -> dict[str, Any]:

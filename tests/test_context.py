@@ -906,7 +906,7 @@ class ContextSkillTests(unittest.TestCase):
 
         with patch.object(
             context,
-            "brief_diagnostics",
+            "_plan_brief",
             side_effect=context.ContextError("synthetic preflight failure"),
         ):
             report = context.gate("TASK-001", stage="handoff", emit=False, base_dir=self.base)
