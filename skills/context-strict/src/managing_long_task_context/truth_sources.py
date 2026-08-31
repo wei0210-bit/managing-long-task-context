@@ -7,6 +7,8 @@ import hashlib
 import os
 import re
 import stat
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import AbstractSet, Any, Callable, Mapping, Union
 
@@ -37,6 +39,21 @@ _TRANSIENT_ERRNOS = {errno.EIO, errno.EBUSY, errno.EINTR}
 if hasattr(errno, "ESTALE"):
     _TRANSIENT_ERRNOS.add(errno.ESTALE)
 _UNSAFE_LOCATOR_CHARS = frozenset("*?[]{}#~")
+_EXPLICIT_UTC_RFC3339_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)\Z"
+)
+_FINGERPRINT_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_RESOLVER_FAILURES = {
+    "TRUTH_SOURCE_NOT_FOUND": "fail",
+    "TRUTH_SOURCE_PERMISSION_DENIED": "unknown",
+    "TRUTH_SOURCE_TRANSIENT_IO": "unknown",
+    "TRUTH_SOURCE_UNSAFE_PATH": "fail",
+    "TRUTH_SOURCE_SYMLINK": "fail",
+    "TRUTH_SOURCE_NOT_REGULAR_FILE": "fail",
+    "TRUTH_SOURCE_TOO_LARGE": "fail",
+    "TRUTH_SOURCE_CHANGED_DURING_READ": "unknown",
+    "TRUTH_SOURCE_RESOLVER_UNKNOWN": "unknown",
+}
 
 
 def _result(status: str, code: str | None, fingerprint: str | None = None) -> dict[str, Any]:
@@ -294,3 +311,136 @@ def resolve_file_source(workspace_root: str | Path, source_ref: Mapping[str, Any
         if cleanup_failed:
             outcome = _result("unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN")
     return outcome
+
+
+def _parse_explicit_utc_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or _EXPLICIT_UTC_RFC3339_RE.fullmatch(value) is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _evaluation_item(source: Mapping[str, Any], state: Mapping[str, Any] | None) -> dict[str, Any]:
+    observation = state.get("observation") if isinstance(state, Mapping) else None
+    return {
+        "id": source.get("id"),
+        "purpose": source.get("purpose"),
+        "source_ref": deepcopy(source.get("source_ref")),
+        "owner": source.get("owner"),
+        "status": "unknown",
+        "codes": [],
+        "required_generation": state.get("required_generation") if isinstance(state, Mapping) else None,
+        "observed_generation": state.get("observed_generation") if isinstance(state, Mapping) else None,
+        "observed_at": observation.get("observed_at") if isinstance(observation, Mapping) else None,
+        "fingerprint": observation.get("fingerprint") if isinstance(observation, Mapping) else None,
+    }
+
+
+def _set_evaluation_outcome(item: dict[str, Any], status: str, code: str) -> dict[str, Any]:
+    item["status"] = status
+    item["codes"] = [code]
+    return item
+
+
+def _normalized_resolution(value: object) -> tuple[str, str | None, str | None]:
+    """Accept only resolver's stable public result shapes; never echo its data."""
+    if not isinstance(value, Mapping):
+        return "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN", None
+    status = value.get("status")
+    code = value.get("code")
+    fingerprint = value.get("fingerprint")
+    if status == "pass" and code is None and isinstance(fingerprint, str) and _FINGERPRINT_RE.fullmatch(fingerprint):
+        return "pass", None, fingerprint
+    if isinstance(code, str) and _RESOLVER_FAILURES.get(code) == status and fingerprint is None:
+        return status, code, None
+    return "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN", None
+
+
+def evaluate_truth_sources(
+    contract: Mapping[str, Any], snapshot: Mapping[str, Any], *, now: datetime,
+    resolver: TruthResolver | None = None,
+) -> dict[str, Any] | None:
+    """Evaluate sealed control state and one live fingerprint per valid source."""
+    if not truth_sources_enabled(contract):
+        return None
+
+    truth = contract.get("truth_sources")
+    items = truth.get("items") if isinstance(truth, Mapping) else []
+    source_states = snapshot.get("truth_sources", {}).get("sources", {}) if isinstance(snapshot.get("truth_sources"), Mapping) else {}
+    sealed = contract.get("seal")
+    contract_digest = sealed.get("integrity_digest") if isinstance(sealed, Mapping) else None
+    projected = snapshot.get("contract")
+    projected_digest = projected.get("integrity_digest") if isinstance(projected, Mapping) else None
+    resolve = resolver or resolve_file_source
+    attempts = 0
+    results: list[dict[str, Any]] = []
+
+    for source in items if isinstance(items, list) else []:
+        if not isinstance(source, Mapping):
+            continue
+        source_id = source.get("id")
+        state = source_states.get(source_id) if isinstance(source_states, Mapping) else None
+        item = _evaluation_item(source, state if isinstance(state, Mapping) else None)
+        observation = state.get("observation") if isinstance(state, Mapping) else None
+        if not isinstance(state, Mapping) or state.get("status") == "unobserved":
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_UNOBSERVED"))
+            continue
+        if state.get("status") == "dirty":
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_DIRTY"))
+            continue
+        if not isinstance(observation, Mapping):
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_UNOBSERVED"))
+            continue
+        if (
+            projected_digest != contract_digest
+            or ("contract_digest" in observation and observation.get("contract_digest") != contract_digest)
+        ):
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_CONTRACT_MISMATCH"))
+            continue
+        if observation.get("actor") != source.get("owner"):
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_OWNER_MISMATCH"))
+            continue
+        if (
+            type(state.get("required_generation")) is not int
+            or state.get("observed_generation") != state.get("required_generation")
+        ):
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_GENERATION_MISMATCH"))
+            continue
+        observed_at = _parse_explicit_utc_timestamp(observation.get("observed_at"))
+        if observed_at is None or observed_at > now + timedelta(seconds=300):
+            results.append(_set_evaluation_outcome(item, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            continue
+        max_age = source.get("max_age_seconds")
+        if type(max_age) is not int or now - observed_at > timedelta(seconds=max_age):
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_STALE"))
+            continue
+
+        attempts += 1
+        try:
+            resolution = resolve(contract.get("workspace_root"), source.get("source_ref"))
+        except Exception:
+            resolution = None
+        status, code, fingerprint = _normalized_resolution(resolution)
+        if status != "pass":
+            results.append(_set_evaluation_outcome(item, status, code or "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+        elif fingerprint != observation.get("fingerprint"):
+            results.append(_set_evaluation_outcome(item, "fail", "TRUTH_SOURCE_CHANGED"))
+        else:
+            item["status"] = "pass"
+            results.append(item)
+
+    overall = "fail" if any(item["status"] == "fail" for item in results) else "unknown" if any(item["status"] == "unknown" for item in results) else "pass"
+    return {
+        "status": overall,
+        "passed": overall == "pass",
+        "results": results,
+        "stats": {
+            "truth_sources_checked": len(results),
+            "truth_source_resolution_attempts": attempts,
+        },
+    }

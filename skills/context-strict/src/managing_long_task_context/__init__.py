@@ -25,6 +25,7 @@ from .evidence import MAX_CLOCK_SKEW_SECONDS, canonical_json_bytes, evaluate_evi
 from .truth_sources import (
     CAPABILITY,
     VERIFICATION_REF_RE,
+    evaluate_truth_sources,
     resolve_file_source,
     truth_sources_enabled,
     validate_truth_source_contract,
@@ -1562,9 +1563,10 @@ def _build_brief_packet(
     snapshot: Mapping[str, Any],
     phase: str | None,
     selected: Sequence[Mapping[str, Any]],
+    truth_evaluation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     selected_items = [dict(item) for item in selected]
-    return {
+    packet = {
         "task_id": task_id,
         "contract_version": contract.get("version"),
         "contract_integrity_digest": (contract.get("seal") or {}).get("integrity_digest"),
@@ -1585,6 +1587,27 @@ def _build_brief_packet(
         "latest_checkpoint": snapshot.get("latest_checkpoint"),
         "context_version": snapshot.get("event_count", 0),
     }
+    if truth_evaluation is not None:
+        packet["truth_sources"] = {
+            "schema": CAPABILITY,
+            "items": _truth_brief_items(truth_evaluation),
+        }
+    return packet
+
+
+def _truth_brief_items(evaluation: Mapping[str, Any]) -> list[dict[str, Any]]:
+    allowed = (
+        "id", "purpose", "source_ref", "owner", "status", "required_generation",
+        "observed_generation", "observed_at", "fingerprint",
+    )
+    results = evaluation.get("results")
+    if not isinstance(results, list):
+        return []
+    return [
+        {field: deepcopy(item.get(field)) for field in allowed}
+        for item in results
+        if isinstance(item, Mapping)
+    ]
 
 
 _BRIEF_ITEM_SECTION_BY_TYPE = {
@@ -1788,22 +1811,20 @@ def _brief_text_metrics_from_lines(
     )
 
 
-def _plan_brief(
+def _plan_brief_from_view(
     task_id: str,
     *,
+    contract: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    truth_evaluation: Mapping[str, Any] | None,
     phase: str | None,
     include: Sequence[str] | None,
     max_items: int | None,
     max_chars: int,
-    base_dir: str | Path | None,
 ) -> dict[str, Any]:
     _validate_brief_limits(max_chars=max_chars, max_items=max_items)
-    paths = _paths(task_id, base_dir)
-    view = _load_committed_task_view_locked(task_id, paths)
-    contract = view["contract"]
-    snapshot = view["snapshot"]
     candidates, filtered_mandatory_ids = _brief_candidates(snapshot, include)
-    empty_packet = _build_brief_packet(task_id, contract, snapshot, phase, [])
+    empty_packet = _build_brief_packet(task_id, contract, snapshot, phase, [], truth_evaluation)
     empty_prompt = _brief_to_markdown(empty_packet)
     empty_selection_prompt = _brief_to_markdown(_brief_selection_packet([]))
     prompt_adjustment_chars = len(empty_prompt) - len(empty_selection_prompt)
@@ -1838,7 +1859,7 @@ def _plan_brief(
         )
 
     selected = selection_plan["selected"]
-    packet = _build_brief_packet(task_id, contract, snapshot, phase, selected)
+    packet = _build_brief_packet(task_id, contract, snapshot, phase, selected, truth_evaluation)
     selected_prompt = _brief_to_markdown(packet)
     brief_overflow = selection_plan["overflow"]
     if brief_overflow is None and len(selected_prompt) > max_chars:
@@ -1870,7 +1891,7 @@ def _plan_brief(
             basis="selected_prompt",
         )
     elif diagnostic_overflow["kind"] != "fixed" and mandatory:
-        mandatory_packet = _build_brief_packet(task_id, contract, snapshot, phase, mandatory)
+        mandatory_packet = _build_brief_packet(task_id, contract, snapshot, phase, mandatory, truth_evaluation)
         text_metrics, token_estimate, measured_prompt_chars = _brief_text_metrics_from_lines(
             _brief_markdown_lines(mandatory_packet),
             basis="mandatory_prompt",
@@ -1920,6 +1941,24 @@ def _plan_brief(
     return {"packet": packet, "diagnostics": diagnostics, "brief_overflow": brief_overflow}
 
 
+def _plan_brief(
+    task_id: str,
+    *,
+    phase: str | None,
+    include: Sequence[str] | None,
+    max_items: int | None,
+    max_chars: int,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Legacy/gate planner; public brief readers provide live truth evaluation."""
+    paths = _paths(task_id, base_dir)
+    view = _load_committed_task_view_locked(task_id, paths)
+    return _plan_brief_from_view(
+        task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=None,
+        phase=phase, include=include, max_items=max_items, max_chars=max_chars,
+    )
+
+
 def brief(
     task_id: str,
     *,
@@ -1932,13 +1971,17 @@ def brief(
     """Generate a minimal active-context/handoff packet from controlled state."""
     paths = _paths(task_id, base_dir)
     with _shared_locked_existing(paths["root"]):
-        plan = _plan_brief(
-            task_id,
-            phase=phase,
-            include=include,
-            max_items=max_items,
-            max_chars=max_chars,
-            base_dir=base_dir,
+        view = _load_committed_task_view_locked(task_id, paths)
+        evaluation = (
+            evaluate_truth_sources(
+                view["contract"], view["snapshot"], now=_trusted_utc_now(), resolver=resolve_file_source,
+            )
+            if truth_sources_enabled(view["contract"])
+            else None
+        )
+        plan = _plan_brief_from_view(
+            task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=evaluation,
+            phase=phase, include=include, max_items=max_items, max_chars=max_chars,
         )
     overflow = plan["brief_overflow"]
     if overflow is not None:
@@ -1974,13 +2017,17 @@ def brief_diagnostics(
     """Measure brief fit without weakening or suppressing required-content overflow."""
     paths = _paths(task_id, base_dir)
     with _shared_locked_existing(paths["root"]):
-        plan = _plan_brief(
-            task_id,
-            phase=phase,
-            include=include,
-            max_items=max_items,
-            max_chars=max_chars,
-            base_dir=base_dir,
+        view = _load_committed_task_view_locked(task_id, paths)
+        evaluation = (
+            evaluate_truth_sources(
+                view["contract"], view["snapshot"], now=_trusted_utc_now(), resolver=resolve_file_source,
+            )
+            if truth_sources_enabled(view["contract"])
+            else None
+        )
+        plan = _plan_brief_from_view(
+            task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=evaluation,
+            phase=phase, include=include, max_items=max_items, max_chars=max_chars,
         )
     return _brief_diagnostics_from_plan(plan)
 
@@ -2043,6 +2090,12 @@ def _brief_markdown_lines(packet: Mapping[str, Any]) -> Iterable[str]:
     yield "## Rules"
     yield "Use only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently."
     yield "Do not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes."
+    truth_sources = packet.get("truth_sources")
+    if isinstance(truth_sources, Mapping):
+        yield ""
+        yield "## Truth Source Controls"
+        for item in truth_sources.get("items", []):
+            yield f"- {_brief_json(item)}"
     actor_roles = packet.get("actor_roles")
     if isinstance(actor_roles, Mapping) and actor_roles:
         yield ""

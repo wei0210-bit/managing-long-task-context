@@ -10,9 +10,9 @@ import tempfile
 import threading
 import unittest
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1227,6 +1227,192 @@ class LegacyTruthSourceFastPathTests(unittest.TestCase):
             published = context.publish_contract(next_contract, confirmed_by="publisher", base_dir=self.base)
         self.assertEqual(packet["task_id"], "LEGACY-GOLDEN")
         self.assertEqual(published["version"], 2)
+
+
+class TruthSourceEvaluationTests(_TruthSourceContractFixture):
+    """The public evaluator fails closed before it performs live file I/O."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.workspace = self.workspace.resolve()
+        documents = self.workspace / "docs"
+        documents.mkdir()
+        self.status = documents / "TS-STATUS.md"
+        self.status.write_text("authoritative state\n", encoding="utf-8")
+        self.publish()
+        context.observe_truth_source(
+            "TSC-03", source_id="TS-STATUS", actor="publisher",
+            verification_refs=["review:baseline"], base_dir=self.base,
+        )
+        observed_at = context._read_json(context._paths("TSC-03", self.base)["snapshot"])["truth_sources"]["sources"]["TS-STATUS"]["observation"]["observed_at"]
+        self.now = datetime.fromisoformat(observed_at.replace("Z", "+00:00")) + timedelta(seconds=1)
+
+    def current_contract(self) -> dict[str, object]:
+        return context._read_json(context._paths("TSC-03", self.base)["contract"])
+
+    def current_snapshot(self) -> dict[str, object]:
+        return context._read_json(context._paths("TSC-03", self.base)["snapshot"])
+
+    def evaluate(self, snapshot: dict[str, object] | None = None, resolver: Mock | None = None) -> dict[str, object] | None:
+        return truth_sources.evaluate_truth_sources(
+            self.current_contract(), snapshot or self.current_snapshot(), now=self.now, resolver=resolver,
+        )
+
+    def test_undeclared_contract_returns_none_without_resolver(self) -> None:
+        resolver = Mock(side_effect=AssertionError("legacy must not resolve"))
+        contract = self.current_contract()
+        contract.pop("required_capabilities")
+        contract.pop("truth_sources")
+        self.assertIsNone(truth_sources.evaluate_truth_sources(
+            contract, self.current_snapshot(), now=self.now, resolver=resolver,
+        ))
+        resolver.assert_not_called()
+
+    def test_result_shape_and_control_invalid_precedence_skip_resolver(self) -> None:
+        cases = (
+            ("unobserved", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
+                "status": "unobserved", "observed_generation": None, "observation": None,
+            }), "TRUTH_SOURCE_UNOBSERVED"),
+            ("contract", lambda snapshot: snapshot["contract"].update({
+                "integrity_digest": "sha256:" + "0" * 64,
+            }), "TRUTH_SOURCE_CONTRACT_MISMATCH"),
+            ("observation-contract", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({
+                "contract_digest": "sha256:" + "0" * 64,
+            }), "TRUTH_SOURCE_CONTRACT_MISMATCH"),
+            ("owner", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({
+                "actor": "other-owner",
+            }), "TRUTH_SOURCE_OWNER_MISMATCH"),
+            ("dirty", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
+                "status": "dirty", "observed_generation": None, "observation": None,
+            }), "TRUTH_SOURCE_DIRTY"),
+            ("generation", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"].update({
+                "observed_generation": 999,
+            }), "TRUTH_SOURCE_GENERATION_MISMATCH"),
+            ("malformed-time", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({
+                "observed_at": "not-a-time",
+            }), "TRUTH_SOURCE_RESOLVER_UNKNOWN"),
+            ("future-time", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({
+                "observed_at": (self.now + timedelta(seconds=301)).isoformat().replace("+00:00", "Z"),
+            }), "TRUTH_SOURCE_RESOLVER_UNKNOWN"),
+            ("stale-time", lambda snapshot: snapshot["truth_sources"]["sources"]["TS-STATUS"]["observation"].update({
+                "observed_at": (self.now - timedelta(seconds=61)).isoformat().replace("+00:00", "Z"),
+            }), "TRUTH_SOURCE_STALE"),
+        )
+        expected_fields = {
+            "id", "purpose", "source_ref", "owner", "status", "codes",
+            "required_generation", "observed_generation", "observed_at", "fingerprint",
+        }
+        for name, mutate, expected_code in cases:
+            with self.subTest(name=name):
+                snapshot = json.loads(json.dumps(self.current_snapshot()))
+                mutate(snapshot)
+                resolver = Mock(side_effect=AssertionError("control-invalid must not resolve"))
+                evaluation = self.evaluate(snapshot, resolver)
+                assert evaluation is not None
+                self.assertEqual(evaluation["status"], "fail" if expected_code != "TRUTH_SOURCE_RESOLVER_UNKNOWN" else "unknown")
+                self.assertEqual(set(evaluation["results"][0]), expected_fields)
+                self.assertIn(expected_code, evaluation["results"][0]["codes"])
+                self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 0)
+                resolver.assert_not_called()
+
+    def test_resolver_stable_results_and_changed_fingerprint(self) -> None:
+        expected = "sha256:" + "a" * 64
+        cases = (
+            ({"status": "fail", "code": "TRUTH_SOURCE_NOT_FOUND", "fingerprint": None}, "fail", "TRUTH_SOURCE_NOT_FOUND"),
+            ({"status": "unknown", "code": "TRUTH_SOURCE_PERMISSION_DENIED", "fingerprint": None}, "unknown", "TRUTH_SOURCE_PERMISSION_DENIED"),
+            ({"status": "pass", "code": None, "fingerprint": expected}, "fail", "TRUTH_SOURCE_CHANGED"),
+            ({"status": "pass", "code": None, "fingerprint": self.current_snapshot()["truth_sources"]["sources"]["TS-STATUS"]["observation"]["fingerprint"]}, "pass", None),
+            ({"status": "fail", "code": "TRUTH_SOURCE_FILE_CANARY_DO_NOT_LEAK", "fingerprint": None}, "unknown", "TRUTH_SOURCE_RESOLVER_UNKNOWN"),
+        )
+        for resolution, status, code in cases:
+            with self.subTest(resolution=resolution):
+                resolver = Mock(return_value=resolution)
+                evaluation = self.evaluate(resolver=resolver)
+                assert evaluation is not None
+                self.assertEqual(evaluation["status"], status)
+                self.assertEqual(evaluation["results"][0]["status"], status)
+                if code is not None:
+                    self.assertEqual(evaluation["results"][0]["codes"], [code])
+                self.assertEqual(evaluation["stats"]["truth_source_resolution_attempts"], 1)
+                resolver.assert_called_once()
+                self.assertNotIn("TRUTH_SOURCE_FILE_CANARY_DO_NOT_LEAK", repr(evaluation))
+        resolver = Mock(side_effect=RuntimeError("TRUTH_SOURCE_EXCEPTION_CANARY_DO_NOT_LEAK"))
+        evaluation = self.evaluate(resolver=resolver)
+        assert evaluation is not None
+        self.assertEqual(evaluation["results"][0]["codes"], ["TRUTH_SOURCE_RESOLVER_UNKNOWN"])
+        self.assertNotIn("TRUTH_SOURCE_EXCEPTION_CANARY_DO_NOT_LEAK", repr(evaluation))
+
+
+class TruthSourceBriefTests(_TruthSourceContractFixture):
+    def setUp(self) -> None:
+        super().setUp()
+        self.workspace = self.workspace.resolve()
+        documents = self.workspace / "docs"
+        documents.mkdir()
+        self.status = documents / "TS-STATUS.md"
+        self.status.write_text("brief baseline\n", encoding="utf-8")
+        self.publish()
+        self.task_id = "TSC-03"
+        context.observe_truth_source(
+            self.task_id, source_id="TS-STATUS", actor="publisher",
+            verification_refs=["review:brief"], base_dir=self.base,
+        )
+
+    def test_brief_uses_live_evaluator_not_cached_pass_and_resolves_once(self) -> None:
+        self.status.write_text("brief changed without dirty mark\n", encoding="utf-8")
+        with patch.object(context, "resolve_file_source", wraps=truth_sources.resolve_file_source) as resolver:
+            packet = context.brief(self.task_id, base_dir=self.base)
+        self.assertEqual(packet["truth_sources"]["items"][0]["status"], "fail")
+        self.assertEqual(resolver.call_count, 1)
+        with patch.object(context, "resolve_file_source", wraps=truth_sources.resolve_file_source) as resolver:
+            diagnostics = context.brief_diagnostics(self.task_id, base_dir=self.base)
+        self.assertTrue(diagnostics["fits"])
+        self.assertEqual(resolver.call_count, 1)
+
+    def test_truth_brief_allowlist_mandatory_overflow_and_fixed_budget(self) -> None:
+        packet = context.brief(self.task_id, max_items=1, base_dir=self.base)
+        item = packet["truth_sources"]["items"][0]
+        self.assertEqual(set(item), {
+            "id", "purpose", "source_ref", "owner", "status", "required_generation",
+            "observed_generation", "observed_at", "fingerprint",
+        })
+        self.assertNotIn("codes", item)
+        self.assertNotIn("verification_refs", item)
+        diagnostics = context.brief_diagnostics(self.task_id, max_items=1, max_chars=1, base_dir=self.base)
+        self.assertEqual(diagnostics["overflow"]["code"], "BRIEF_REQUIRED_OVERFLOW")
+        self.assertGreater(diagnostics["budget"]["fixed_prompt_chars"], 0)
+
+    def test_truth_block_never_contains_file_canary_or_verification_refs(self) -> None:
+        canary = "TRUTH_SOURCE_BRIEF_FILE_CANARY_DO_NOT_LEAK"
+        self.status.write_text(canary, encoding="utf-8")
+        packet = context.brief(self.task_id, base_dir=self.base)
+        diagnostics = context.brief_diagnostics(self.task_id, base_dir=self.base)
+        self.assertNotIn(canary, repr(packet))
+        self.assertNotIn(canary, repr(diagnostics))
+        self.assertNotIn("review:brief", repr(packet))
+        self.assertNotIn("review:brief", repr(diagnostics))
+
+    def test_precomputed_evaluation_reuses_no_resolution_and_legacy_stays_exact(self) -> None:
+        paths = context._paths(self.task_id, self.base)
+        with context._shared_locked_existing(paths["root"]):
+            view = context._load_committed_task_view_locked(self.task_id, paths)
+            evaluation = truth_sources.evaluate_truth_sources(
+                view["contract"], view["snapshot"], now=datetime.now(timezone.utc),
+                resolver=truth_sources.resolve_file_source,
+            )
+            with patch.object(context, "resolve_file_source", side_effect=AssertionError("must reuse evaluation")):
+                plan = context._plan_brief_from_view(
+                    self.task_id, contract=view["contract"], snapshot=view["snapshot"],
+                    truth_evaluation=evaluation, phase="handoff", include=None, max_items=None, max_chars=8000,
+                )
+        self.assertIn("truth_sources", plan["packet"])
+        legacy_base = Path(self.temp.name) / "legacy" / ".prime" / "context"
+        context.publish_contract(LEGACY_CONTRACT, confirmed_by="publisher", base_dir=legacy_base)
+        with patch.object(context, "evaluate_truth_sources", side_effect=AssertionError("legacy evaluator")):
+            legacy_packet = context.brief("LEGACY-GOLDEN", base_dir=legacy_base)
+            legacy_diagnostics = context.brief_diagnostics("LEGACY-GOLDEN", base_dir=legacy_base)
+        self.assertNotIn("truth_sources", legacy_packet)
+        self.assertNotIn("truth_sources", legacy_diagnostics)
 
 
 if __name__ == "__main__":
