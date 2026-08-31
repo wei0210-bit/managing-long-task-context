@@ -15,3 +15,6 @@ dist/
 
 # Isolated feature worktrees.
 .worktrees/
+
+# Local agent work maps and issue packets.
+.scratch/
