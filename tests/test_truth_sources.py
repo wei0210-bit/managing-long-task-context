@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import errno
+import os
 import sys
 import tempfile
 import threading
@@ -16,6 +18,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import managing_long_task_context as context
+import managing_long_task_context.truth_sources as truth_sources
+from managing_long_task_context.truth_sources import (
+    MAX_SOURCE_BYTES,
+    resolve_file_source,
+    validate_truth_source_contract,
+)
 
 
 LEGACY_HASHES = {
@@ -198,6 +206,311 @@ class ReadOnlyLockingTests(unittest.TestCase):
         thread.join(2)
         self.assertFalse(thread.is_alive())
         self.assertTrue(writer_finished.is_set())
+
+
+class TruthSourceSchemaTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp.name) / "workspace"
+        self.workspace.mkdir()
+        self.addCleanup(self.temp.cleanup)
+
+    def contract(self, **overrides: object) -> dict[str, object]:
+        contract: dict[str, object] = {"workspace_root": str(self.workspace.resolve())}
+        contract.update(overrides)
+        return contract
+
+    def valid_truth_sources(self) -> dict[str, object]:
+        return {
+            "schema": "truth-sources/v1",
+            "items": [{
+                "id": "TS-STATUS",
+                "purpose": "Authoritative status source",
+                "source_ref": {"kind": "file", "locator": "docs/status.md"},
+                "owner": "project-lead",
+                "max_age_seconds": 60,
+                "validation_method": "owner-readback",
+                "invalidate_on_change_kinds": ["implementation-change"],
+            }],
+        }
+
+    def valid_contract(self) -> dict[str, object]:
+        return self.contract(
+            required_capabilities=["truth-sources/v1"],
+            truth_sources=self.valid_truth_sources(),
+        )
+
+    def test_truth_sources_requires_exact_capability_pair(self) -> None:
+        with_sources = self.contract(truth_sources=self.valid_truth_sources())
+        self.assertIn(
+            "contract.truth_sources requires required_capabilities truth-sources/v1",
+            validate_truth_source_contract(with_sources),
+        )
+        capability_only = self.contract(required_capabilities=["truth-sources/v1"])
+        self.assertIn(
+            "contract.required_capabilities truth-sources/v1 requires truth_sources",
+            validate_truth_source_contract(capability_only),
+        )
+
+    def test_undeclared_contract_does_no_truth_source_validation(self) -> None:
+        self.assertEqual(validate_truth_source_contract({"workspace_root": "not-absolute"}), [])
+
+    def test_required_capabilities_are_unique_non_empty_and_supported(self) -> None:
+        cases = (
+            ([], "contract.required_capabilities must be a non-empty list of unique non-empty strings"),
+            (["truth-sources/v1", "truth-sources/v1"], "contract.required_capabilities must be a non-empty list of unique non-empty strings"),
+            ([""], "contract.required_capabilities must be a non-empty list of unique non-empty strings"),
+            (["other/v1"], "contract.required_capabilities has unsupported capability: other/v1"),
+        )
+        for capabilities, expected in cases:
+            with self.subTest(capabilities=capabilities):
+                errors = validate_truth_source_contract(self.contract(required_capabilities=capabilities))
+                self.assertIn(expected, errors)
+
+    def test_unknown_nested_fields_are_rejected(self) -> None:
+        contract = self.valid_contract()
+        truth = contract["truth_sources"]
+        assert isinstance(truth, dict)
+        items = truth["items"]
+        assert isinstance(items, list)
+        item = items[0]
+        assert isinstance(item, dict)
+        item["expected_digest"] = "sha256:" + "0" * 64
+        errors = validate_truth_source_contract(contract)
+        self.assertIn("contract.truth_sources.items[0] has unknown fields: ['expected_digest']", errors)
+
+    def test_truth_source_and_item_allowlists(self) -> None:
+        cases = (
+            (lambda c: c["truth_sources"].update({"extra": True}), "contract.truth_sources has unknown fields: ['extra']"),
+            (lambda c: c["truth_sources"]["items"][0]["source_ref"].update({"extra": True}), "contract.truth_sources.items[0].source_ref has unknown fields: ['extra']"),
+        )
+        for mutate, expected in cases:
+            with self.subTest(expected=expected):
+                contract = self.valid_contract()
+                mutate(contract)
+                self.assertIn(expected, validate_truth_source_contract(contract))
+
+    def test_item_schema_cases(self) -> None:
+        cases = (
+            ("id", "", "contract.truth_sources.items[0].id must match source ID pattern"),
+            ("id", "x" * 129, "contract.truth_sources.items[0].id must match source ID pattern"),
+            ("purpose", "x" * 161, "contract.truth_sources.items[0].purpose must be a non-empty single-line string of at most 160 characters"),
+            ("owner", "x" * 129, "contract.truth_sources.items[0].owner must be a non-empty single-line string of at most 128 characters"),
+            ("validation_method", "read-back", "contract.truth_sources.items[0].validation_method must equal owner-readback"),
+            ("max_age_seconds", True, "contract.truth_sources.items[0].max_age_seconds must be a positive integer"),
+            ("max_age_seconds", 0, "contract.truth_sources.items[0].max_age_seconds must be a positive integer"),
+            ("invalidate_on_change_kinds", ["same", "same"], "contract.truth_sources.items[0].invalidate_on_change_kinds must be a non-empty list of unique non-empty single-line strings"),
+        )
+        for field, value, expected in cases:
+            with self.subTest(field=field, value=value):
+                contract = self.valid_contract()
+                contract["truth_sources"]["items"][0][field] = value
+                self.assertIn(expected, validate_truth_source_contract(contract))
+        duplicate = self.valid_contract()
+        duplicate["truth_sources"]["items"].append(dict(duplicate["truth_sources"]["items"][0]))
+        self.assertIn("contract.truth_sources.items has duplicate id: TS-STATUS", validate_truth_source_contract(duplicate))
+
+    def test_workspace_root_cases(self) -> None:
+        cases = (
+            ("relative", "contract.workspace_root must be an existing absolute non-symlink directory"),
+            (str(self.workspace / "missing"), "contract.workspace_root must be an existing absolute non-symlink directory"),
+        )
+        for root, expected in cases:
+            with self.subTest(root=root):
+                contract = self.valid_contract()
+                contract["workspace_root"] = root
+                self.assertIn(expected, validate_truth_source_contract(contract))
+        link = self.workspace.parent / "workspace-link"
+        link.symlink_to(self.workspace, target_is_directory=True)
+        contract = self.valid_contract()
+        contract["workspace_root"] = str(link)
+        self.assertIn("contract.workspace_root must be an existing absolute non-symlink directory", validate_truth_source_contract(contract))
+
+    def test_locator_schema_cases(self) -> None:
+        cases = (
+            ({"kind": "url", "locator": "docs/status.md"}, "contract.truth_sources.items[0].source_ref.kind must equal file"),
+            ({"kind": "file", "locator": ""}, "contract.truth_sources.items[0].source_ref.locator must be a safe workspace-relative file path"),
+            ({"kind": "file", "locator": "/etc/passwd"}, "contract.truth_sources.items[0].source_ref.locator must be a safe workspace-relative file path"),
+            ({"kind": "file", "locator": "../status.md"}, "contract.truth_sources.items[0].source_ref.locator must be a safe workspace-relative file path"),
+            ({"kind": "file", "locator": "docs//status.md"}, "contract.truth_sources.items[0].source_ref.locator must be a safe workspace-relative file path"),
+            ({"kind": "file", "locator": "docs/ status.md"}, "contract.truth_sources.items[0].source_ref.locator must be a safe workspace-relative file path"),
+            ({"kind": "file", "locator": "docs/#status.md"}, "contract.truth_sources.items[0].source_ref.locator must be a safe workspace-relative file path"),
+            ({"kind": "file", "locator": "docs/~status.md"}, "contract.truth_sources.items[0].source_ref.locator must be a safe workspace-relative file path"),
+            ({"kind": "file", "locator": "docs/*.md"}, "contract.truth_sources.items[0].source_ref.locator must be a safe workspace-relative file path"),
+        )
+        for source_ref, expected in cases:
+            with self.subTest(source_ref=source_ref):
+                contract = self.valid_contract()
+                contract["truth_sources"]["items"][0]["source_ref"] = source_ref
+                self.assertIn(expected, validate_truth_source_contract(contract))
+
+
+class SecureFileResolverTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name) / "workspace"
+        (self.root / "docs").mkdir(parents=True)
+        self.status = self.root / "docs" / "status.md"
+        self.status.write_bytes(b"inside source")
+        self.addCleanup(self.temp.cleanup)
+
+    def resolve(self, locator: str = "docs/status.md") -> dict[str, object]:
+        return resolve_file_source(self.root.resolve(), {"kind": "file", "locator": locator})
+
+    def test_happy_path_returns_only_digest_metadata(self) -> None:
+        result = self.resolve()
+        self.assertEqual(result["status"], "pass")
+        self.assertIsNone(result["code"])
+        self.assertRegex(result["fingerprint"], r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(set(result), {"status", "code", "fingerprint"})
+
+    def test_rejects_absolute_escape_glob_and_dot_segments_without_open(self) -> None:
+        locators = (
+            "/etc/passwd", "../escape", "docs/./status.md", "docs/../status.md",
+            "docs/*.md", "docs/a?.md", "docs/a[0].md", "docs/a{b}.md",
+        )
+        with patch.object(truth_sources.os, "open", side_effect=AssertionError("must not open")):
+            for locator in locators:
+                with self.subTest(locator=locator):
+                    self.assertEqual(self.resolve(locator), {"status": "fail", "code": "TRUTH_SOURCE_UNSAFE_PATH", "fingerprint": None})
+
+    def test_rejects_empty_nul_hash_tilde_empty_segment_and_segment_whitespace_without_open(self) -> None:
+        locators = ("", "docs/\x00status", "docs/#status", "docs/~status", "docs//status", " docs/status", "docs/status ")
+        with patch.object(truth_sources.os, "open", side_effect=AssertionError("must not open")):
+            for locator in locators:
+                with self.subTest(locator=locator):
+                    self.assertEqual(self.resolve(locator)["code"], "TRUTH_SOURCE_UNSAFE_PATH")
+
+    def test_rejects_workspace_root_intermediate_and_final_symlinks(self) -> None:
+        root_link = self.root.parent / "root-link"
+        root_link.symlink_to(self.root, target_is_directory=True)
+        self.assertEqual(resolve_file_source(root_link, {"kind": "file", "locator": "docs/status.md"})["code"], "TRUTH_SOURCE_SYMLINK")
+        (self.root / "linked-docs").symlink_to(self.root / "docs", target_is_directory=True)
+        self.assertEqual(self.resolve("linked-docs/status.md")["code"], "TRUTH_SOURCE_SYMLINK")
+        (self.root / "docs" / "linked-status.md").symlink_to(self.status)
+        self.assertEqual(self.resolve("docs/linked-status.md")["code"], "TRUTH_SOURCE_SYMLINK")
+
+    def test_rejects_directory_and_non_regular_final_targets(self) -> None:
+        self.assertEqual(self.resolve("docs")["code"], "TRUTH_SOURCE_NOT_REGULAR_FILE")
+        fifo = self.root / "docs" / "pipe"
+        os.mkfifo(fifo)
+        self.assertEqual(self.resolve("docs/pipe")["code"], "TRUTH_SOURCE_NOT_REGULAR_FILE")
+
+    def test_root_swap_cannot_redirect_resolution_outside_workspace(self) -> None:
+        outside = self.root.parent / "outside"
+        outside.mkdir()
+        (outside / "docs").mkdir()
+        (outside / "docs" / "status.md").write_text("ROOT_SWAP_CANARY", encoding="utf-8")
+        first_read = threading.Event()
+        proceed = threading.Event()
+        original_read = truth_sources.os.read
+
+        def barrier_read(fd: int, count: int) -> bytes:
+            first_read.set()
+            self.assertTrue(proceed.wait(2))
+            return original_read(fd, count)
+
+        with patch.object(truth_sources.os, "read", side_effect=barrier_read):
+            result_box: dict[str, object] = {}
+            thread = threading.Thread(target=lambda: result_box.setdefault("result", self.resolve()))
+            thread.start()
+            self.assertTrue(first_read.wait(2))
+            held = self.root.parent / "held-root"
+            self.root.rename(held)
+            self.root.symlink_to(outside, target_is_directory=True)
+            proceed.set()
+            thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result_box["result"]["fingerprint"], "sha256:" + hashlib.sha256(b"inside source").hexdigest())
+
+    def test_changed_during_read_returns_unknown(self) -> None:
+        self.status.write_bytes(b"a" * (64 * 1024 + 1))
+        read_once = threading.Event()
+        proceed = threading.Event()
+        original_read = truth_sources.os.read
+        calls = 0
+
+        def barrier_read(fd: int, count: int) -> bytes:
+            nonlocal calls
+            value = original_read(fd, count)
+            calls += 1
+            if calls == 1:
+                read_once.set()
+                self.assertTrue(proceed.wait(2))
+            return value
+
+        with patch.object(truth_sources.os, "read", side_effect=barrier_read):
+            result_box: dict[str, object] = {}
+            thread = threading.Thread(target=lambda: result_box.setdefault("result", self.resolve()))
+            thread.start()
+            self.assertTrue(read_once.wait(2))
+            self.status.write_bytes(b"b" * (64 * 1024 + 2))
+            proceed.set()
+            thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result_box["result"], {"status": "unknown", "code": "TRUTH_SOURCE_CHANGED_DURING_READ", "fingerprint": None})
+
+    def test_exactly_16_mib_passes_and_one_byte_more_fails(self) -> None:
+        exact = self.root / "docs" / "exact.bin"
+        exact.write_bytes(b"x" * MAX_SOURCE_BYTES)
+        self.assertEqual(self.resolve("docs/exact.bin")["status"], "pass")
+        too_large = self.root / "docs" / "too-large.bin"
+        too_large.write_bytes(b"x" * (MAX_SOURCE_BYTES + 1))
+        self.assertEqual(self.resolve("docs/too-large.bin"), {"status": "fail", "code": "TRUTH_SOURCE_TOO_LARGE", "fingerprint": None})
+
+    def test_every_success_and_failure_path_closes_all_fds(self) -> None:
+        original_open, original_close = truth_sources.os.open, truth_sources.os.close
+        opened: list[int] = []
+        closed: list[int] = []
+
+        def counting_open(*args: object, **kwargs: object) -> int:
+            fd = original_open(*args, **kwargs)
+            opened.append(fd)
+            return fd
+
+        def counting_close(fd: int) -> None:
+            closed.append(fd)
+            original_close(fd)
+
+        with patch.object(truth_sources.os, "open", side_effect=counting_open), \
+             patch.object(truth_sources.os, "close", side_effect=counting_close):
+            self.resolve()
+            self.resolve("docs/missing.md")
+            self.resolve("docs")
+            (self.root / "docs" / "too-large.bin").write_bytes(b"x" * (MAX_SOURCE_BYTES + 1))
+            self.resolve("docs/too-large.bin")
+            (self.root / "docs" / "linked-status.md").symlink_to(self.status)
+            self.resolve("docs/linked-status.md")
+        self.assertEqual(sorted(opened), sorted(closed))
+
+    def test_errno_and_unsupported_platform_map_to_all_stable_codes(self) -> None:
+        cases = (
+            (errno.ENOENT, "fail", "TRUTH_SOURCE_NOT_FOUND"),
+            (errno.ELOOP, "fail", "TRUTH_SOURCE_SYMLINK"),
+            (errno.ENOTDIR, "fail", "TRUTH_SOURCE_NOT_REGULAR_FILE"),
+            (errno.EACCES, "unknown", "TRUTH_SOURCE_PERMISSION_DENIED"),
+            (errno.EPERM, "unknown", "TRUTH_SOURCE_PERMISSION_DENIED"),
+            (errno.EIO, "unknown", "TRUTH_SOURCE_TRANSIENT_IO"),
+            (errno.EBUSY, "unknown", "TRUTH_SOURCE_TRANSIENT_IO"),
+            (errno.EINTR, "unknown", "TRUTH_SOURCE_TRANSIENT_IO"),
+        )
+        if hasattr(errno, "ESTALE"):
+            cases += ((errno.ESTALE, "unknown", "TRUTH_SOURCE_TRANSIENT_IO"),)
+        for number, status, code in cases:
+            with self.subTest(number=number):
+                with patch.object(truth_sources.os, "open", side_effect=OSError(number, "test")):
+                    self.assertEqual(self.resolve(), {"status": status, "code": code, "fingerprint": None})
+        with patch.object(truth_sources.os, "O_NOFOLLOW", None):
+            self.assertEqual(self.resolve(), {"status": "unknown", "code": "TRUTH_SOURCE_RESOLVER_UNKNOWN", "fingerprint": None})
+        with patch.object(truth_sources.os, "read", return_value=b""):
+            self.assertEqual(self.resolve(), {"status": "unknown", "code": "TRUTH_SOURCE_TRANSIENT_IO", "fingerprint": None})
+
+    def test_result_and_exception_never_contain_file_canary(self) -> None:
+        canary = "TRUTH_SOURCE_FILE_CANARY_DO_NOT_LEAK"
+        self.status.write_text(canary, encoding="utf-8")
+        self.assertNotIn(canary, repr(self.resolve()))
+        with patch.object(truth_sources.os, "read", side_effect=OSError(errno.EIO, canary)):
+            self.assertNotIn(canary, repr(self.resolve()))
 
 
 if __name__ == "__main__":
