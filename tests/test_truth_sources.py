@@ -625,6 +625,12 @@ class _TruthSourceContractFixture(unittest.TestCase):
     def publish(self, version: int = 1, ids: tuple[str, ...] = ("TS-STATUS",)) -> dict[str, object]:
         return context.publish_contract(self.contract(version, ids), confirmed_by="publisher", base_dir=self.base)
 
+    def legacy_contract(self, version: int) -> dict[str, object]:
+        value = self.contract(version)
+        value.pop("required_capabilities")
+        value.pop("truth_sources")
+        return value
+
     def events(self) -> list[dict[str, object]]:
         return context._read_events(context._paths("TSC-03", self.base)["events"])
 
@@ -712,6 +718,38 @@ class TruthSourceReducerTests(_TruthSourceContractFixture):
 
 
 class TruthSourceRecoveryTests(_TruthSourceContractFixture):
+    def test_stale_pretruth_snapshot_forces_history_rebuild_and_v3_empty_reset(self) -> None:
+        context.publish_contract(self.legacy_contract(0), confirmed_by="publisher", base_dir=self.base)
+        paths = context._paths("TSC-03", self.base)
+        pre_truth_snapshot = context._read_json(paths["snapshot"])
+        self.publish(version=1)
+        context.publish_contract(self.legacy_contract(2), confirmed_by="publisher", base_dir=self.base)
+        context._atomic_write_json(paths["snapshot"], pre_truth_snapshot)
+
+        published = context.publish_contract(self.legacy_contract(3), confirmed_by="publisher", base_dir=self.base)
+
+        events = self.events()
+        matching = context._matching_contract_publish_events(published, events)
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["payload"]["truth_source_reset"], {
+            "schema": "truth-sources/v1", "generation": 3, "source_ids": [],
+        })
+        self.assertTrue(context.audit("TSC-03", base_dir=self.base, emit=False)["passed"])
+
+    def test_committed_view_rejects_stale_pretruth_fast_path_and_rebuilds_history(self) -> None:
+        context.publish_contract(self.legacy_contract(0), confirmed_by="publisher", base_dir=self.base)
+        paths = context._paths("TSC-03", self.base)
+        pre_truth_snapshot = context._read_json(paths["snapshot"])
+        self.publish(version=1)
+        removed = context.publish_contract(self.legacy_contract(2), confirmed_by="publisher", base_dir=self.base)
+        context._atomic_write_json(paths["snapshot"], pre_truth_snapshot)
+
+        view = context._load_committed_task_view_locked("TSC-03", paths)
+
+        self.assertTrue(view["truth_history_enabled"])
+        self.assertEqual(view["contract"], removed)
+        self.assertEqual(view["snapshot"], context._rebuild_snapshot("TSC-03", view["events"]))
+
     def test_missing_publish_event_same_version_retry_repairs_without_reseal(self) -> None:
         original_write = context._append_event_locked
         with patch.object(context, "_append_event_locked", side_effect=OSError("event cut")):
@@ -929,6 +967,16 @@ class LegacyTruthSourceFastPathTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertTrue(any("invalid JSONL" in error for error in report["errors"]))
         self.assertFalse(any("brief preflight unavailable" in error for error in report["errors"]))
+
+    def test_matching_never_enabled_snapshot_keeps_brief_and_greater_publish_fast(self) -> None:
+        next_contract = dict(LEGACY_CONTRACT)
+        next_contract["version"] = 2
+        with patch.object(context, "_read_events", side_effect=AssertionError("event scan")), \
+             patch.object(context, "_rebuild_snapshot", side_effect=AssertionError("event rebuild")):
+            packet = context.brief("LEGACY-GOLDEN", base_dir=self.base)
+            published = context.publish_contract(next_contract, confirmed_by="publisher", base_dir=self.base)
+        self.assertEqual(packet["task_id"], "LEGACY-GOLDEN")
+        self.assertEqual(published["version"], 2)
 
 
 if __name__ == "__main__":

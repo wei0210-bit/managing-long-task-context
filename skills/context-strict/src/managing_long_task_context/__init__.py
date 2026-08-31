@@ -766,6 +766,22 @@ def _has_truth_reset(events: Sequence[Mapping[str, Any]]) -> bool:
     )
 
 
+def _snapshot_matches_sealed_contract(snapshot: Mapping[str, Any], contract: Mapping[str, Any]) -> bool:
+    """Whether a cached projection can prove it belongs to this sealed contract."""
+    projection = snapshot.get("contract")
+    seal = contract.get("seal")
+    if not isinstance(projection, Mapping) or not isinstance(seal, Mapping):
+        return False
+    expected = {
+        "task_id": contract.get("task_id"),
+        "version": contract.get("version"),
+        "integrity_digest": seal.get("integrity_digest"),
+        "confirmed_by": seal.get("confirmed_by"),
+        "confirmed_at": seal.get("confirmed_at"),
+    }
+    return all(projection.get(field) == value for field, value in expected.items())
+
+
 def _committed_contract_errors(
     contract: Mapping[str, Any], events: Sequence[Mapping[str, Any]], snapshot: Mapping[str, Any],
 ) -> list[str]:
@@ -819,7 +835,12 @@ def _load_committed_task_view_locked(task_id: str, paths: Mapping[str, Path]) ->
     truth_history_enabled = truth_sources_enabled(contract) or (
         isinstance(snapshot, Mapping) and isinstance(snapshot.get("truth_sources"), Mapping)
     )
-    if not truth_history_enabled and snapshot is not None:
+    trusted_never_enabled_snapshot = (
+        isinstance(snapshot, Mapping)
+        and not truth_history_enabled
+        and _snapshot_matches_sealed_contract(snapshot, contract)
+    )
+    if trusted_never_enabled_snapshot:
         return {
             "contract": contract,
             "snapshot": snapshot,
@@ -1024,7 +1045,12 @@ def publish_contract(
                 isinstance(existing_snapshot, Mapping)
                 and isinstance(existing_snapshot.get("truth_sources"), Mapping)
             )
-            if existing_snapshot is None and not existing_truth_history:
+            trusted_never_enabled_snapshot = (
+                isinstance(existing_snapshot, Mapping)
+                and not existing_truth_history
+                and _snapshot_matches_sealed_contract(existing_snapshot, existing)
+            )
+            if not existing_truth_history and not trusted_never_enabled_snapshot:
                 existing_events = _read_events(paths["events"])
                 existing_truth_history = _has_truth_reset(existing_events)
             if existing_truth_history:
