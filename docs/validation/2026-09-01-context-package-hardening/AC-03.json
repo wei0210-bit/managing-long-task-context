@@ -1,0 +1,18 @@
+{
+  "artifact_digest": "sha256:856c398cdb4ed530f45d63c9914f6fa0837966575d335951bf3db194949d5766",
+  "schema": "context-test-report/v1",
+  "command": "verification-sequence:2026-09-01-context-package-hardening",
+  "exit_status": 0,
+  "generated_at": "2026-09-01T02:23:45Z",
+  "repo_revision": "1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502",
+  "scope": {
+    "component": "context-lite-validator"
+  },
+  "source_revision": "git:1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502+working-tree",
+  "summary": {
+    "failed": 0,
+    "lite_files_checked": 4,
+    "preservation_cases_passed": true,
+    "stable_error_codes_verified": true
+  }
+}

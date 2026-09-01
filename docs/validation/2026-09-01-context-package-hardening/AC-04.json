@@ -1,0 +1,23 @@
+{
+  "artifact_digest": "sha256:94a21d7f9a48384439ca6a986176c59aa59d4de8b3acf96aa5a70c8874c48d56",
+  "schema": "context-test-report/v1",
+  "command": "verification-sequence:2026-09-01-context-package-hardening",
+  "exit_status": 0,
+  "generated_at": "2026-09-01T02:23:45Z",
+  "repo_revision": "1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502",
+  "scope": {
+    "component": "context-skill-router"
+  },
+  "source_revision": "git:1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502+working-tree",
+  "summary": {
+    "automatic_injection": false,
+    "external_action_authorized": false,
+    "failed": 0,
+    "recommendations_verified": [
+      "NO_SKILL",
+      "LITE_RECOMMENDED",
+      "STRICT_REQUIRED"
+    ],
+    "selection_authority": "user"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "artifact_digest": "sha256:d0c1fd469f1c4f4c14f6cefc54d9d260cf2d280767467c6061f5dc23eb67dc75",
+  "schema": "context-test-report/v1",
+  "command": "verification-sequence:2026-09-01-context-package-hardening",
+  "exit_status": 0,
+  "generated_at": "2026-09-01T02:23:45Z",
+  "repo_revision": "1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502",
+  "scope": {
+    "component": "context-strict-reference-check"
+  },
+  "source_revision": "git:1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502+working-tree",
+  "summary": {
+    "documented_paths_checked": 4,
+    "failed": 0,
+    "files_checked": 14,
+    "python_exports_checked": 10
+  }
+}

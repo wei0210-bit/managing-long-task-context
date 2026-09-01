@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import unittest
@@ -34,6 +35,12 @@ class ContextStrictDistributionTests(unittest.TestCase):
             1,
         )
         self.assertEqual((STRICT / "SKILL.md").read_text(encoding="utf-8"), expected_skill)
+        expected_package = json.loads((ROOT / "skill-package.json").read_text(encoding="utf-8"))
+        expected_package["skill_name"] = "context-strict"
+        self.assertEqual(
+            json.loads((STRICT / "skill-package.json").read_text(encoding="utf-8")),
+            expected_package,
+        )
 
         for relative_path in COPIED_FILES:
             with self.subTest(path=str(relative_path)):

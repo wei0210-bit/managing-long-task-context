@@ -3,6 +3,47 @@
 Choose manually; this MVP does not auto-classify a task or transfer a task between
 the two skills.
 
+## Versioned packages
+
+Each distributable skill has a `skill-package.json`. Build a complete copy and
+verify its generated manifest before installation or evaluation:
+
+```sh
+python3 scripts/skill_package.py build \
+  --source skills/context-strict \
+  --destination /tmp/context-strict-package \
+  --source-revision git:<exact-commit>
+python3 scripts/skill_package.py verify --package /tmp/context-strict-package
+```
+
+The build receipt includes the manifest SHA-256. Freeze that hash with the eval or
+installation receipt; copying only `SKILL.md` is not a valid package.
+
+## Manual routing
+
+`scripts/context_skill_router.py` accepts explicit task characteristics and returns
+`NO_SKILL`, `LITE_RECOMMENDED`, or `STRICT_REQUIRED`. It never injects a skill or
+authorizes an external action. Lite/Strict selection remains a user decision, and
+the route must be recomputed when scope or risk changes.
+
+```json
+{
+  "risk_facts_complete": true,
+  "multi_turn": true,
+  "single_primary_agent": true,
+  "high_risk": false,
+  "auditability_required": false,
+  "frozen_acceptance": false,
+  "independent_validation": false,
+  "external_side_effects": false,
+  "multiple_state_writers": false
+}
+```
+
+```sh
+python3 scripts/context_skill_router.py --input task-characteristics.json
+```
+
 | Choose | Use it for | Local copy path |
 | --- | --- | --- |
 | Lite | One primary agent, low-risk multi-turn recovery, and a compact Markdown checkpoint. | `skills/context-lite/` |

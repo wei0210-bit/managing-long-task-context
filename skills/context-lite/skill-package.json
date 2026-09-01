@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "skill_name": "context-lite",
+  "skill_version": "1.1.0",
+  "payload_roots": [
+    "SKILL.md",
+    "assets",
+    "scripts"
+  ],
+  "required_paths": [
+    "SKILL.md",
+    "assets/NOW.template.md",
+    "scripts/context_lite.py"
+  ],
+  "capabilities": {
+    "markdown-recovery/v1": {
+      "python_exports": []
+    },
+    "now-validation/v1": {
+      "python_exports": []
+    },
+    "atomic-checkpoint/v1": {
+      "python_exports": []
+    }
+  }
+}

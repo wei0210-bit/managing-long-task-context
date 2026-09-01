@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -34,9 +35,21 @@ def distributed_skill_text() -> str:
     return source.replace(expected, "name: context-strict", 1)
 
 
+def distributed_package_declaration() -> dict[str, object]:
+    source = json.loads((ROOT / "skill-package.json").read_text(encoding="utf-8"))
+    if source.get("skill_name") != "managing-long-task-context":
+        raise RuntimeError("root skill-package.json has an unexpected skill_name")
+    source["skill_name"] = "context-strict"
+    return source
+
+
 def sync() -> None:
     DESTINATION.mkdir(parents=True, exist_ok=True)
     (DESTINATION / "SKILL.md").write_text(distributed_skill_text(), encoding="utf-8")
+    (DESTINATION / "skill-package.json").write_text(
+        json.dumps(distributed_package_declaration(), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
     for relative_path in COPIED_FILES:
         source = ROOT / relative_path

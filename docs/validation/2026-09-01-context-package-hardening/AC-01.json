@@ -1,0 +1,19 @@
+{
+  "artifact_digest": "sha256:b68eadb2de8bd351143cb0552139b7403de46b1b56dec85aa8c58d2912e21c30",
+  "schema": "context-test-report/v1",
+  "command": "verification-sequence:2026-09-01-context-package-hardening",
+  "exit_status": 0,
+  "generated_at": "2026-09-01T02:23:45Z",
+  "repo_revision": "1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502",
+  "scope": {
+    "component": "context-strict-package"
+  },
+  "source_revision": "git:1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502+working-tree",
+  "summary": {
+    "failed": 0,
+    "root_tests_passed": 238,
+    "distributed_tests_passed": 211,
+    "strict_manifest_sha256": "86b09a27ebd497cd9fff180db903c3571bd5b196e09012cd30d4703c3bf0ea9d",
+    "strict_source_tree_sha256": "0f814c1d2e65a7d5fd7c763eb211eac83bcce6c238836777497f74814770e74d"
+  }
+}

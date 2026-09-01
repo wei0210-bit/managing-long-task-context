@@ -9,6 +9,17 @@ Use this Skill only after the user manually selects Lite. It records enough task
 context to resume safely; it does not audit work, prove completion, or replace
 live project observation.
 
+For `start` and `checkpoint`, run `scripts/context_lite.py validate` or its atomic
+`write` action instead of reproducing the checks in prose. If the helper cannot run,
+do not claim deterministic validation; preserve the old `NOW.md` and report the
+validator as unavailable. `skill-package.json` identifies this capability, and
+installation or evaluation must use the complete package rather than `SKILL.md` alone.
+
+```sh
+python3 scripts/context_lite.py validate --file <candidate> --task-id <task-id>
+python3 scripts/context_lite.py write --candidate <candidate> --base-dir <workspace> --task-id <task-id>
+```
+
 ## Use When
 
 - One primary agent owns a low-risk task that spans turns, context windows, or days.

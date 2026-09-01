@@ -5,6 +5,13 @@ description: Use when work spans multiple turns, sessions, or agents and depends
 
 # Managing Long-Task Context
 
+## Package Identity
+
+`skill-package.json` declares the exact `skill_version`, Python package version, and
+capabilities. Installation and evaluation controllers must build and verify the
+complete package, preserve its generated `skill-manifest.json` and external hash,
+and never use a copied `SKILL.md` by itself.
+
 ## Core Principle
 
 上下文管理的敌人不是忘记，而是**记错且不自知**。

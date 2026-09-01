@@ -1,0 +1,22 @@
+{
+  "artifact_digest": "sha256:ba7390f1ec955e240c1dc0cd8d24f4c78dfbc368548e5a6265711dfd37a1102f",
+  "schema": "context-test-report/v1",
+  "command": "verification-sequence:2026-09-01-context-package-hardening",
+  "exit_status": 0,
+  "generated_at": "2026-09-01T02:23:45Z",
+  "repo_revision": "1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502",
+  "scope": {
+    "component": "repository-regression"
+  },
+  "source_revision": "git:1f322af4f4cfe69b24b4dc802a1cdc71ebdf6502+working-tree",
+  "summary": {
+    "diff_check": "pass",
+    "distributed_tests_passed": 211,
+    "failed": 0,
+    "focused_tests_passed": 27,
+    "root_tests_passed": 238,
+    "skill_validations_passed": 2,
+    "strict_runtime_worktree_files_changed": 0,
+    "t2_specific_prompt_rules_added": 0
+  }
+}
