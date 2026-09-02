@@ -1,9 +1,12 @@
 # Production feedback hardening validation
 
-Generated: 2026-09-02T08:20:32Z  
+Generated: 2026-09-02T08:20:32Z
+
 Status: implementation and scoped SEED-04 repair PASS; global installation, merge,
-push, and live Eval NOT PERFORMED  
-Branch: `codex/production-feedback-hardening`  
+push, and live Eval NOT PERFORMED
+
+Branch: `codex/production-feedback-hardening`
+
 Validated implementation revision: `3b33d0db773790f9ddf2d22c337ec8fdaab3659b`
 
 ## Approved scope and result
