@@ -46,7 +46,18 @@ freshness controls.
 Use `externalize_item()` when the fact is unchanged and only its wording is bulky. It
 keeps the item ID, fact controls, evidence, original actor, and `verified_at`, while
 replacing the statement with a concise summary and stable external reference. The
-prior event retains the original text.
+prior event retains the original text. The reference must use an existing canonical
+absolute `file:` path (an optional `#anchor` is allowed); relative paths, symlinks,
+missing files, non-regular files, and oversized files fail closed. The API stores a
+bounded SHA-256 fingerprint without loading the file into the model context. Audit and
+transition gates block if the reference becomes unreadable or its content changes.
+An identical retry is a no-op; changing an already externalized item requires a
+separate explicit state transition rather than overwriting its provenance.
+`update_item()` therefore rejects all reserved externalization metadata fields. If the
+underlying fact changes, record and verify the replacement with `supersedes`. For an
+early 0.5 record that has the same summary/reference but no reference digest, the same
+`externalize_item()` call validates the file and appends exactly one digest-sealing
+migration event; it does not rewrite the original event.
 
 `restore_externalization_controls()` exists only for a legacy supersede-based repair.
 It copies `required` and `severity` from the directly superseded source to its target,

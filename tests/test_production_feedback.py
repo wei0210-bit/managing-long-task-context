@@ -122,6 +122,17 @@ class ProductionFeedbackTests(unittest.TestCase):
             self.publish("BAD-PROTECTION", protect_contract="false")
         self.assertFalse((self.base / "BAD-PROTECTION").exists())
 
+    def test_contract_protection_check_fails_closed_when_stat_is_unavailable(self) -> None:
+        protected = self.publish("PROTECTION-UNAVAILABLE")
+
+        self.assertEqual(
+            context._contract_file_protection_errors(
+                protected,
+                self.root / "missing-contract.json",
+            ),
+            ["CONTRACT_FILE_PROTECTION_UNAVAILABLE"],
+        )
+
     def _record_oversized_required_items(self, task_id: str = "OVERFLOW") -> list[str]:
         self.publish(task_id)
         identifiers = []
@@ -183,6 +194,8 @@ class ProductionFeedbackTests(unittest.TestCase):
 
     def test_externalize_item_preserves_identity_controls_and_verification_time(self) -> None:
         self.publish("EXTERNALIZE")
+        external_record = self.root / "seed-context.md"
+        external_record.write_text("# Live executions\n\nVerified detail.\n", encoding="utf-8")
         original = context.record(
             "EXTERNALIZE",
             item_id="FACT-001",
@@ -203,7 +216,7 @@ class ProductionFeedbackTests(unittest.TestCase):
             "EXTERNALIZE",
             "FACT-001",
             summary="Live execution detail is stored externally.",
-            external_ref="file:/tmp/seed-context.md#live-executions",
+            external_ref=f"file:{external_record.resolve()}#live-executions",
             actor="context-maintainer",
             base_dir=self.base,
         )
@@ -221,7 +234,11 @@ class ProductionFeedbackTests(unittest.TestCase):
         self.assertEqual(externalized["metadata"]["severity"], "critical")
         self.assertEqual(
             externalized["metadata"]["externalized_ref"],
-            "file:/tmp/seed-context.md#live-executions",
+            f"file:{external_record.resolve()}#live-executions",
+        )
+        self.assertRegex(
+            externalized["metadata"]["externalized_ref_digest"],
+            r"^sha256:[0-9a-f]{64}$",
         )
         events = [
             json.loads(line)
@@ -231,6 +248,224 @@ class ProductionFeedbackTests(unittest.TestCase):
         ]
         self.assertEqual(events[-1]["event_type"], "item-externalized")
         self.assertEqual(events[1]["payload"]["item"]["statement"], "A" * 6000)
+
+    def test_externalize_rejects_missing_reference_without_mutating_state(self) -> None:
+        self.publish("EXTERNALIZE-MISSING")
+        original = context.record(
+            "EXTERNALIZE-MISSING",
+            item_id="FACT-001",
+            statement="Bulky verified detail",
+            item_type="observation",
+            actor="observer",
+            source={"kind": "tool", "ref": "live-readback"},
+            metadata={"required": True},
+            base_dir=self.base,
+        )
+        events_path = self.base / "EXTERNALIZE-MISSING" / "events.jsonl"
+        before_events = events_path.read_bytes()
+
+        with self.assertRaisesRegex(
+            context.ContextError,
+            "EXTERNALIZED_REF_INVALID: TRUTH_SOURCE_NOT_FOUND",
+        ):
+            context.externalize_item(
+                "EXTERNALIZE-MISSING",
+                "FACT-001",
+                summary="Detail is external.",
+                external_ref=f"file:{self.root.resolve() / 'missing.md'}#detail",
+                actor="context-maintainer",
+                base_dir=self.base,
+            )
+
+        self.assertEqual(events_path.read_bytes(), before_events)
+        self.assertEqual(
+            json.loads(
+                (self.base / "EXTERNALIZE-MISSING" / "snapshot.json")
+                .read_text(encoding="utf-8")
+            )["items"]["FACT-001"],
+            original,
+        )
+
+    def test_externalized_reference_drift_blocks_gate_and_identical_retry_is_idempotent(self) -> None:
+        self.publish("EXTERNALIZE-DRIFT")
+        external_record = self.root / "stable-record.md"
+        external_record.write_text("version one", encoding="utf-8")
+        context.record(
+            "EXTERNALIZE-DRIFT",
+            item_id="FACT-001",
+            statement="Bulky verified detail",
+            item_type="observation",
+            actor="observer",
+            source={"kind": "tool", "ref": "live-readback"},
+            metadata={"required": True},
+            base_dir=self.base,
+        )
+        first = context.externalize_item(
+            "EXTERNALIZE-DRIFT",
+            "FACT-001",
+            summary="Detail is in the stable record.",
+            external_ref=f"file:{external_record.resolve()}#detail",
+            actor="context-maintainer",
+            base_dir=self.base,
+        )
+        events_path = self.base / "EXTERNALIZE-DRIFT" / "events.jsonl"
+        event_count = len(events_path.read_text(encoding="utf-8").splitlines())
+
+        retry = context.externalize_item(
+            "EXTERNALIZE-DRIFT",
+            "FACT-001",
+            summary="Detail is in the stable record.",
+            external_ref=f"file:{external_record.resolve()}#detail",
+            actor="context-maintainer",
+            base_dir=self.base,
+        )
+
+        self.assertEqual(retry, first)
+        self.assertEqual(
+            len(events_path.read_text(encoding="utf-8").splitlines()),
+            event_count,
+        )
+        with self.assertRaisesRegex(
+            context.ContextError,
+            "EXTERNALIZATION_METADATA_IMMUTABLE",
+        ):
+            context.update_item(
+                "EXTERNALIZE-DRIFT",
+                "FACT-001",
+                actor="context-maintainer",
+                metadata={"externalized_ref_digest": "sha256:" + "0" * 64},
+                base_dir=self.base,
+            )
+        self.assertEqual(
+            len(events_path.read_text(encoding="utf-8").splitlines()),
+            event_count,
+        )
+        self.assertTrue(
+            context.gate(
+                "EXTERNALIZE-DRIFT", stage="release", base_dir=self.base, emit=False
+            )["passed"]
+        )
+
+        external_record.write_text("version two", encoding="utf-8")
+        report = context.gate(
+            "EXTERNALIZE-DRIFT", stage="release", base_dir=self.base, emit=False
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn(
+            "FACT-001: EXTERNALIZED_REF_DIGEST_MISMATCH",
+            report["errors"],
+        )
+
+    def test_truth_enabled_audit_also_checks_externalized_reference_digest(self) -> None:
+        task_id = "EXTERNALIZE-TRUTH"
+        workspace = self.root.resolve()
+        truth_file = workspace / "truth.md"
+        truth_file.write_text("authoritative", encoding="utf-8")
+        contract = self.contract(task_id)
+        contract["workspace_root"] = str(workspace)
+        contract["required_capabilities"] = ["truth-sources/v1"]
+        contract["truth_sources"] = {
+            "schema": "truth-sources/v1",
+            "items": [
+                {
+                    "id": "TS-STATUS",
+                    "purpose": "Authoritative status",
+                    "source_ref": {"kind": "file", "locator": "truth.md"},
+                    "owner": "publisher",
+                    "max_age_seconds": 3600,
+                    "validation_method": "owner-readback",
+                    "invalidate_on_change_kinds": ["implementation-change"],
+                }
+            ],
+        }
+        context.publish_contract(
+            contract,
+            confirmed_by="publisher",
+            base_dir=self.base,
+        )
+        external_record = workspace / "external-detail.md"
+        external_record.write_text("version one", encoding="utf-8")
+        context.record(
+            task_id,
+            item_id="FACT-001",
+            statement="Bulky detail",
+            item_type="observation",
+            actor="observer",
+            source={"kind": "tool", "ref": "readback"},
+            base_dir=self.base,
+        )
+        context.externalize_item(
+            task_id,
+            "FACT-001",
+            summary="Detail is stored externally.",
+            external_ref=f"file:{external_record}#detail",
+            actor="context-maintainer",
+            base_dir=self.base,
+        )
+
+        self.assertTrue(context.audit(task_id, base_dir=self.base, emit=False)["passed"])
+        external_record.write_text("version two", encoding="utf-8")
+        report = context.audit(task_id, base_dir=self.base, emit=False)
+        self.assertFalse(report["passed"])
+        self.assertIn(
+            "FACT-001: EXTERNALIZED_REF_DIGEST_MISMATCH",
+            report["errors"],
+        )
+
+    def test_identical_externalize_call_seals_legacy_digest_with_one_event(self) -> None:
+        task_id = "EXTERNALIZE-LEGACY"
+        self.publish(task_id)
+        external_record = self.root.resolve() / "legacy-detail.md"
+        external_record.write_text("legacy detail", encoding="utf-8")
+        summary = "Legacy detail is stored externally."
+        legacy = context.record(
+            task_id,
+            item_id="FACT-001",
+            statement=summary,
+            item_type="observation",
+            actor="observer",
+            source={"kind": "tool", "ref": "readback"},
+            metadata={
+                "required": True,
+                "externalized_by": "legacy-maintainer",
+                "externalized_at": "2026-09-02T05:30:00+00:00",
+                "externalized_ref": f"file:{external_record}#detail",
+                "externalized_from_digest": "sha256:" + "1" * 64,
+            },
+            base_dir=self.base,
+        )
+        events_path = self.base / task_id / "events.jsonl"
+        before_count = len(events_path.read_text(encoding="utf-8").splitlines())
+        self.assertFalse(context.audit(task_id, base_dir=self.base, emit=False)["passed"])
+
+        migrated = context.externalize_item(
+            task_id,
+            "FACT-001",
+            summary=summary,
+            external_ref=f"file:{external_record}#detail",
+            actor="migration-maintainer",
+            base_dir=self.base,
+        )
+
+        self.assertEqual(migrated["id"], legacy["id"])
+        self.assertEqual(migrated["statement"], legacy["statement"])
+        self.assertEqual(migrated["actor"], legacy["actor"])
+        self.assertEqual(
+            migrated["metadata"]["externalized_from_digest"],
+            legacy["metadata"]["externalized_from_digest"],
+        )
+        self.assertRegex(
+            migrated["metadata"]["externalized_ref_digest"],
+            r"^sha256:[0-9a-f]{64}$",
+        )
+        events = [
+            json.loads(line)
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(events), before_count + 1)
+        self.assertEqual(events[-1]["event_type"], "item-updated")
+        self.assertEqual(events[-1]["actor"], "migration-maintainer")
+        self.assertTrue(context.audit(task_id, base_dir=self.base, emit=False)["passed"])
 
     def test_restore_externalization_controls_changes_only_required_and_severity(self) -> None:
         self.publish("RESTORE")

@@ -52,6 +52,13 @@ GATE_STAGES = {"release", "resume", "handoff", "completion"}
 DEFAULT_BASE_DIR = Path(".prime/context")
 BASE_DIR_ENV = "MLTC_BASE_DIR"
 CONTRACT_FILE_PROTECTION = "read-only-advisory-v1"
+_EXTERNALIZATION_METADATA_FIELDS = frozenset({
+    "externalized_by",
+    "externalized_at",
+    "externalized_ref",
+    "externalized_ref_digest",
+    "externalized_from_digest",
+})
 _POINTER_RE = re.compile(
     r"(?:详见|参见|见|see)\s*[`'\"]([^`'\"]+\.(?:md|txt|json|ya?ml))[`'\"]",
     re.IGNORECASE,
@@ -549,9 +556,66 @@ def _contract_file_protection_errors(
     try:
         mode = contract_path.stat().st_mode
     except OSError:
-        return []  # The ordinary contract read path reports missing/unreadable files.
+        return ["CONTRACT_FILE_PROTECTION_UNAVAILABLE"]
     if mode & 0o222:
         return ["CONTRACT_FILE_PROTECTION_MISSING"]
+    return []
+
+
+def _externalized_ref_fingerprint(external_ref: str) -> dict[str, Any]:
+    """Resolve one absolute local file reference without loading it into context."""
+
+    if not external_ref.startswith("file:"):
+        return {
+            "status": "fail",
+            "code": "EXTERNALIZED_REF_UNSUPPORTED",
+            "fingerprint": None,
+        }
+    path_text, marker, anchor = external_ref[5:].partition("#")
+    if (
+        not path_text
+        or "\x00" in path_text
+        or not Path(path_text).is_absolute()
+        or (marker and (not anchor or "#" in anchor))
+    ):
+        return {
+            "status": "fail",
+            "code": "EXTERNALIZED_REF_UNSAFE_PATH",
+            "fingerprint": None,
+        }
+    locator = path_text.removeprefix("/")
+    if not locator:
+        return {
+            "status": "fail",
+            "code": "EXTERNALIZED_REF_UNSAFE_PATH",
+            "fingerprint": None,
+        }
+    return resolve_file_source("/", {"kind": "file", "locator": locator})
+
+
+def _externalized_item_errors(identifier: str, item: Mapping[str, Any]) -> list[str]:
+    metadata = item.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return []
+    external_ref = metadata.get("externalized_ref")
+    expected_digest = metadata.get("externalized_ref_digest")
+    if external_ref is None and expected_digest is None:
+        return []
+    if (
+        not isinstance(external_ref, str)
+        or not _truth_single_line(external_ref)
+        or not isinstance(expected_digest, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", expected_digest) is None
+    ):
+        return [f"{identifier}: EXTERNALIZED_REF_METADATA_INVALID"]
+    resolution = _externalized_ref_fingerprint(external_ref)
+    if resolution.get("status") != "pass":
+        return [
+            f"{identifier}: EXTERNALIZED_REF_INVALID: "
+            f"{resolution.get('code', 'TRUTH_SOURCE_RESOLVER_UNKNOWN')}"
+        ]
+    if resolution.get("fingerprint") != expected_digest:
+        return [f"{identifier}: EXTERNALIZED_REF_DIGEST_MISMATCH"]
     return []
 
 
@@ -1521,6 +1585,11 @@ def update_item(
             updated["superseded_by"] = superseded_by
             updated["status"] = "superseded"
         if metadata is not None:
+            reserved = sorted(set(metadata) & _EXTERNALIZATION_METADATA_FIELDS)
+            if reserved:
+                raise ContextError(
+                    f"EXTERNALIZATION_METADATA_IMMUTABLE: {reserved}"
+                )
             merged = dict(updated.get("metadata") or {})
             merged.update(_json_clone(dict(metadata)))
             updated["metadata"] = merged
@@ -1563,15 +1632,75 @@ def externalize_item(
             raise ContextError(f"unknown context item: {item_id}")
         if current.get("status") == "superseded":
             raise ContextError(f"cannot externalize superseded item: {item_id}")
+        normalized_summary = summary.strip()
+        normalized_ref = external_ref.strip()
+        resolution = _externalized_ref_fingerprint(normalized_ref)
+        if resolution.get("status") != "pass":
+            raise ContextError(
+                "EXTERNALIZED_REF_INVALID: "
+                + str(resolution.get("code", "TRUTH_SOURCE_RESOLVER_UNKNOWN"))
+            )
+        ref_digest = resolution.get("fingerprint")
+        if not isinstance(ref_digest, str):
+            raise ContextError("EXTERNALIZED_REF_INVALID: TRUTH_SOURCE_RESOLVER_UNKNOWN")
+        current_metadata = current.get("metadata")
+        if isinstance(current_metadata, Mapping) and (
+            "externalized_ref" in current_metadata
+            or "externalized_ref_digest" in current_metadata
+        ):
+            if (
+                current.get("statement") == normalized_summary
+                and current_metadata.get("externalized_ref") == normalized_ref
+            ):
+                if "externalized_ref_digest" not in current_metadata:
+                    legacy_metadata_valid = (
+                        _truth_single_line(current_metadata.get("externalized_by"))
+                        and _valid_explicit_utc_timestamp(
+                            current_metadata.get("externalized_at")
+                        )
+                        and isinstance(
+                            current_metadata.get("externalized_from_digest"), str
+                        )
+                        and re.fullmatch(
+                            r"sha256:[0-9a-f]{64}",
+                            str(current_metadata.get("externalized_from_digest")),
+                        ) is not None
+                    )
+                    if not legacy_metadata_valid:
+                        raise ContextError("EXTERNALIZED_REF_METADATA_INVALID")
+                    migrated = deepcopy(current)
+                    migrated_metadata = dict(current_metadata)
+                    migrated_metadata["externalized_ref_digest"] = ref_digest
+                    migrated["metadata"] = _json_clone(migrated_metadata)
+                    migrated["updated_at"] = _now()
+                    errors, _ = _item_errors(migrated)
+                    if errors:
+                        raise ContextError(
+                            "context externalization migration rejected: "
+                            + "; ".join(errors)
+                        )
+                    event = _new_event(
+                        task_id,
+                        "item-updated",
+                        actor,
+                        {"item": migrated},
+                    )
+                    _append_event_locked(paths, view["snapshot"], event)
+                    return migrated
+                if current_metadata.get("externalized_ref_digest") == ref_digest:
+                    return deepcopy(current)
+                raise ContextError("EXTERNALIZED_REF_DIGEST_MISMATCH")
+            raise ContextError("ITEM_ALREADY_EXTERNALIZED")
         updated = deepcopy(current)
         previous_statement = str(current.get("statement", ""))
         now = _now()
-        updated["statement"] = summary.strip()
+        updated["statement"] = normalized_summary
         metadata = dict(updated.get("metadata") or {})
         metadata.update({
             "externalized_by": actor,
             "externalized_at": now,
-            "externalized_ref": external_ref.strip(),
+            "externalized_ref": normalized_ref,
+            "externalized_ref_digest": ref_digest,
             "externalized_from_digest": (
                 "sha256:" + hashlib.sha256(previous_statement.encode("utf-8")).hexdigest()
             ),
@@ -2630,6 +2759,7 @@ def _audit_core(
             conflict_count += 1
         if _item_is_stale(item):
             stale_count += 1
+        errors.extend(_externalized_item_errors(str(identifier), item))
         source = item.get("source") if isinstance(item.get("source"), Mapping) else {}
         raw_evidence_refs = item.get("evidence")
         evidence_refs = raw_evidence_refs if isinstance(raw_evidence_refs, list) else []
@@ -2822,6 +2952,7 @@ def _audit_from_view(
             conflict_count += 1
         if _item_is_stale(item):
             stale_count += 1
+        errors.extend(_externalized_item_errors(str(identifier), item))
         source = item.get("source") if isinstance(item.get("source"), Mapping) else {}
         evidence_refs = item.get("evidence") if isinstance(item.get("evidence"), list) else []
         for ref in [source.get("ref"), *evidence_refs]:

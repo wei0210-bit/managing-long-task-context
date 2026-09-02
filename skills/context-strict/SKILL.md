@@ -61,7 +61,9 @@ re-observed. Use `update_item()` for state transitions. Use
 
 When only bulky wording moves elsewhere, use `externalize_item()` instead. It keeps the
 same item ID, controls, evidence, source, actor, and `verified_at`, while the event log
-retains the original statement. Never create a fresh stub merely to shorten a brief.
+retains the original statement. The reference must be an existing canonical absolute
+`file:` path; its digest is sealed and later drift blocks gates. Never create a fresh
+stub merely to shorten a brief.
 
 ### 3. Checkpoint and hand off only a usable brief
 

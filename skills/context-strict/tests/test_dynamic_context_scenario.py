@@ -102,11 +102,16 @@ class DynamicContextScenarioTests(unittest.TestCase):
             }
             self.assertFalse(bound.gate(task_id, stage="release", emit=False, **handlers)["passed"])
 
+            external_record = root / "dynamic-context.md"
+            external_record.write_text(
+                "# Required live probe\n\nThe live probe passed.\n",
+                encoding="utf-8",
+            )
             bound.externalize_item(
                 task_id,
                 "REQUIRED-LARGE",
                 summary="Required live probe is stored in the stable external record.",
-                external_ref="file:/tmp/dynamic-context.md#required-live-probe",
+                external_ref=f"file:{external_record.resolve()}#required-live-probe",
                 actor="context-maintainer",
             )
             self.assertTrue(bound.gate(task_id, stage="release", emit=False, **handlers)["passed"])
