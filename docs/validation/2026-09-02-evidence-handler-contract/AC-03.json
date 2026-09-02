@@ -1,0 +1,23 @@
+{
+  "artifact_digest": "sha256:8397435a7346f540b9e2e503f81970c28c3289212bf79be0593891be0462f1cf",
+  "schema": "context-test-report/v1",
+  "command": "python3.12 -m unittest tests.test_context.ContextSkillTests.test_completion_missing_evidence_explains_builtin_and_custom_kinds",
+  "exit_status": 0,
+  "generated_at": "2026-09-02T04:49:26Z",
+  "repo_revision": "c99404bbc028324b60faedf675d0408d850c94c4",
+  "scope": {
+    "component": "diagnostics"
+  },
+  "summary": {
+    "failed": 0,
+    "tests_passed": 1,
+    "built_in_kinds_listed": [
+      "file",
+      "git-commit",
+      "test-report",
+      "url"
+    ],
+    "custom_handler_path_explained": true,
+    "legacy_error_preserved": true
+  }
+}

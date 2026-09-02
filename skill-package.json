@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "skill_name": "managing-long-task-context",
-  "skill_version": "0.3.0",
+  "skill_version": "0.4.0",
   "package_name": "managing-long-task-context",
-  "package_version": "0.3.0",
+  "package_version": "0.4.0",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",
@@ -40,6 +40,9 @@
     },
     "quality-gates/v2": {
       "python_exports": ["gate", "audit"]
+    },
+    "evidence-handlers/v1": {
+      "python_exports": ["publish_contract", "gate"]
     },
     "truth-sources/v1": {
       "python_exports": ["mark_truth_sources_dirty", "observe_truth_source"]

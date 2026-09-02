@@ -1,0 +1,18 @@
+{
+  "artifact_digest": "sha256:7e249e276397bbfe684ce9ee0ec390f47fbc52d0d5e9eacbdf84f0e9b11e2de7",
+  "schema": "context-test-report/v1",
+  "command": "python3.12 -m unittest tests.test_context.ContextSkillTests.test_publish_rejects_enabled_handlers_missing_required_kind_before_writing tests.test_context.ContextSkillTests.test_publish_rejects_noncanonical_builtin_resolver_capability",
+  "exit_status": 0,
+  "generated_at": "2026-09-02T04:49:26Z",
+  "repo_revision": "c99404bbc028324b60faedf675d0408d850c94c4",
+  "scope": {
+    "component": "contract-publication"
+  },
+  "summary": {
+    "failed": 0,
+    "tests_passed": 2,
+    "publish_before_write_verified": true,
+    "required_kind_mapping_verified": true,
+    "canonical_builtin_capability_verified": true
+  }
+}

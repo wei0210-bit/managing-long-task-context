@@ -94,6 +94,206 @@ class ContextSkillTests(unittest.TestCase):
     def publish(self) -> dict:
         return context.publish_contract(self.contract, confirmed_by="publisher", base_dir=self.base)
 
+    def enable_evidence_handlers(self, handlers: dict[str, dict[str, str]]) -> None:
+        self.contract["required_capabilities"] = ["evidence-handlers/v1"]
+        self.contract["evidence_handlers"] = {
+            "schema": "evidence-handlers/v1",
+            "types": handlers,
+        }
+
+    def test_publish_rejects_enabled_handlers_missing_required_kind_before_writing(self) -> None:
+        self.enable_evidence_handlers({})
+
+        with self.assertRaisesRegex(
+            context.ContextError,
+            "required evidence type 'integration-test' has no handler declaration",
+        ):
+            self.publish()
+
+        self.assertFalse((self.base / "TASK-001").exists())
+
+    def test_publish_rejects_noncanonical_builtin_resolver_capability(self) -> None:
+        self.contract["acceptance_criteria"][0]["required_evidence"] = ["test-report"]
+        self.enable_evidence_handlers({
+            "test-report": {
+                "resolver_capability": "project:test-report/v1",
+                "verifier_capability": "qms:integration-result/v1",
+            }
+        })
+
+        with self.assertRaisesRegex(
+            context.ContextError,
+            "resolver_capability must equal builtin:test-report/v1",
+        ):
+            self.publish()
+
+    def test_release_rejects_missing_or_mismatched_runtime_handler_capabilities(self) -> None:
+        resolver_capability = "qms:integration-resolver/v1"
+        verifier_capability = "qms:integration-verifier/v1"
+        self.enable_evidence_handlers({
+            "integration-test": {
+                "resolver_capability": resolver_capability,
+                "verifier_capability": verifier_capability,
+            }
+        })
+        self.publish()
+
+        missing = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
+        self.assertFalse(missing["passed"])
+        self.assertIn(
+            "evidence type 'integration-test' runtime resolver capability unavailable: "
+            "expected qms:integration-resolver/v1",
+            missing["errors"],
+        )
+        self.assertIn(
+            "evidence type 'integration-test' runtime verifier capability unavailable: "
+            "expected qms:integration-verifier/v1",
+            missing["errors"],
+        )
+
+        mismatched = context.gate(
+            "TASK-001",
+            stage="release",
+            resolvers={
+                "integration-test": {
+                    "capability": "qms:wrong-resolver/v1",
+                    "handler": passing_resolver,
+                }
+            },
+            verifiers={
+                "integration-test": {
+                    "capability": verifier_capability,
+                    "handler": passing_verifier,
+                }
+            },
+            base_dir=self.base,
+            emit=False,
+        )
+        self.assertFalse(mismatched["passed"])
+        self.assertIn(
+            "evidence type 'integration-test' runtime resolver capability mismatch: "
+            "expected qms:integration-resolver/v1, got qms:wrong-resolver/v1",
+            mismatched["errors"],
+        )
+
+    def test_release_accepts_matching_builtin_and_custom_handler_capabilities(self) -> None:
+        cases = (
+            (
+                "test-report",
+                "builtin:test-report/v1",
+                None,
+                "qms:test-report-claim/v1",
+            ),
+            (
+                "integration-test",
+                "qms:integration-resolver/v1",
+                passing_resolver,
+                "qms:integration-verifier/v1",
+            ),
+        )
+        for kind, resolver_capability, resolver, verifier_capability in cases:
+            with self.subTest(kind=kind):
+                temporary = tempfile.TemporaryDirectory()
+                self.addCleanup(temporary.cleanup)
+                base = Path(temporary.name) / ".prime" / "context"
+                contract = deepcopy(self.contract)
+                contract["task_id"] = f"TASK-{kind.upper()}"
+                contract["acceptance_criteria"][0]["required_evidence"] = [kind]
+                contract["required_capabilities"] = ["evidence-handlers/v1"]
+                contract["evidence_handlers"] = {
+                    "schema": "evidence-handlers/v1",
+                    "types": {
+                        kind: {
+                            "resolver_capability": resolver_capability,
+                            "verifier_capability": verifier_capability,
+                        }
+                    },
+                }
+                context.publish_contract(contract, confirmed_by="publisher", base_dir=base)
+                resolvers = None if resolver is None else {
+                    kind: {"capability": resolver_capability, "handler": resolver}
+                }
+                report = context.gate(
+                    contract["task_id"],
+                    stage="release",
+                    resolvers=resolvers,
+                    verifiers={
+                        kind: {"capability": verifier_capability, "handler": passing_verifier}
+                    },
+                    base_dir=base,
+                    emit=False,
+                )
+                self.assertTrue(report["passed"], report["errors"])
+                self.assertEqual(report["stats"].get("evidence_handlers_checked"), 1)
+
+    def test_completion_handler_mismatch_calls_no_resolver_or_verifier(self) -> None:
+        calls = {"resolver": 0, "verifier": 0}
+
+        def counted_resolver(evidence, criterion, contract, now):
+            calls["resolver"] += 1
+            return passing_resolver(evidence, criterion, contract, now)
+
+        def counted_verifier(evidence, criterion, resolution):
+            calls["verifier"] += 1
+            return passing_verifier(evidence, criterion, resolution)
+
+        self.contract["acceptance_criteria"][0]["chain_hops"] = []
+        self.enable_evidence_handlers({
+            "integration-test": {
+                "resolver_capability": "qms:integration-resolver/v1",
+                "verifier_capability": "qms:integration-verifier/v1",
+            }
+        })
+        self.publish()
+
+        report = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={
+                "AC-01": {
+                    "evidence": [{
+                        "evidence_id": "EV-INTEGRATION",
+                        "kind": "integration-test",
+                    }],
+                    "delivery_receipts": [],
+                }
+            },
+            resolvers={
+                "integration-test": {
+                    "capability": "qms:wrong-resolver/v1",
+                    "handler": counted_resolver,
+                }
+            },
+            verifiers={
+                "integration-test": {
+                    "capability": "qms:integration-verifier/v1",
+                    "handler": counted_verifier,
+                }
+            },
+            base_dir=self.base,
+            emit=False,
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertEqual(calls, {"resolver": 0, "verifier": 0})
+        self.assertEqual(report["stats"]["evidence_attempts"], 0)
+
+    def test_completion_missing_evidence_explains_builtin_and_custom_kinds(self) -> None:
+        self.publish()
+
+        report = context.gate(
+            "TASK-001",
+            stage="completion",
+            evidence_map={"AC-01": {"evidence": [], "delivery_receipts": []}},
+            base_dir=self.base,
+            emit=False,
+        )
+
+        self.assertFalse(report["passed"])
+        message = "\n".join(report["errors"])
+        self.assertIn("built-in evidence types: ['file', 'git-commit', 'test-report', 'url']", message)
+        self.assertIn("custom types require declared resolver and verifier capabilities", message)
+
     def test_public_gate_rejects_caller_supplied_now(self):
         self.publish()
         self.assertNotIn("now", inspect.signature(context.gate).parameters)

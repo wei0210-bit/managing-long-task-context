@@ -33,10 +33,23 @@ from pathlib import Path
 import managing_long_task_context as context
 
 contract = json.loads(Path("task-contract.json").read_text())
+runtime_verifiers = {
+    "test-report": {
+        "capability": "project:test-report-claim/v1",
+        "handler": verify_test_report_claim,
+    }
+}
 context.publish_contract(contract, confirmed_by="task-publisher")
-context.gate("TASK-001", stage="release")
+context.gate("TASK-001", stage="release", verifiers=runtime_verifiers)
 diagnostics = context.brief_diagnostics("TASK-001")
 ```
+
+新合同应启用 `evidence-handlers/v1`，并在 `evidence_handlers.types` 为每种
+`required_evidence_types` 封印稳定的 `resolver_capability` 和 `verifier_capability`。
+内置 resolver kind 是 `file`、`git-commit`、`test-report`、`url`；它们不是全部合法值。
+自定义 kind 必须声明自定义 resolver/verifier capability，并在每次 gate 提供匹配的
+`{"capability": "...", "handler": callable}`。完整合同结构见
+`assets/task-contract.example.json`。
 
 合同发布后会生成完整性摘要。它检测发布后的内容变化（包括确认者和确认时间），但不认证谁作出了确认；身份认证需要外部签名或受信存储。任何修改都会使摘要失效；变更必须提高版本并由发布者或授权人重新确认。
 `fits=false` 时按 overflow 信息外置明细并保留简洁稳定引用、解冲突或拆任务；禁止删除验收标准或 mandatory 条目。
@@ -76,7 +89,17 @@ context.record(
 
 ### 3. Update by event; never overwrite history
 
-使用 `update_item(...)` 验证、冲突标记或废弃旧条目。新结论通过 `supersedes` 指向旧条目；旧记录保留。
+使用 `update_item(...)` 验证或标记冲突。用新事实替代过期事实时，首选一次
+`record(..., supersedes=old_item_id)`；它创建新条目并将旧条目标记为 superseded，历史仍保留：
+
+```python
+new_fact = context.record(
+    "TASK-001", statement="新核实的事实", item_type="verified-fact",
+    actor="validator-01", source={"kind": "test", "ref": "run-019"},
+    evidence=["report:run-019"], verification_method="test-report readback",
+    scope={"module": "payment-callback"}, supersedes=old_item_id,
+)
+```
 
 ### 4. Checkpoint and hand off from controlled state
 
@@ -104,7 +127,30 @@ child = await rlm(brief["prompt"], name="root-cause-verifier")
 
 ### 5. Complete only against publisher-written criteria
 
-完整调用见 `examples/strict_completion.py`。合同使用
+最小完整映射如下；可直接运行的版本见 `examples/strict_completion.py`：
+
+```python
+evidence_map = {
+    "AC-01": {
+        "evidence": [{
+            "evidence_id": "EV-TEST-019",
+            "kind": "test-report",
+            "locator": "artifacts/run-019.json",
+            "generated_at": "2026-09-02T04:30:00Z",
+            "scope": {"module": "payment-callback", "environment": "test"},
+            "covered_hops": ["callback-entry", "idempotency-check", "transaction-write"],
+            "produced_by": "executor-01",
+        }],
+        "delivery_receipts": [],
+    }
+}
+report = context.gate(
+    "TASK-001", stage="completion", evidence_map=evidence_map,
+    verifiers=runtime_verifiers,
+)
+```
+
+合同使用
 `required_evidence_types`、`required_hops`、`required_delivery_types`、
 `required_scope`、freshness 和 independent-validation 控制。每个 required hop
 必须写在某个实际通过的 evidence 对象自己的 `covered_hops` 中；验收映射顶层的

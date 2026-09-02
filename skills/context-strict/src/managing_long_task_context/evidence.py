@@ -18,6 +18,17 @@ PASS = "pass"
 FAIL = "fail"
 UNKNOWN = "unknown"
 
+EVIDENCE_HANDLERS_CAPABILITY = "evidence-handlers/v1"
+BUILTIN_RESOLVER_CAPABILITIES = {
+    "file": "builtin:file/v1",
+    "git-commit": "builtin:git-commit/v1",
+    "test-report": "builtin:test-report/v1",
+    "url": "builtin:url/v1",
+}
+_HANDLER_ROOT_FIELDS = frozenset({"schema", "types"})
+_HANDLER_FIELDS = frozenset({"resolver_capability", "verifier_capability"})
+_HANDLER_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
+
 # Local evidence is deliberately bounded. The limit applies to both regular
 # file hashing and test-report parsing, and hashing itself is incremental.
 MAX_LOCAL_ARTIFACT_BYTES = 16 * 1024 * 1024
@@ -51,6 +62,190 @@ _UTC_RFC3339_RE = re.compile(
 
 def check(status: str, *codes: str) -> dict[str, Any]:
     return {"status": status, "codes": list(codes)}
+
+
+def evidence_handlers_enabled(contract: Mapping[str, Any]) -> bool:
+    capabilities = contract.get("required_capabilities")
+    return (
+        "evidence_handlers" in contract
+        and isinstance(capabilities, list)
+        and EVIDENCE_HANDLERS_CAPABILITY in capabilities
+    )
+
+
+def evidence_handler_specs(contract: Mapping[str, Any]) -> dict[str, dict[str, str]]:
+    root = contract.get("evidence_handlers")
+    types = root.get("types") if isinstance(root, Mapping) else None
+    if not isinstance(types, Mapping):
+        return {}
+    return {
+        str(kind): {
+            "resolver_capability": str(spec.get("resolver_capability")),
+            "verifier_capability": str(spec.get("verifier_capability")),
+        }
+        for kind, spec in types.items()
+        if isinstance(kind, str) and isinstance(spec, Mapping)
+    }
+
+
+def validate_evidence_handler_contract(contract: Mapping[str, Any]) -> list[str]:
+    """Validate the opt-in, publisher-sealed evidence handler declaration."""
+
+    capabilities = contract.get("required_capabilities")
+    has_capability = (
+        isinstance(capabilities, list)
+        and EVIDENCE_HANDLERS_CAPABILITY in capabilities
+    )
+    has_handlers = "evidence_handlers" in contract
+    if not has_capability and not has_handlers:
+        return []
+
+    errors: list[str] = []
+    if has_handlers and not has_capability:
+        errors.append(
+            "contract.evidence_handlers requires required_capabilities evidence-handlers/v1"
+        )
+    if has_capability and not has_handlers:
+        errors.append(
+            "contract.required_capabilities evidence-handlers/v1 requires evidence_handlers"
+        )
+        return errors
+
+    root = contract.get("evidence_handlers")
+    if not isinstance(root, Mapping):
+        errors.append("contract.evidence_handlers must be an object")
+        return errors
+    unknown_root = sorted(set(root) - _HANDLER_ROOT_FIELDS)
+    if unknown_root:
+        errors.append(f"contract.evidence_handlers has unknown fields: {unknown_root}")
+    if root.get("schema") != EVIDENCE_HANDLERS_CAPABILITY:
+        errors.append("contract.evidence_handlers.schema must equal evidence-handlers/v1")
+
+    types = root.get("types")
+    if not isinstance(types, Mapping):
+        errors.append("contract.evidence_handlers.types must be an object")
+        return errors
+
+    for kind, spec in types.items():
+        path = f"contract.evidence_handlers.types[{kind!r}]"
+        if not isinstance(kind, str) or _HANDLER_ID_RE.fullmatch(kind) is None:
+            errors.append(f"{path} kind must be a stable non-empty handler ID")
+            continue
+        if not isinstance(spec, Mapping):
+            errors.append(f"{path} must be an object")
+            continue
+        unknown = sorted(set(spec) - _HANDLER_FIELDS)
+        if unknown:
+            errors.append(f"{path} has unknown fields: {unknown}")
+        resolver = spec.get("resolver_capability")
+        verifier = spec.get("verifier_capability")
+        if not isinstance(resolver, str) or _HANDLER_ID_RE.fullmatch(resolver) is None:
+            errors.append(f"{path}.resolver_capability must be a stable non-empty handler ID")
+        if not isinstance(verifier, str) or _HANDLER_ID_RE.fullmatch(verifier) is None:
+            errors.append(f"{path}.verifier_capability must be a stable non-empty handler ID")
+        expected_builtin = BUILTIN_RESOLVER_CAPABILITIES.get(kind)
+        if expected_builtin is not None and resolver != expected_builtin:
+            errors.append(
+                f"{path}.resolver_capability must equal {expected_builtin}"
+            )
+        if expected_builtin is None and isinstance(resolver, str) and resolver.startswith("builtin:"):
+            errors.append(
+                f"{path}.resolver_capability cannot use reserved builtin namespace"
+            )
+
+    required_kinds: set[str] = set()
+    criteria = contract.get("acceptance_criteria")
+    if isinstance(criteria, list):
+        for criterion in criteria:
+            if not isinstance(criterion, Mapping):
+                continue
+            required = criterion.get("required_evidence_types")
+            if required is None:
+                required = criterion.get("required_evidence")
+            if isinstance(required, list):
+                required_kinds.update(item for item in required if isinstance(item, str))
+    for kind in sorted(required_kinds):
+        if kind not in types:
+            errors.append(
+                f"required evidence type {kind!r} has no handler declaration"
+            )
+    return errors
+
+
+def _runtime_handler(
+    value: Any,
+    *,
+    implicit_capability: str | None = None,
+) -> tuple[str | None, Callable[..., Mapping[str, Any]] | None]:
+    if callable(value):
+        return implicit_capability, value
+    if not isinstance(value, Mapping):
+        return None, None
+    capability = value.get("capability")
+    handler = value.get("handler")
+    return (
+        capability if isinstance(capability, str) else None,
+        handler if callable(handler) else None,
+    )
+
+
+def runtime_evidence_handler_errors(
+    contract: Mapping[str, Any],
+    *,
+    resolvers: Mapping[str, Any] | None,
+    verifiers: Mapping[str, Any] | None,
+) -> tuple[list[str], int]:
+    """Check sealed handler identities against handlers available in this runtime."""
+
+    if not evidence_handlers_enabled(contract):
+        return [], 0
+    specs = evidence_handler_specs(contract)
+    required_kinds: set[str] = set()
+    criteria = contract.get("acceptance_criteria")
+    if isinstance(criteria, list):
+        for criterion in criteria:
+            if not isinstance(criterion, Mapping):
+                continue
+            required = criterion.get("required_evidence_types")
+            if required is None:
+                required = criterion.get("required_evidence")
+            if isinstance(required, list):
+                required_kinds.update(item for item in required if isinstance(item, str))
+
+    resolver_values = dict(default_resolvers() if resolvers is None else resolvers)
+    verifier_values = dict(verifiers or {})
+    errors: list[str] = []
+    for kind in sorted(required_kinds):
+        spec = specs.get(kind, {})
+        expected_resolver = spec.get("resolver_capability")
+        expected_verifier = spec.get("verifier_capability")
+        implicit = BUILTIN_RESOLVER_CAPABILITIES.get(kind) if resolvers is None else None
+        actual_resolver, resolver_handler = _runtime_handler(
+            resolver_values.get(kind),
+            implicit_capability=implicit,
+        )
+        actual_verifier, verifier_handler = _runtime_handler(verifier_values.get(kind))
+        if resolver_handler is None or actual_resolver is None:
+            errors.append(
+                f"evidence type {kind!r} runtime resolver capability unavailable: "
+                f"expected {expected_resolver}"
+            )
+        elif actual_resolver != expected_resolver:
+            errors.append(
+                f"evidence type {kind!r} runtime resolver capability mismatch: "
+                f"expected {expected_resolver}, got {actual_resolver}"
+            )
+        if verifier_handler is None or actual_verifier is None:
+            errors.append(
+                f"evidence type {kind!r} runtime verifier capability unavailable: "
+                f"expected {expected_verifier}"
+            )
+        elif actual_verifier != expected_verifier:
+            errors.append(
+                f"evidence type {kind!r} runtime verifier capability mismatch: "
+                f"expected {expected_verifier}, got {actual_verifier}"
+            )
+    return errors, len(required_kinds)
 
 
 def normalize_check(value: Any) -> dict[str, Any]:
@@ -102,7 +297,8 @@ def evaluate_evidence(
             "MALFORMED_EVIDENCE_KIND",
         )
 
-    resolver = dict(default_resolvers() if resolvers is None else resolvers).get(kind)
+    resolver_value = dict(default_resolvers() if resolvers is None else resolvers).get(kind)
+    _, resolver = _runtime_handler(resolver_value)
     if resolver is None:
         checks = {
             "resolve": check(UNKNOWN, "UNSUPPORTED_KIND"),
@@ -123,7 +319,7 @@ def evaluate_evidence(
         else:
             checks = normalize_resolver_checks(resolver_output)
 
-    verifier = dict(verifiers or {}).get(kind)
+    _, verifier = _runtime_handler(dict(verifiers or {}).get(kind))
     if verifier is None or not all(value["status"] == PASS for value in checks.values()):
         checks["claim"] = check(UNKNOWN, "CLAIM_NOT_VERIFIED")
     else:

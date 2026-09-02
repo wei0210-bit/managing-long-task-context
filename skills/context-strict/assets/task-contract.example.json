@@ -5,6 +5,19 @@
   "issued_by": "task-publisher",
   "issued_at": "2026-08-26T09:00:00Z",
   "authorized_approvers": [],
+  "workspace_root": "/absolute/path/to/project",
+  "required_capabilities": [
+    "evidence-handlers/v1"
+  ],
+  "evidence_handlers": {
+    "schema": "evidence-handlers/v1",
+    "types": {
+      "test-report": {
+        "resolver_capability": "builtin:test-report/v1",
+        "verifier_capability": "project:test-report-claim/v1"
+      }
+    }
+  },
   "objective": "修复订单重复扣款问题",
   "scope": [
     "支付回调处理",
@@ -20,21 +33,26 @@
     {
       "id": "AC-01",
       "criterion": "同一支付回调重复发送时，只生成一笔扣款记录",
-      "required_evidence": [
-        "integration-test"
+      "required_evidence_types": [
+        "test-report"
       ],
-      "chain_hops": [
+      "required_hops": [
         "callback-entry",
         "idempotency-check",
         "transaction-write"
-      ]
+      ],
+      "required_scope": {"module": "payment-callback", "environment": "test"},
+      "required_delivery_types": [],
+      "independent_validation_required": false
     },
     {
       "id": "AC-02",
       "criterion": "现有支付回归测试全部通过",
-      "required_evidence": [
-        "regression-test"
-      ]
+      "required_evidence_types": ["test-report"],
+      "required_hops": ["regression-suite"],
+      "required_scope": {"module": "payment-callback", "environment": "test"},
+      "required_delivery_types": [],
+      "independent_validation_required": false
     }
   ]
 }

@@ -1,0 +1,19 @@
+{
+  "artifact_digest": "sha256:7cabb179e5399f4c7ed437296b599d73ffa22c1cf30076ac6d79206580212a1b",
+  "schema": "context-test-report/v1",
+  "command": "python3.12 -m unittest tests.test_context.ContextSkillTests.test_release_rejects_missing_or_mismatched_runtime_handler_capabilities tests.test_context.ContextSkillTests.test_release_accepts_matching_builtin_and_custom_handler_capabilities tests.test_context.ContextSkillTests.test_completion_handler_mismatch_calls_no_resolver_or_verifier",
+  "exit_status": 0,
+  "generated_at": "2026-09-02T04:49:26Z",
+  "repo_revision": "c99404bbc028324b60faedf675d0408d850c94c4",
+  "scope": {
+    "component": "release-capability-gate"
+  },
+  "summary": {
+    "failed": 0,
+    "tests_passed": 3,
+    "matching_handlers_pass": true,
+    "missing_or_mismatched_handlers_block": true,
+    "callbacks_invoked_on_mismatch": 0,
+    "legacy_suite_passed": true
+  }
+}

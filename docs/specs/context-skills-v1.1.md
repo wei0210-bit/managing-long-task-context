@@ -212,6 +212,13 @@ Phase: <current phase>
 
 当 `independent_validation_required` 为 true，签署该验收映射的 actor 必须拥有 validator 角色，且不能是该验收项所引用证据的提交者或执行者。completion gate 从合同授权表核对角色；角色缺失或职责未分离时结果为 fail。false 只允许用于合同明确标注的低风险标准。scope 必须覆盖 `required_scope`；证据年龄按 completion gate 当前 UTC 时间减 `generated_at` 计算，不得超过 `max_evidence_age_seconds`。不同证据类型需要不同窗口时，由验收项增加 `evidence_freshness_by_type` 覆盖默认值。
 
+新合同启用 `required_capabilities: ["evidence-handlers/v1"]`，并通过
+`evidence_handlers.types` 为每种 required evidence kind 声明稳定的
+`resolver_capability` 与 `verifier_capability`。内置 resolver 的 capability 固定为
+`builtin:<kind>/v1`；自定义 kind 不得冒用 `builtin:` 命名空间。发布阶段先验证声明完整性，
+release/resume/handoff/completion 再核对当前 runtime 提供的 capability 包装 handler。
+未启用该 capability 的既有合同保持兼容，但不获得发布期可执行性保证。
+
 事件使用稳定 envelope：
 
 ```json

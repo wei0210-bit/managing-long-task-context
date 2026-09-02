@@ -94,6 +94,31 @@ class EvidenceEvaluationTests(unittest.TestCase):
             },
         )
 
+    def test_capability_wrapped_handlers_execute_real_resolution_and_verification(self) -> None:
+        evidence = {"evidence_id": "EV-CUSTOM", "kind": "custom"}
+
+        result = evaluate_evidence(
+            evidence,
+            self.criterion,
+            self.contract,
+            resolvers={
+                "custom": {
+                    "capability": "project:custom-resolver/v1",
+                    "handler": passing_resolver,
+                }
+            },
+            verifiers={
+                "custom": {
+                    "capability": "project:custom-verifier/v1",
+                    "handler": passing_verifier,
+                }
+            },
+            now=NOW,
+        )
+
+        self.assertEqual(result["status"], "pass")
+        self.assertTrue(all(value["status"] == "pass" for value in result["checks"].values()))
+
     def test_file_resolver_accepts_literal_digest_and_required_scope_subset(self) -> None:
         artifact = self.root / "artifact.txt"
         artifact.write_bytes(b"strict evidence\n")

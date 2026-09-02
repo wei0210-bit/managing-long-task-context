@@ -19,6 +19,19 @@ python3 scripts/skill_package.py verify --package /tmp/context-strict-package
 The build receipt includes the manifest SHA-256. Freeze that hash with the eval or
 installation receipt; copying only `SKILL.md` is not a valid package.
 
+## Executable evidence contracts
+
+New Strict contracts should enable `evidence-handlers/v1`. The sealed
+`evidence_handlers.types` mapping binds every required evidence kind to stable resolver
+and verifier capability IDs. `publish_contract()` rejects an incomplete mapping before
+writing the contract; release and later gates require matching runtime handlers.
+
+The built-in resolver kinds are `file`, `git-commit`, `test-report`, and `url`. A test
+category such as “integration test” normally uses `test-report`; truly custom kinds remain
+supported when both custom capabilities and callable handlers are supplied. See
+[`assets/task-contract.example.json`](assets/task-contract.example.json) and the complete
+[`examples/strict_completion.py`](examples/strict_completion.py) flow.
+
 ## Manual routing
 
 `scripts/context_skill_router.py` accepts explicit task characteristics and returns

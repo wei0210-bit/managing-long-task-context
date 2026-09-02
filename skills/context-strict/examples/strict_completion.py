@@ -14,6 +14,9 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 import managing_long_task_context as context
 
 
+VERIFIER_CAPABILITY = "example:file-claim/v1"
+
+
 def verify_file_claim(evidence, criterion, resolution):
     """Bind a resolver-passing file to this example's acceptance criterion."""
 
@@ -46,6 +49,16 @@ def run_example():
             "scope": ["documentation example"],
             "out_of_scope": [],
             "constraints": ["offline only"],
+            "required_capabilities": ["evidence-handlers/v1"],
+            "evidence_handlers": {
+                "schema": "evidence-handlers/v1",
+                "types": {
+                    "file": {
+                        "resolver_capability": "builtin:file/v1",
+                        "verifier_capability": VERIFIER_CAPABILITY,
+                    }
+                },
+            },
             "workspace_root": str(workspace),
             "acceptance_criteria": [
                 {
@@ -65,6 +78,21 @@ def run_example():
             confirmed_by="task-publisher",
             base_dir=base_dir,
         )
+        runtime_verifiers = {
+            "file": {
+                "capability": VERIFIER_CAPABILITY,
+                "handler": verify_file_claim,
+            }
+        }
+        release = context.gate(
+            "DOC-EXAMPLE",
+            stage="release",
+            verifiers=runtime_verifiers,
+            base_dir=base_dir,
+            emit=False,
+        )
+        if not release["passed"]:
+            return release
         generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return context.gate(
             "DOC-EXAMPLE",
@@ -85,7 +113,7 @@ def run_example():
                     "delivery_receipts": [],
                 }
             },
-            verifiers={"file": verify_file_claim},
+            verifiers=runtime_verifiers,
             base_dir=base_dir,
             emit=False,
         )

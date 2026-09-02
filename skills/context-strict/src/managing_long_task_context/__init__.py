@@ -22,7 +22,15 @@ from pathlib import Path
 import threading
 from typing import Any, Iterable, Mapping, Sequence
 
-from .evidence import MAX_CLOCK_SKEW_SECONDS, canonical_json_bytes, evaluate_evidence
+from .evidence import (
+    BUILTIN_RESOLVER_CAPABILITIES,
+    MAX_CLOCK_SKEW_SECONDS,
+    canonical_json_bytes,
+    evidence_handlers_enabled,
+    evaluate_evidence,
+    runtime_evidence_handler_errors,
+    validate_evidence_handler_contract,
+)
 from .truth_sources import (
     CAPABILITY,
     VERIFICATION_REF_RE,
@@ -255,6 +263,7 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
     if not isinstance(criteria, list) or not criteria:
         errors.append("contract.acceptance_criteria must contain publisher-written criteria")
         errors.extend(validate_truth_source_contract(contract))
+        errors.extend(validate_evidence_handler_contract(contract))
         return errors
 
     actor_roles = contract.get("actor_roles")
@@ -356,6 +365,7 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
 
         errors.extend(_criterion_revision_shape_errors(criterion, prefix))
     errors.extend(validate_truth_source_contract(contract))
+    errors.extend(validate_evidence_handler_contract(contract))
     return errors
 
 
@@ -2709,6 +2719,7 @@ def _truth_unknown_gate_report(
 def _truth_gate_entry_locked(
     task_id: str, *, view: Mapping[str, Any], stage: str,
     required_item_ids: Sequence[str] | None, documents: Sequence[str | Path] | None,
+    resolvers: Mapping[str, Any] | None, verifiers: Mapping[str, Any] | None,
     clock: Any, run_probe: bool,
 ) -> dict[str, Any]:
     """Build all entry verdict inputs while the caller holds the shared lock."""
@@ -2723,6 +2734,12 @@ def _truth_gate_entry_locked(
                  "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0}}
     errors = list(report["errors"])
     warnings = list(report["warnings"])
+    handler_errors, handlers_checked = runtime_evidence_handler_errors(
+        view["contract"], resolvers=resolvers, verifiers=verifiers,
+    )
+    errors.extend(handler_errors)
+    if evidence_handlers_enabled(view["contract"]):
+        report["stats"]["evidence_handlers_checked"] = handlers_checked
     if not truth["passed"]:
         errors.extend(_truth_gate_errors(truth))
     brief_report: dict[str, Any] | None = None
@@ -2744,7 +2761,7 @@ def _truth_gate_entry_locked(
     _truth_gate_base_checks(stage, view["snapshot"], required_item_ids, errors)
     return {"view": view, "now": entry_now, "report": report, "truth": truth,
             "token": _truth_entry_token(view), "errors": errors, "warnings": warnings,
-            "brief_report": brief_report}
+            "brief_report": brief_report, "handler_errors": handler_errors}
 
 
 def _append_completion_errors(errors: list[str], criterion_id: Any, result: Mapping[str, Any]) -> None:
@@ -2754,14 +2771,27 @@ def _append_completion_errors(errors: list[str], criterion_id: Any, result: Mapp
     for evidence_result in result.get("evidence_results", []):
         if isinstance(evidence_result, Mapping) and evidence_result.get("status") != "pass":
             errors.append(f"criterion {criterion_id} evidence {evidence_result.get('evidence_id')} is {evidence_result.get('status', 'unknown')}")
-    for field, label in (("missing_evidence_types", "missing required evidence types"),
-                         ("missing_hops", "missing chain-hop coverage"),
+    missing_evidence = result.get("missing_evidence_types")
+    if missing_evidence:
+        _append_missing_evidence_type_errors(errors, criterion_id, missing_evidence)
+    for field, label in (("missing_hops", "missing chain-hop coverage"),
                          ("missing_delivery_types", "missing required delivery types")):
         if result.get(field):
             errors.append(f"criterion {criterion_id} {label}: {result[field]}")
     independence = result.get("independent_validation")
     if isinstance(independence, Mapping) and independence.get("status") != "pass":
         errors.append(f"criterion {criterion_id} independent validation is {independence.get('status')}: {independence.get('codes', [])}")
+
+
+def _append_missing_evidence_type_errors(
+    errors: list[str], criterion_id: Any, missing: Any,
+) -> None:
+    builtins = sorted(BUILTIN_RESOLVER_CAPABILITIES)
+    errors.append(f"criterion {criterion_id} missing required evidence types: {missing}")
+    errors.append(
+        f"built-in evidence types: {builtins}; "
+        "custom types require declared resolver and verifier capabilities"
+    )
 
 
 def _gate_truth_enabled(
@@ -2777,7 +2807,7 @@ def _gate_truth_enabled(
     criterion_reports: dict[str, Any] = {}
     criteria_checked = 0
     evidence_attempts = 0
-    if entry_truth["passed"]:
+    if entry_truth["passed"] and not entry.get("handler_errors"):
         if not isinstance(evidence_map, Mapping):
             errors.append("completion gate requires evidence_map")
         else:
@@ -2898,6 +2928,8 @@ def _gate_core(
     criterion_reports: dict[str, Any] = {}
     criteria_checked = 0
     evidence_attempts = 0
+    handlers_checked = 0
+    handler_errors: list[str] = []
     contract: dict[str, Any] = {}
     snapshot = _empty_snapshot(task_id)
     brief_report: dict[str, Any] | None = None
@@ -2908,6 +2940,12 @@ def _gate_core(
     except ContextError as exc:
         if str(exc) not in errors:
             errors.append(str(exc))
+
+    if contract:
+        handler_errors, handlers_checked = runtime_evidence_handler_errors(
+            contract, resolvers=resolvers, verifiers=verifiers,
+        )
+        errors.extend(handler_errors)
 
     if contract and stage in {"release", "resume", "handoff"}:
         try:
@@ -2989,7 +3027,7 @@ def _gate_core(
         elif not checkpoint_value.get("next_action"):
             errors.append("handoff checkpoint requires next_action")
 
-    if stage == "completion":
+    if stage == "completion" and not handler_errors:
         if not isinstance(evidence_map, Mapping):
             errors.append("completion gate requires evidence_map")
         else:
@@ -3043,9 +3081,10 @@ def _gate_core(
                             f"{evidence_result.get('evidence_id')} is {evidence_result.get('status', 'unknown')}"
                         )
                     if criterion_report.get("missing_evidence_types"):
-                        errors.append(
-                            f"criterion {criterion_id} missing required evidence types: "
-                            f"{criterion_report.get('missing_evidence_types')}"
+                        _append_missing_evidence_type_errors(
+                            errors,
+                            criterion_id,
+                            criterion_report.get("missing_evidence_types"),
                         )
                     if criterion_report.get("missing_hops"):
                         errors.append(
@@ -3064,26 +3103,29 @@ def _gate_core(
                             f"{independence.get('status')}: {independence.get('codes', [])}"
                         )
 
+    final_stats = {
+        **report["stats"],
+        "checked": report["stats"].get("checked", 0),
+        "criteria_checked": criteria_checked,
+        "evidence_attempts": evidence_attempts,
+        "brief_status": (brief_report or {}).get("status", "unavailable"),
+        "brief_overflow_kind": ((brief_report or {}).get("overflow") or {}).get("kind"),
+        "brief_fixed_prompt_chars": (
+            (brief_report or {}).get("budget", {}).get("fixed_prompt_chars")
+        ),
+        "brief_mandatory_prompt_chars": (
+            (brief_report or {}).get("budget", {}).get("mandatory_prompt_chars")
+        ),
+    }
+    if evidence_handlers_enabled(contract):
+        final_stats["evidence_handlers_checked"] = handlers_checked
     final = {
         "stage": stage,
         "passed": not errors,
         "errors": errors,
         "warnings": warnings,
         "criteria": criterion_reports,
-        "stats": {
-            **report["stats"],
-            "checked": report["stats"].get("checked", 0),
-            "criteria_checked": criteria_checked,
-            "evidence_attempts": evidence_attempts,
-            "brief_status": (brief_report or {}).get("status", "unavailable"),
-            "brief_overflow_kind": ((brief_report or {}).get("overflow") or {}).get("kind"),
-            "brief_fixed_prompt_chars": (
-                (brief_report or {}).get("budget", {}).get("fixed_prompt_chars")
-            ),
-            "brief_mandatory_prompt_chars": (
-                (brief_report or {}).get("budget", {}).get("mandatory_prompt_chars")
-            ),
-        },
+        "stats": final_stats,
         "contract_version": contract.get("version"),
     }
     if emit:
@@ -3447,7 +3489,8 @@ def gate(
                 truth_contract = view["contract"]
                 entry = _truth_gate_entry_locked(
                     task_id, view=view, stage=stage, required_item_ids=required_item_ids,
-                    documents=documents, clock=_trusted_utc_now, run_probe=True,
+                    documents=documents, resolvers=resolvers, verifiers=verifiers,
+                    clock=_trusted_utc_now, run_probe=True,
                 )
                 if stage != "completion" or not entry["truth"]["passed"]:
                     return _truth_gate_final(

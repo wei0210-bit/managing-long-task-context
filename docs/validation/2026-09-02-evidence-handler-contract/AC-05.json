@@ -1,0 +1,25 @@
+{
+  "artifact_digest": "sha256:d294df40db259864e7d92e55079c41eb3d86cc3690a6770288705491c6c23f81",
+  "schema": "context-test-report/v1",
+  "command": "verification-sequence:2026-09-02-evidence-handler-contract",
+  "exit_status": 0,
+  "generated_at": "2026-09-02T04:49:26Z",
+  "repo_revision": "c99404bbc028324b60faedf675d0408d850c94c4",
+  "scope": {
+    "component": "repository-regression"
+  },
+  "source_revision": "git:c99404bbc028324b60faedf675d0408d850c94c4+working-tree",
+  "summary": {
+    "failed": 0,
+    "focused_tests_passed": 7,
+    "root_tests_passed": 245,
+    "distributed_tests_passed": 218,
+    "distribution_tests_passed": 5,
+    "root_package_manifest_sha256": "aa916f26d13ac1e2d4ad3cddeeb17ddcdbe7a6bf7aa29144eeffa939551bebb3",
+    "root_source_tree_sha256": "b0ad15d681c9c5b2872ba8c01bbfacdd9eaa4dd43d17639b6688f2350b0486e8",
+    "strict_package_manifest_sha256": "bb7505c2af38680993255045923889253f96bc9e414976d074750544259f6b64",
+    "strict_source_tree_sha256": "86184e532421205af09171e24747f14eb1a289fbd85d450abc5cc82efdf2450d",
+    "safety_callback_probe_passed": true,
+    "tdd_red_green_completed": true
+  }
+}

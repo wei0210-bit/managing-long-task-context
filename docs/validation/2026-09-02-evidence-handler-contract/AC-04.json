@@ -1,0 +1,18 @@
+{
+  "artifact_digest": "sha256:366d58a75c97174fa7c580f510411e58ac072a8ec7fcb8dc1173c4808bff42ab",
+  "schema": "context-test-report/v1",
+  "command": "python3.12 examples/strict_completion.py",
+  "exit_status": 0,
+  "generated_at": "2026-09-02T04:49:26Z",
+  "repo_revision": "c99404bbc028324b60faedf675d0408d850c94c4",
+  "scope": {
+    "component": "strict-documentation"
+  },
+  "summary": {
+    "failed": 0,
+    "executable_example_passed": true,
+    "evidence_map_example_present": true,
+    "supersedes_preferred_path_present": true,
+    "root_distribution_docs_synced": true
+  }
+}
