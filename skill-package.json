@@ -1,15 +1,16 @@
 {
   "schema": 1,
   "skill_name": "managing-long-task-context",
-  "skill_version": "0.4.0",
+  "skill_version": "0.5.0",
   "package_name": "managing-long-task-context",
-  "package_version": "0.4.0",
+  "package_version": "0.5.0",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",
     "pyproject.toml",
     "assets",
     "examples",
+    "references",
     "src",
     "tests"
   ],
@@ -20,11 +21,14 @@
     "assets/truth-source-contract.example.json",
     "examples/strict_completion.py",
     "examples/truth_source_contract.py",
+    "references/production-failure-patterns.md",
     "src/managing_long_task_context/__init__.py",
     "src/managing_long_task_context/evidence.py",
     "src/managing_long_task_context/truth_sources.py",
     "tests/test_context.py",
+    "tests/test_dynamic_context_scenario.py",
     "tests/test_evidence.py",
+    "tests/test_production_feedback.py",
     "tests/test_truth_sources.py",
     "tests/fixtures/truth_source_pilot.md"
   ],
@@ -46,6 +50,21 @@
     },
     "truth-sources/v1": {
       "python_exports": ["mark_truth_sources_dirty", "observe_truth_source"]
+    },
+    "contract-file-protection/v1": {
+      "python_exports": ["publish_contract", "audit", "gate"]
+    },
+    "context-externalization/v1": {
+      "python_exports": ["externalize_item", "restore_externalization_controls"]
+    },
+    "bound-context/v1": {
+      "python_exports": ["bind"]
+    },
+    "ordered-hops/v1": {
+      "python_exports": ["publish_contract", "gate"]
+    },
+    "brief-overflow-hard-stop/v1": {
+      "python_exports": ["brief", "brief_diagnostics", "gate"]
     }
   }
 }

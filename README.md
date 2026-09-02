@@ -32,6 +32,25 @@ supported when both custom capabilities and callable handlers are supplied. See
 [`assets/task-contract.example.json`](assets/task-contract.example.json) and the complete
 [`examples/strict_completion.py`](examples/strict_completion.py) flow.
 
+## Production context controls
+
+Context Strict 0.5 defaults new contracts to an atomically published read-only file
+guard, blocks release/resume/handoff when mandatory brief content cannot fit, and
+reports every omitted mandatory item. The file mode is an error-prevention layer; the
+sealed digest and gate remain authoritative.
+
+Bind long-running tools to an absolute store before changing directories:
+
+```python
+ctx = context.bind("/absolute/project/.prime/context")
+```
+
+Use `externalize_item()` to shorten an unchanged fact without replacing its ID,
+controls, evidence, or verification time. For a causal chain that one execution must
+prove, opt into `required_hops_mode: "single-evidence-ordered"`; legacy contracts keep
+aggregate hop coverage. Detailed failure modes and boundaries live in
+[`references/production-failure-patterns.md`](references/production-failure-patterns.md).
+
 ## Manual routing
 
 `scripts/context_skill_router.py` accepts explicit task characteristics and returns

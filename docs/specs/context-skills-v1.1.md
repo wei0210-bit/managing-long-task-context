@@ -9,6 +9,22 @@ Revision basis: AgentScope official repository and documentation review on 2026-
 Status: APPROVED
 Mode: Builder
 
+## Context Strict 0.5 production hardening
+
+- New contracts seal an advisory read-only file policy; an explicit opt-out is recorded.
+- `BRIEF_REQUIRED_OVERFLOW` is unusable at release, resume, and handoff and identifies
+  every omitted mandatory item.
+- `externalize_item()` preserves item identity and load-bearing controls when moving
+  bulky prose to a stable external reference.
+- `bind()` and report storage metadata make the selected absolute context root visible;
+  no implicit parent-directory discovery is performed.
+- `required_hops_mode: single-evidence-ordered` requires one passing evidence object to
+  witness the hop sequence in order. Omission retains aggregate compatibility.
+
+These are stricter execution semantics, not permission expansion. File modes are not an
+identity/security boundary, evidence envelopes do not prove their own claims, and all
+participating runtimes must use one verified package version.
+
 ## Problem Statement
 
 当前 `managing-long-task-context` 把两类需求混在一个工作流中：

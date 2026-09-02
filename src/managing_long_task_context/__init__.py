@@ -50,6 +50,8 @@ ITEM_TYPES = {"observation", "verified-fact", "assumption", "decision", "questio
 ITEM_STATUSES = {"active", "unverified", "conflicted", "superseded"}
 GATE_STAGES = {"release", "resume", "handoff", "completion"}
 DEFAULT_BASE_DIR = Path(".prime/context")
+BASE_DIR_ENV = "MLTC_BASE_DIR"
+CONTRACT_FILE_PROTECTION = "read-only-advisory-v1"
 _POINTER_RE = re.compile(
     r"(?:详见|参见|见|see)\s*[`'\"]([^`'\"]+\.(?:md|txt|json|ya?ml))[`'\"]",
     re.IGNORECASE,
@@ -114,13 +116,40 @@ def _parse_time(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _resolve_base_dir(base_dir: str | Path | None = None) -> tuple[Path, str]:
+    if base_dir is not None:
+        return Path(base_dir).expanduser().resolve(), "explicit"
+    configured = os.environ.get(BASE_DIR_ENV)
+    if configured:
+        configured_path = Path(configured).expanduser()
+        if not configured_path.is_absolute():
+            raise ContextError(f"{BASE_DIR_ENV}_INVALID: path must be absolute")
+        return configured_path.resolve(), "environment"
+    return (Path.cwd() / DEFAULT_BASE_DIR).resolve(), "cwd-default"
+
+
 def _task_dir(task_id: str, base_dir: str | Path | None = None) -> Path:
     if not isinstance(task_id, str) or not task_id.strip():
         raise ValueError("task_id must be a non-empty string")
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", task_id.strip()).strip("-")
     if not safe:
         raise ValueError("task_id contains no usable characters")
-    return Path(base_dir or DEFAULT_BASE_DIR).expanduser().resolve() / safe
+    resolved_base_dir, _ = _resolve_base_dir(base_dir)
+    return resolved_base_dir / safe
+
+
+def _storage_info(
+    task_id: str,
+    base_dir: str | Path | None = None,
+    *,
+    source: str | None = None,
+) -> dict[str, str]:
+    resolved_base_dir, inferred_source = _resolve_base_dir(base_dir)
+    return {
+        "resolved_base_dir": str(resolved_base_dir),
+        "task_root": str(_task_dir(task_id, resolved_base_dir)),
+        "base_dir_source": source or inferred_source,
+    }
 
 
 def _paths(task_id: str, base_dir: str | Path | None = None) -> dict[str, Path]:
@@ -164,18 +193,24 @@ def _locked(root: Path):
 @contextmanager
 def _shared_locked_existing(root: Path):
     if fcntl is None:
-        raise ContextError("READ_LOCK_UNAVAILABLE: shared locking is unsupported")
+        raise ContextError(
+            f"READ_LOCK_UNAVAILABLE: shared locking is unsupported for {root / '.lock'}"
+        )
     with _process_lock_guard(root):
         lock_path = root / ".lock"
         try:
             handle = lock_path.open("r", encoding="utf-8")
         except OSError as exc:
-            raise ContextError("READ_LOCK_UNAVAILABLE: existing task lock is unreadable") from exc
+            raise ContextError(
+                f"READ_LOCK_UNAVAILABLE: existing task lock is unreadable: {lock_path}"
+            ) from exc
         with handle:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
             except OSError as exc:
-                raise ContextError("READ_LOCK_UNAVAILABLE: shared lock acquisition failed") from exc
+                raise ContextError(
+                    f"READ_LOCK_UNAVAILABLE: shared lock acquisition failed: {lock_path}"
+                ) from exc
             try:
                 yield
             finally:
@@ -186,7 +221,12 @@ def _json_clone(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False))
 
 
-def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
+def _atomic_write_json(
+    path: Path,
+    value: Mapping[str, Any],
+    *,
+    mode: int | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     data = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -195,6 +235,8 @@ def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+            if mode is not None:
+                os.fchmod(handle.fileno(), mode)
         os.replace(temp, path)
     finally:
         if temp.exists():
@@ -324,6 +366,20 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
         hops_value = required_hops if required_hops is not None else compatibility_hops
         if hops_value is not None and not _valid_string_list(hops_value, allow_empty=True):
             errors.append(f"{prefix}.required_hops must be a list of non-empty strings")
+        hops_mode = criterion.get("required_hops_mode")
+        if hops_mode is not None and hops_mode not in {"aggregate", "single-evidence-ordered"}:
+            errors.append(
+                f"{prefix}.required_hops_mode must be aggregate or single-evidence-ordered"
+            )
+        if hops_mode == "single-evidence-ordered":
+            if not isinstance(hops_value, list) or not hops_value:
+                errors.append(
+                    f"{prefix}.single-evidence-ordered requires non-empty required_hops"
+                )
+            if not evidence_handlers_enabled(contract):
+                errors.append(
+                    f"{prefix}.single-evidence-ordered requires evidence-handlers/v1"
+                )
 
         delivery_types = criterion.get("required_delivery_types")
         if delivery_types is not None and not _valid_string_list(delivery_types, allow_empty=True):
@@ -463,6 +519,11 @@ def _validate_sealed_contract(contract: Mapping[str, Any]) -> list[str]:
     for field in ("confirmed_by", "confirmed_at"):
         if not isinstance(seal.get(field), str) or not seal[field].strip():
             errors.append(f"contract.seal.{field} must be a non-empty string")
+    protection = seal.get("file_protection")
+    if protection is not None and protection not in {CONTRACT_FILE_PROTECTION, "none"}:
+        errors.append(
+            "contract.seal.file_protection must be read-only-advisory-v1 or none"
+        )
     integrity_digest = seal.get("integrity_digest")
     if not isinstance(integrity_digest, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", integrity_digest) is None:
         errors.append("contract.seal.integrity_digest must be sha256:<64 lowercase hex>")
@@ -475,6 +536,23 @@ def _validate_sealed_contract(contract: Mapping[str, Any]) -> list[str]:
     if isinstance(seal, dict) and seal.get("confirmed_by") not in authorized:
         errors.append("contract was sealed by an unauthorized actor")
     return errors
+
+
+def _contract_file_protection_errors(
+    contract: Mapping[str, Any], contract_path: Path,
+) -> list[str]:
+    """Check the sealed advisory guard without changing legacy contracts."""
+
+    seal = contract.get("seal")
+    if not isinstance(seal, Mapping) or seal.get("file_protection") != CONTRACT_FILE_PROTECTION:
+        return []
+    try:
+        mode = contract_path.stat().st_mode
+    except OSError:
+        return []  # The ordinary contract read path reports missing/unreadable files.
+    if mode & 0o222:
+        return ["CONTRACT_FILE_PROTECTION_MISSING"]
+    return []
 
 
 def _empty_snapshot(task_id: str) -> dict[str, Any]:
@@ -661,7 +739,8 @@ def _apply_truth_control_event(snapshot: dict[str, Any], event: Mapping[str, Any
 
 _EVENT_FIELDS = frozenset({"schema", "event_id", "task_id", "event_type", "actor", "created_at", "payload"})
 _EVENT_TYPES = frozenset({
-    "contract-published", "item-recorded", "item-updated", "checkpoint-recorded",
+    "contract-published", "item-recorded", "item-updated", "item-externalized",
+    "checkpoint-recorded",
     "truth-source-dirtied", "truth-source-observed",
 })
 _CONTRACT_PUBLISH_FIELDS = frozenset({
@@ -747,7 +826,7 @@ def _apply_event(snapshot: dict[str, Any], event: Mapping[str, Any]) -> dict[str
             }
     elif event_type in {"truth-source-dirtied", "truth-source-observed"}:
         result = _apply_truth_control_event(result, event)
-    elif event_type in {"item-recorded", "item-updated"}:
+    elif event_type in {"item-recorded", "item-updated", "item-externalized"}:
         item = payload.get("item")
         if isinstance(item, dict) and isinstance(item.get("id"), str):
             result.setdefault("items", {})[item["id"]] = deepcopy(item)
@@ -1061,11 +1140,15 @@ def publish_contract(
     *,
     confirmed_by: str,
     base_dir: str | Path | None = None,
+    protect_contract: bool = True,
 ) -> dict[str, Any]:
     """Validate, seal, and publish a publisher-authored task contract.
 
     Updating an existing contract requires a greater version and a fresh seal.
     """
+
+    if not isinstance(protect_contract, bool):
+        raise TypeError("protect_contract must be a boolean")
 
     value = deepcopy(dict(contract))
     value.setdefault("schema", SCHEMA_VERSION)
@@ -1137,9 +1220,14 @@ def publish_contract(
         value["seal"] = {
             "confirmed_by": confirmed_by,
             "confirmed_at": _now(),
+            "file_protection": CONTRACT_FILE_PROTECTION if protect_contract else "none",
         }
         value["seal"]["integrity_digest"] = _contract_digest(value)
-        _atomic_write_json(paths["contract"], value)
+        _atomic_write_json(
+            paths["contract"],
+            value,
+            mode=0o444 if protect_contract else None,
+        )
         strict_rebuild = truth_sources_enabled(value) or existing_truth_history
         if strict_rebuild:
             events = _read_events(paths["events"])
@@ -1450,6 +1538,133 @@ def update_item(
     return updated
 
 
+def externalize_item(
+    task_id: str,
+    item_id: str,
+    *,
+    summary: str,
+    external_ref: str,
+    actor: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Replace bulky wording with a pointer without changing fact identity or controls."""
+
+    if not _truth_single_line(summary):
+        raise ValueError("summary must be a non-empty single line")
+    if not _truth_single_line(external_ref):
+        raise ValueError("external_ref must be a non-empty single line")
+    if not _truth_single_line(actor):
+        raise ValueError("actor must be a non-empty single line")
+    paths = _paths(task_id, base_dir)
+    with _locked(paths["root"]):
+        view = _load_committed_task_view_locked(task_id, paths)
+        current = view["snapshot"].get("items", {}).get(item_id)
+        if not isinstance(current, dict):
+            raise ContextError(f"unknown context item: {item_id}")
+        if current.get("status") == "superseded":
+            raise ContextError(f"cannot externalize superseded item: {item_id}")
+        updated = deepcopy(current)
+        previous_statement = str(current.get("statement", ""))
+        now = _now()
+        updated["statement"] = summary.strip()
+        metadata = dict(updated.get("metadata") or {})
+        metadata.update({
+            "externalized_by": actor,
+            "externalized_at": now,
+            "externalized_ref": external_ref.strip(),
+            "externalized_from_digest": (
+                "sha256:" + hashlib.sha256(previous_statement.encode("utf-8")).hexdigest()
+            ),
+        })
+        updated["metadata"] = _json_clone(metadata)
+        updated["updated_at"] = now
+        errors, _ = _item_errors(updated)
+        if errors:
+            raise ContextError("context externalization rejected: " + "; ".join(errors))
+        event = _new_event(
+            task_id,
+            "item-externalized",
+            actor,
+            {
+                "item": updated,
+                "previous_statement_digest": metadata["externalized_from_digest"],
+                "external_ref": metadata["externalized_ref"],
+            },
+        )
+        _append_event_locked(paths, view["snapshot"], event)
+    return updated
+
+
+def restore_externalization_controls(
+    task_id: str,
+    item_id: str,
+    *,
+    from_item_id: str,
+    actor: str,
+    reason: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Repair required/severity lost by a legacy supersede-based externalization."""
+
+    if not _truth_single_line(actor):
+        raise ValueError("actor must be a non-empty single line")
+    if not _truth_single_line(reason):
+        raise ValueError("reason must be a non-empty single line")
+    paths = _paths(task_id, base_dir)
+    with _locked(paths["root"]):
+        view = _load_committed_task_view_locked(task_id, paths)
+        items = view["snapshot"].get("items", {})
+        target = items.get(item_id) if isinstance(items, Mapping) else None
+        source = items.get(from_item_id) if isinstance(items, Mapping) else None
+        if not isinstance(target, dict) or not isinstance(source, dict):
+            raise ContextError("CONTROL_RESTORATION_ITEM_MISSING")
+        if (
+            source.get("status") != "superseded"
+            or source.get("superseded_by") != item_id
+            or target.get("supersedes") != from_item_id
+        ):
+            raise ContextError("CONTROL_RESTORATION_LINEAGE_MISMATCH")
+        source_metadata = source.get("metadata")
+        if not isinstance(source_metadata, Mapping):
+            raise ContextError("CONTROL_RESTORATION_SOURCE_CONTROLS_MISSING")
+        controls = {
+            field: deepcopy(source_metadata[field])
+            for field in ("required", "severity")
+            if field in source_metadata
+        }
+        if not controls:
+            raise ContextError("CONTROL_RESTORATION_SOURCE_CONTROLS_MISSING")
+        target_metadata = dict(target.get("metadata") or {})
+        conflicts = [
+            field for field, value in controls.items()
+            if field in target_metadata and target_metadata[field] != value
+        ]
+        if conflicts:
+            raise ContextError(
+                f"CONTROL_RESTORATION_CONFLICT: {sorted(conflicts)}"
+            )
+        if all(target_metadata.get(field) == value for field, value in controls.items()):
+            return deepcopy(target)
+        updated = deepcopy(target)
+        target_metadata.update(controls)
+        updated["metadata"] = _json_clone(target_metadata)
+        event = _new_event(
+            task_id,
+            "item-updated",
+            actor,
+            {
+                "item": updated,
+                "control_restoration": {
+                    "from_item_id": from_item_id,
+                    "fields": sorted(controls),
+                    "reason": reason.strip(),
+                },
+            },
+        )
+        _append_event_locked(paths, view["snapshot"], event)
+    return updated
+
+
 def checkpoint(
     task_id: str,
     *,
@@ -1721,7 +1936,6 @@ def _select_brief_items_plan(
     selected_selection_chars = empty_selection_chars
     selected_section_counts: dict[str, int] = {}
     for item in ordered:
-        is_mandatory = _brief_is_mandatory(item)
         identifier = str(item.get("id", ""))
         rendered_line_chars, sections = item_profiles[identifier]
         candidate_chars = selected_selection_chars + _brief_selection_delta(
@@ -1734,15 +1948,25 @@ def _select_brief_items_plan(
             selected_selection_chars = candidate_chars
             for section in sections:
                 selected_section_counts[section] = selected_section_counts.get(section, 0) + 1
-        elif is_mandatory and overflow is None:
-            overflow = {
-                "code": "BRIEF_REQUIRED_OVERFLOW",
-                "kind": "mandatory",
-                "message": "BRIEF_REQUIRED_OVERFLOW: mandatory items exceed max_chars",
-                "item_ids": [str(item.get("id", ""))],
-            }
-            break
     selected_ids = {str(item.get("id", "")) for item in selected}
+    omitted_items = [
+        dict(item) for item in sorted((dict(item) for item in items), key=_brief_sort_key)
+        if str(item.get("id", "")) not in selected_ids
+    ]
+    omitted_mandatory_ids = [
+        str(item.get("id", ""))
+        for item in omitted_items
+        if _brief_is_mandatory(item)
+    ]
+    if omitted_mandatory_ids and overflow is None:
+        overflow = {
+            "code": "BRIEF_REQUIRED_OVERFLOW",
+            "kind": "mandatory",
+            "message": "BRIEF_REQUIRED_OVERFLOW: mandatory items exceed max_chars",
+            "item_ids": omitted_mandatory_ids,
+        }
+    if overflow is not None:
+        overflow["omitted_mandatory_ids"] = omitted_mandatory_ids
     return {
         "selected": selected,
         "overflow": overflow,
@@ -1750,10 +1974,7 @@ def _select_brief_items_plan(
         "mandatory_item_sizes": mandatory_item_sizes,
         "mandatory_selection_chars": mandatory_selection_chars,
         "selected_selection_chars": selected_selection_chars,
-        "omitted": [
-            dict(item) for item in sorted((dict(item) for item in items), key=_brief_sort_key)
-            if str(item.get("id", "")) not in selected_ids
-        ],
+        "omitted": omitted_items,
     }
 
 
@@ -1911,7 +2132,17 @@ def _plan_brief_from_view(
             "item_ids": [],
         }
     if diagnostic_overflow is not None:
-        diagnostic_overflow = {**diagnostic_overflow, "largest_items": largest_items}
+        omitted_mandatory_ids = [
+            str(item.get("id", ""))
+            for item in selection_plan["omitted"]
+            if _brief_is_mandatory(item)
+        ]
+        diagnostic_overflow = {
+            **diagnostic_overflow,
+            "item_ids": omitted_mandatory_ids,
+            "omitted_mandatory_ids": omitted_mandatory_ids,
+            "largest_items": largest_items,
+        }
     if diagnostic_overflow is None:
         text_metrics, token_estimate = _brief_text_metrics(
             selected_prompt,
@@ -1938,6 +2169,7 @@ def _plan_brief_from_view(
     diagnostics = {
         "status": "ready" if diagnostic_overflow is None else "overflow",
         "fits": diagnostic_overflow is None,
+        "usable": diagnostic_overflow is None,
         "overflow": diagnostic_overflow,
         "budget": {
             "max_chars": max_chars,
@@ -2010,7 +2242,8 @@ def brief(
             task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=evaluation,
             phase=phase, include=include, max_items=max_items, max_chars=max_chars,
         )
-    overflow = plan["brief_overflow"]
+    diagnostics = _brief_diagnostics_from_plan(plan)
+    overflow = diagnostics["overflow"]
     if overflow is not None:
         raise ContextError(overflow["message"])
     return plan["packet"]
@@ -2022,11 +2255,13 @@ def _brief_diagnostics_from_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     if filtered and diagnostics["overflow"] is None:
         diagnostics["status"] = "overflow"
         diagnostics["fits"] = False
+        diagnostics["usable"] = False
         diagnostics["overflow"] = {
             "code": "BRIEF_REQUIRED_OVERFLOW",
             "kind": "include",
             "message": "BRIEF_REQUIRED_OVERFLOW: include would omit a mandatory item",
             "item_ids": filtered,
+            "omitted_mandatory_ids": filtered,
             "largest_items": [],
         }
     return diagnostics
@@ -2056,7 +2291,9 @@ def brief_diagnostics(
             task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=evaluation,
             phase=phase, include=include, max_items=max_items, max_chars=max_chars,
         )
-    return _brief_diagnostics_from_plan(plan)
+    diagnostics = _brief_diagnostics_from_plan(plan)
+    diagnostics["storage"] = _storage_info(task_id, base_dir)
+    return diagnostics
 
 
 def _brief_json(value: Any) -> str:
@@ -2091,6 +2328,7 @@ def _brief_acceptance_to_markdown(criterion: Mapping[str, Any]) -> str:
         "required_evidence",
         "required_hops",
         "chain_hops",
+        "required_hops_mode",
         "required_delivery_types",
         "required_scope",
         "max_evidence_age_seconds",
@@ -2272,6 +2510,12 @@ def _audit_core(
             events=view["events"], documents=documents,
             max_pointer_lag_seconds=max_pointer_lag_seconds, now=now, run_probe=run_probe,
         )
+        protection_errors = _contract_file_protection_errors(
+            view["contract"], paths["contract"],
+        )
+        if protection_errors:
+            report["errors"].extend(protection_errors)
+            report["passed"] = False
         if emit:
             _emit_report(report)
         return report
@@ -2314,6 +2558,7 @@ def _audit_core(
     try:
         contract = _read_json(paths["contract"])
         errors.extend(_validate_sealed_contract(contract))
+        errors.extend(_contract_file_protection_errors(contract, paths["contract"]))
         try:
             stored_snapshot = _read_json(paths["snapshot"])
         except ContextError:
@@ -2468,7 +2713,7 @@ def audit(
     paths = _paths(task_id, base_dir)
     try:
         with _shared_locked_existing(paths["root"]):
-            return _audit_core(
+            report = _audit_core(
                 task_id,
                 documents=documents,
                 max_pointer_lag_seconds=max_pointer_lag_seconds,
@@ -2478,7 +2723,9 @@ def audit(
                 run_probe=True,
             )
     except ContextError as exc:
-        return _read_lock_unavailable_audit(task_id, exc, emit=emit)
+        report = _read_lock_unavailable_audit(task_id, exc, emit=emit)
+    report["storage"] = _storage_info(task_id, base_dir)
+    return report
 
 
 def _evaluate_truth_phase_locked(
@@ -2720,7 +2967,7 @@ def _truth_gate_entry_locked(
     task_id: str, *, view: Mapping[str, Any], stage: str,
     required_item_ids: Sequence[str] | None, documents: Sequence[str | Path] | None,
     resolvers: Mapping[str, Any] | None, verifiers: Mapping[str, Any] | None,
-    clock: Any, run_probe: bool,
+    clock: Any, run_probe: bool, base_dir: str | Path | None,
 ) -> dict[str, Any]:
     """Build all entry verdict inputs while the caller holds the shared lock."""
     entry_now = clock().astimezone(timezone.utc)
@@ -2733,6 +2980,11 @@ def _truth_gate_entry_locked(
         truth = {"status": "unknown", "passed": False, "results": [],
                  "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0}}
     errors = list(report["errors"])
+    errors.extend(
+        _contract_file_protection_errors(
+            view["contract"], _paths(task_id, base_dir)["contract"],
+        )
+    )
     warnings = list(report["warnings"])
     handler_errors, handlers_checked = runtime_evidence_handler_errors(
         view["contract"], resolvers=resolvers, verifiers=verifiers,
@@ -2752,9 +3004,7 @@ def _truth_gate_entry_locked(
         overflow = brief_report.get("overflow")
         if isinstance(overflow, Mapping):
             message = str(overflow.get("message", "BRIEF_REQUIRED_OVERFLOW"))
-            (errors if stage == "handoff" else warnings).append(
-                message if stage == "handoff" else f"brief preflight: {message}"
-            )
+            errors.append(message)
         filtered = brief_report.get("items", {}).get("filtered_mandatory_ids", [])
         if filtered:
             warnings.append(f"brief preflight filtered mandatory items: {filtered}")
@@ -2960,19 +3210,13 @@ def _gate_core(
             brief_report = _brief_diagnostics_from_plan(brief_plan)
         except (ContextError, ValueError) as exc:
             message = f"brief preflight unavailable: {exc}"
-            if stage == "handoff":
-                errors.append(message)
-            else:
-                warnings.append(message)
+            errors.append(message)
         else:
             overflow = brief_report.get("overflow")
             if isinstance(overflow, Mapping):
                 message = str(overflow.get("message", "BRIEF_REQUIRED_OVERFLOW"))
-                if stage == "handoff":
-                    if message not in errors:
-                        errors.append(message)
-                else:
-                    warnings.append(f"brief preflight: {message}")
+                if message not in errors:
+                    errors.append(message)
             filtered = brief_report.get("items", {}).get("filtered_mandatory_ids", [])
             if filtered:
                 warnings.append(f"brief preflight filtered mandatory items: {filtered}")
@@ -3155,11 +3399,16 @@ def _evaluate_completion_criterion(
         "required_evidence_types",
         "required_evidence",
     )
-    required_hops = _criterion_string_set(
-        criterion_baseline,
-        "required_hops",
-        "chain_hops",
+    raw_required_hops = criterion_baseline.get("required_hops")
+    if raw_required_hops is None:
+        raw_required_hops = criterion_baseline.get("chain_hops")
+    required_hop_sequence = (
+        [item for item in raw_required_hops if isinstance(item, str)]
+        if isinstance(raw_required_hops, list)
+        else []
     )
+    required_hops = set(required_hop_sequence)
+    required_hops_mode = criterion_baseline.get("required_hops_mode", "aggregate")
     required_delivery_types = _criterion_string_set(
         criterion_baseline,
         "required_delivery_types",
@@ -3310,7 +3559,29 @@ def _evaluate_completion_criterion(
         bound_hops = source.get("covered_hops", [])
         if _valid_string_list(bound_hops, allow_empty=True):
             verified_hops.update(bound_hops)
-    missing_hops = sorted(required_hops - verified_hops)
+    hop_validation: dict[str, Any] | None = None
+    if required_hops_mode == "single-evidence-ordered":
+        matching_evidence_id = None
+        for source, result in zip(primary_sources, primary_results):
+            if not isinstance(source, Mapping) or result.get("status") != "pass":
+                continue
+            bound_hops = source.get("covered_hops", [])
+            if (
+                _valid_string_list(bound_hops, allow_empty=True)
+                and _contains_ordered_subsequence(bound_hops, required_hop_sequence)
+            ):
+                matching_evidence_id = source.get("evidence_id")
+                break
+        matched = isinstance(matching_evidence_id, str)
+        missing_hops = [] if matched else list(required_hop_sequence)
+        hop_validation = {
+            "mode": "single-evidence-ordered",
+            "status": "pass" if matched else "unknown",
+            "code": None if matched else "SINGLE_EVIDENCE_ORDERED_HOPS_MISSING",
+            "evidence_id": matching_evidence_id,
+        }
+    else:
+        missing_hops = sorted(required_hops - verified_hops)
 
     verified_delivery_types = {
         str(source.get("delivery_type"))
@@ -3337,7 +3608,7 @@ def _evaluate_completion_criterion(
     if independence["status"] != "pass":
         statuses.append(independence["status"])
     status = "fail" if "fail" in statuses else "unknown" if "unknown" in statuses else "pass"
-    return {
+    result = {
         "status": status,
         "evidence_results": evidence_results,
         "missing_evidence_types": missing_types,
@@ -3346,6 +3617,23 @@ def _evaluate_completion_criterion(
         "independent_validation": independence,
         "duplicate_evidence_ids": duplicate_ids,
     }
+    if hop_validation is not None:
+        result["hop_validation"] = hop_validation
+    return result
+
+
+def _contains_ordered_subsequence(
+    supplied: Sequence[str], required: Sequence[str],
+) -> bool:
+    if not required:
+        return True
+    position = 0
+    for hop in supplied:
+        if hop == required[position]:
+            position += 1
+            if position == len(required):
+                return True
+    return False
 
 
 def _criterion_string_set(
@@ -3466,6 +3754,10 @@ def gate(
     if stage not in GATE_STAGES:
         raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
     paths = _paths(task_id, base_dir)
+    def with_storage(report: dict[str, Any]) -> dict[str, Any]:
+        report["storage"] = _storage_info(task_id, base_dir)
+        return report
+
     truth_contract: Mapping[str, Any] | None = None
     initial_route_pending = True
     try:
@@ -3478,42 +3770,42 @@ def gate(
             except ContextError:
                 if truth_contract is not None:
                     raise
-                return _gate_core(
+                return with_storage(_gate_core(
                     task_id, stage=stage, evidence_map=evidence_map,
                     required_item_ids=required_item_ids, documents=documents,
                     resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
                     emit=emit, base_dir=base_dir, run_probe=True,
-                )
+                ))
             initial_route_pending = False
             if truth_sources_enabled(view["contract"]):
                 truth_contract = view["contract"]
                 entry = _truth_gate_entry_locked(
                     task_id, view=view, stage=stage, required_item_ids=required_item_ids,
                     documents=documents, resolvers=resolvers, verifiers=verifiers,
-                    clock=_trusted_utc_now, run_probe=True,
+                    clock=_trusted_utc_now, run_probe=True, base_dir=base_dir,
                 )
                 if stage != "completion" or not entry["truth"]["passed"]:
-                    return _truth_gate_final(
+                    return with_storage(_truth_gate_final(
                         stage=stage, report=entry["report"], errors=entry["errors"],
                         warnings=entry["warnings"], criteria={}, criteria_checked=0,
                         evidence_attempts=0, brief_report=entry["brief_report"],
                         contract=view["contract"], evaluation=entry["truth"], emit=emit,
-                    )
+                    ))
             else:
                 # The route and legacy verdict are both protected by this lock.
-                return _gate_core(
+                return with_storage(_gate_core(
                     task_id, stage=stage, evidence_map=evidence_map,
                     required_item_ids=required_item_ids, documents=documents,
                     resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
                     emit=emit, base_dir=base_dir, run_probe=True,
-                )
+                ))
     except ContextError as exc:
         if not initial_route_pending:
             raise
         if truth_contract is not None:
-            return _truth_unknown_gate_report(
+            return with_storage(_truth_unknown_gate_report(
                 task_id=task_id, stage=stage, contract=truth_contract, error=exc, emit=emit,
-            )
+            ))
         audit_report = _read_lock_unavailable_audit(task_id, exc, emit=False)
         report = {
             "stage": stage,
@@ -3534,12 +3826,12 @@ def gate(
         }
         if emit:
             _emit_report(report)
-        return report
-    return _gate_truth_enabled(
+        return with_storage(report)
+    return with_storage(_gate_truth_enabled(
         task_id, entry=entry, evidence_map=evidence_map,
         resolvers=resolvers, verifiers=verifiers, emit=emit,
         base_dir=base_dir, clock=_trusted_utc_now,
-    )
+    ))
 
 
 def workspace_observation(path: str | Path = ".") -> dict[str, Any]:
@@ -3579,6 +3871,59 @@ def workspace_observation(path: str | Path = ".") -> dict[str, Any]:
     return result
 
 
+_BOUND_ACTIONS = frozenset({
+    "publish_contract",
+    "mark_truth_sources_dirty",
+    "observe_truth_source",
+    "record",
+    "update_item",
+    "externalize_item",
+    "restore_externalization_controls",
+    "checkpoint",
+    "brief",
+    "brief_diagnostics",
+    "audit",
+    "gate",
+})
+
+
+class BoundContext:
+    """Bind all task operations to one explicit, absolute context directory."""
+
+    def __init__(self, base_dir: str | Path) -> None:
+        resolved, _ = _resolve_base_dir(base_dir)
+        self.base_dir = resolved
+
+    def __getattr__(self, name: str) -> Any:
+        if name not in _BOUND_ACTIONS:
+            raise AttributeError(name)
+        function = globals()[name]
+
+        def bound_call(*args: Any, **kwargs: Any) -> Any:
+            if "base_dir" in kwargs:
+                raise TypeError("bound context calls do not accept base_dir")
+            result = function(*args, **kwargs, base_dir=self.base_dir)
+            if (
+                name in {"brief_diagnostics", "audit", "gate"}
+                and isinstance(result, dict)
+            ):
+                task_id = args[0] if args and isinstance(args[0], str) else kwargs.get("task_id")
+                if not isinstance(task_id, str):
+                    return result
+                result["storage"] = _storage_info(
+                    task_id, self.base_dir, source="bound",
+                )
+            return result
+
+        return bound_call
+
+
+def bind(base_dir: str | Path) -> BoundContext:
+    """Return a client whose calls cannot drift with the process working directory."""
+
+    return BoundContext(base_dir)
+
+
 async def run(action: str, **kwargs: Any) -> Any:
     """Prime Agent callable dispatcher.
 
@@ -3591,6 +3936,8 @@ async def run(action: str, **kwargs: Any) -> Any:
         "observe_truth_source": observe_truth_source,
         "record": record,
         "update_item": update_item,
+        "externalize_item": externalize_item,
+        "restore_externalization_controls": restore_externalization_controls,
         "checkpoint": checkpoint,
         "brief": brief,
         "brief_diagnostics": brief_diagnostics,
@@ -3614,11 +3961,15 @@ __all__ = [
     "observe_truth_source",
     "record",
     "update_item",
+    "externalize_item",
+    "restore_externalization_controls",
     "checkpoint",
     "brief",
     "brief_diagnostics",
     "audit",
     "gate",
     "workspace_observation",
+    "BoundContext",
+    "bind",
     "run",
 ]

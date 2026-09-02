@@ -509,6 +509,7 @@ class ContextSkillTests(unittest.TestCase):
         path = self.base / "TASK-001" / "task-contract.json"
         stored = json.loads(path.read_text(encoding="utf-8"))
         stored["objective"] = "Silently changed"
+        path.chmod(0o644)
         path.write_text(json.dumps(stored), encoding="utf-8")
         result = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
         self.assertFalse(result["passed"])
@@ -525,6 +526,7 @@ class ContextSkillTests(unittest.TestCase):
         path = self.base / "TASK-001" / "task-contract.json"
         stored = json.loads(path.read_text(encoding="utf-8"))
         stored["seal"]["confirmed_by"] = "attacker"
+        path.chmod(0o644)
         path.write_text(json.dumps(stored), encoding="utf-8")
         report = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
         self.assertFalse(report["passed"])
@@ -540,6 +542,7 @@ class ContextSkillTests(unittest.TestCase):
         stored["seal"]["integrity_digest"] = (
             "sha256:" + hashlib.sha256(canonical_json_bytes(digest_input)).hexdigest()
         )
+        path.chmod(0o644)
         path.write_text(json.dumps(stored), encoding="utf-8")
 
         report = context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)
@@ -991,7 +994,7 @@ class ContextSkillTests(unittest.TestCase):
         self.assertGreater(diagnostics["budget"]["fixed_prompt_chars"], max_chars)
         with self.assertRaisesRegex(
             context.ContextError,
-            "BRIEF_REQUIRED_OVERFLOW: brief content exceeds max_chars",
+            "BRIEF_REQUIRED_OVERFLOW: fixed brief content exceeds max_chars",
         ):
             context.brief("TASK-001", max_chars=max_chars, base_dir=self.base)
 
@@ -1007,10 +1010,10 @@ class ContextSkillTests(unittest.TestCase):
             base_dir=self.base,
         )
 
-        legacy_packet = context.brief("TASK-001", include=[], base_dir=self.base)
+        with self.assertRaisesRegex(context.ContextError, "BRIEF_REQUIRED_OVERFLOW"):
+            context.brief("TASK-001", include=[], base_dir=self.base)
         diagnostics = context.brief_diagnostics("TASK-001", include=[], base_dir=self.base)
 
-        self.assertEqual(legacy_packet["observations"], [])
         self.assertEqual(diagnostics["status"], "overflow")
         self.assertFalse(diagnostics["fits"])
         self.assertEqual(diagnostics["overflow"]["kind"], "include")

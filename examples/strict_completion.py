@@ -68,6 +68,7 @@ def run_example():
                     "required_scope": {"module": "docs-example"},
                     "max_evidence_age_seconds": 3600,
                     "required_hops": ["artifact-created"],
+                    "required_hops_mode": "single-evidence-ordered",
                     "required_delivery_types": [],
                     "independent_validation_required": False,
                 }

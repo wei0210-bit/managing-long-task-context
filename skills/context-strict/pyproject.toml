@@ -1,6 +1,6 @@
 [project]
 name = "managing-long-task-context"
-version = "0.4.0"
+version = "0.5.0"
 description = "Prime Agent Python-backed skill for fact-grounded context control in long multi-agent tasks"
 requires-python = ">=3.10"
 dependencies = []

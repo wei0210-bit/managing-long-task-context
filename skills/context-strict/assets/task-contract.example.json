@@ -41,6 +41,7 @@
         "idempotency-check",
         "transaction-write"
       ],
+      "required_hops_mode": "single-evidence-ordered",
       "required_scope": {"module": "payment-callback", "environment": "test"},
       "required_delivery_types": [],
       "independent_validation_required": false

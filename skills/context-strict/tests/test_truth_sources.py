@@ -13,6 +13,7 @@ import tempfile
 import threading
 import unittest
 import uuid
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -39,17 +40,17 @@ def _truth_source_example_module() -> object:
     return module
 
 
-LEGACY_HASHES = {
-    "brief": "sha256:1017b34d7e09589d35c1d6535e7feaeba4d6d9b74706f535084ff355fb75bfd4",
-    "contract_file": "sha256:c0fbeee12dcf8486d743c46465d38e91fd952b9ae93381c691282b39190d7892",
-    "diagnostics": "sha256:ca9e69d280821cd39d127bfce0837e6909b57f5212f96fc52c86a93b1c2c188f",
-    "events_file": "sha256:7d33c3fc8a0abd6cc7942420c3cf86cdf497bd5be1d0f7ae47a231c72f3e65d9",
-    "gate_completion": "sha256:caa88b955439ca7e0a90bafdc2be4b6466bab8b795d7bd60cffaff2c9b3d111b",
-    "gate_handoff": "sha256:a451310f64c7464896b06a5905e905c6080f300948c58830bd978968b7a5d242",
-    "gate_release": "sha256:3d2ef964067cff8e4c50387108cc70e93d8f68caa036ddb9f6520abd409af895",
-    "gate_resume": "sha256:533bb8cfcfc8e956141f84148f28e153cfeddfd99422bb6b83b5123e3a330282",
-    "seal": "sha256:a80fcf6e033fbdcea3f96f8d12719b92405a9ec3cf203f70636bfef307ba0ab0",
-    "snapshot_file": "sha256:1af1f6ee2f763cdb86901a9665b17be14f331669ffeac8db21d905753f3d72b9",
+V05_PUBLIC_HASHES = {
+    "brief": "sha256:c9846541b22d25c9514a4d9b2fd252cb025144b50fca0a526198790e1f20329e",
+    "contract_file": "sha256:9bb7f25284ba577c78f7df5b9d3da2f6a8c84eabc425b82caa76c47c36278a07",
+    "diagnostics": "sha256:6d74d3e5a3c072fccf0e3bd96ea2a3cf41d608f79d758517e0afcc5c57d536d7",
+    "events_file": "sha256:76391c0c3b08548e9ad078f0d27822351da48101112255bad67d343bc6f4f45d",
+    "gate_completion": "sha256:409b9c9e5dad40216c6140338f76e7d5a57d3b54824589ad8da735af2ea58c9d",
+    "gate_handoff": "sha256:efc2794f816cbf23e78b47e51297d1f1c55b5a7808162e70497c27251b61211d",
+    "gate_release": "sha256:2c7b710eecc68259d1f19e0a5dcc589c8b40d8156b66c2aabd0e0e364d9f783e",
+    "gate_resume": "sha256:1aba4d5fec09aa2df900bf3b0d7bf3a78e2697dd8e41ae829d6e83a690063ae6",
+    "seal": "sha256:067a43c29c406b88661da8b82a9583e483f6519aed379980b166a0f532ff3d49",
+    "snapshot_file": "sha256:fa1073de78f8219cb5fbc75191cc56956adfa2ce7aff608e1dda3f0c552330f2",
 }
 
 LEGACY_CONTRACT = {
@@ -78,6 +79,21 @@ def _hash_json(value: object) -> str:
 
 def _hash_file(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _normalize_storage_paths(value: object, base_dir: Path) -> object:
+    """Keep storage metadata in golden reports without hashing temp directory names."""
+
+    normalized = deepcopy(value)
+    if not isinstance(normalized, dict):
+        return normalized
+    storage = normalized.get("storage")
+    if isinstance(storage, dict):
+        storage["resolved_base_dir"] = "<BASE_DIR>"
+        task_root = storage.get("task_root")
+        if isinstance(task_root, str):
+            storage["task_root"] = task_root.replace(str(base_dir.resolve()), "<BASE_DIR>")
+    return normalized
 
 
 def _exclusive_lock_probe(lock_path: str, result_queue: object) -> None:
@@ -152,10 +168,10 @@ class TruthSourcePilotExampleTests(unittest.TestCase):
             self.assertEqual(fixture_brief["fingerprint"], expected_fingerprint)
 
 
-class LegacyTruthSourceCompatibilityTests(unittest.TestCase):
+class VersionedPublicCompatibilityTests(unittest.TestCase):
     maxDiff = None
 
-    def test_legacy_public_reports_and_ledgers_remain_exact(self) -> None:
+    def test_v05_public_reports_and_ledgers_remain_exact(self) -> None:
         now = datetime(2026, 8, 31, 3, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as temporary_dir, \
              patch.object(context, "_now", return_value=now.isoformat()), \
@@ -171,17 +187,27 @@ class LegacyTruthSourceCompatibilityTests(unittest.TestCase):
             hashes = {
                 "brief": _hash_json(context.brief("LEGACY-GOLDEN", base_dir=base)),
                 "contract_file": _hash_file(task_dir / "task-contract.json"),
-                "diagnostics": _hash_json(context.brief_diagnostics("LEGACY-GOLDEN", base_dir=base)),
+                "diagnostics": _hash_json(_normalize_storage_paths(
+                    context.brief_diagnostics("LEGACY-GOLDEN", base_dir=base), base,
+                )),
                 "events_file": _hash_file(task_dir / "events.jsonl"),
-                "gate_completion": _hash_json(context.gate("LEGACY-GOLDEN", stage="completion", base_dir=base, emit=False)),
-                "gate_handoff": _hash_json(context.gate("LEGACY-GOLDEN", stage="handoff", base_dir=base, emit=False)),
-                "gate_release": _hash_json(context.gate("LEGACY-GOLDEN", stage="release", base_dir=base, emit=False)),
-                "gate_resume": _hash_json(context.gate("LEGACY-GOLDEN", stage="resume", base_dir=base, emit=False)),
+                "gate_completion": _hash_json(_normalize_storage_paths(
+                    context.gate("LEGACY-GOLDEN", stage="completion", base_dir=base, emit=False), base,
+                )),
+                "gate_handoff": _hash_json(_normalize_storage_paths(
+                    context.gate("LEGACY-GOLDEN", stage="handoff", base_dir=base, emit=False), base,
+                )),
+                "gate_release": _hash_json(_normalize_storage_paths(
+                    context.gate("LEGACY-GOLDEN", stage="release", base_dir=base, emit=False), base,
+                )),
+                "gate_resume": _hash_json(_normalize_storage_paths(
+                    context.gate("LEGACY-GOLDEN", stage="resume", base_dir=base, emit=False), base,
+                )),
                 "seal": published["seal"]["integrity_digest"],
                 "snapshot_file": _hash_file(task_dir / "snapshot.json"),
             }
 
-        self.assertEqual(hashes, LEGACY_HASHES)
+        self.assertEqual(hashes, V05_PUBLIC_HASHES)
 
 
 class ReadOnlyLockingTests(unittest.TestCase):
@@ -1114,9 +1140,9 @@ class TruthSourceRecoveryTests(_TruthSourceContractFixture):
 
     def test_snapshot_write_failure_rebuilds_from_complete_event_log(self) -> None:
         original = context._atomic_write_json
-        def write_contract_only(path: Path, value: object) -> None:
+        def write_contract_only(path: Path, value: object, **kwargs: object) -> None:
             if path.name == "task-contract.json":
-                original(path, value)
+                original(path, value, **kwargs)
                 return
             raise OSError("snapshot cut")
         with patch.object(context, "_atomic_write_json", side_effect=write_contract_only):
@@ -1142,9 +1168,9 @@ class TruthSourceRecoveryTests(_TruthSourceContractFixture):
                     self.publish()
                 else:
                     original = context._atomic_write_json
-                    def write_contract_only(path: Path, value: object) -> None:
+                    def write_contract_only(path: Path, value: object, **kwargs: object) -> None:
                         if path.name == "task-contract.json":
-                            original(path, value)
+                            original(path, value, **kwargs)
                             return
                         raise OSError("snapshot cut")
                     with patch.object(context, "_atomic_write_json", side_effect=write_contract_only):
@@ -1180,9 +1206,9 @@ class TruthSourceRecoveryTests(_TruthSourceContractFixture):
                         failure = patch.object(context, "_append_event_locked", side_effect=OSError("event cut"))
                     elif cut == "snapshot-write":
                         original = context._atomic_write_json
-                        def write_contract_only(path: Path, value: object) -> None:
+                        def write_contract_only(path: Path, value: object, **kwargs: object) -> None:
                             if path.name == "task-contract.json":
-                                original(path, value)
+                                original(path, value, **kwargs)
                                 return
                             raise OSError("snapshot cut")
                         failure = patch.object(context, "_atomic_write_json", side_effect=write_contract_only)
