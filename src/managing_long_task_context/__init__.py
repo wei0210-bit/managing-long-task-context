@@ -22,6 +22,28 @@ from pathlib import Path
 import threading
 from typing import Any, Iterable, Mapping, Sequence
 
+
+def _identity_import_manifest() -> tuple[Path | None, str | None]:
+    """Observe package identity before any controlled sibling module is imported."""
+    here = Path(__file__).resolve()
+    manifest = next((parent / "skill-manifest.json" for parent in (here, *here.parents) if (parent / "skill-manifest.json").is_file()), None)
+    if manifest is None:
+        return None, None
+    digest = hashlib.sha256()
+    try:
+        with manifest.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return manifest, None
+    return manifest, digest.hexdigest()
+
+
+_IDENTITY_MANIFEST_BEFORE, _IDENTITY_DIGEST_BEFORE = _identity_import_manifest()
+
+from . import _identity_core
+from . import evidence as _evidence_module
+from . import truth_sources as _truth_sources_module
 from .evidence import (
     BUILTIN_RESOLVER_CAPABILITIES,
     MAX_CLOCK_SKEW_SECONDS,
@@ -39,6 +61,8 @@ from .truth_sources import (
     truth_sources_enabled,
     validate_truth_source_contract,
 )
+from . import runtime_identity as _runtime_identity_module
+from .runtime_identity import _capture_baseline, checked_resume, runtime_identity
 
 try:  # Prime Agent targets macOS/Linux; keep a safe fallback for other runtimes.
     import fcntl  # type: ignore
@@ -4021,9 +4045,33 @@ _BOUND_ACTIONS = frozenset({
 class BoundContext:
     """Bind all task operations to one explicit, absolute context directory."""
 
-    def __init__(self, base_dir: str | Path) -> None:
+    def __init__(
+        self, base_dir: str | Path, *, workspace_root: str | Path | None = None,
+        package_root: str | Path | None = None,
+    ) -> None:
         resolved, _ = _resolve_base_dir(base_dir)
         self.base_dir = resolved
+        if (workspace_root is None) != (package_root is None):
+            raise ValueError("workspace_root and package_root must be provided together")
+        if workspace_root is not None and not Path(workspace_root).expanduser().is_absolute():
+            raise ValueError("workspace_root must be an absolute path")
+        if package_root is not None and not Path(package_root).expanduser().is_absolute():
+            raise ValueError("package_root must be an absolute path")
+        self.workspace_root = Path(workspace_root).expanduser().resolve() if workspace_root is not None else None
+        self.package_root = Path(package_root).expanduser().resolve() if package_root is not None else None
+
+    def checked_resume(self, task_id: str) -> dict[str, object]:
+        """Resume only when this bound client captured a complete identity."""
+        if self.workspace_root is None or self.package_root is None:
+            return {
+                "diagnostic": _identity_core.binding_missing_report(
+                    "bound checked_resume requires workspace_root and package_root at bind time",
+                ),
+                "context": None,
+            }
+        return checked_resume(
+            task_id, package_root=self.package_root, workspace_root=self.workspace_root, base_dir=self.base_dir,
+        )
 
     def __getattr__(self, name: str) -> Any:
         if name not in _BOUND_ACTIONS:
@@ -4049,10 +4097,13 @@ class BoundContext:
         return bound_call
 
 
-def bind(base_dir: str | Path) -> BoundContext:
+def bind(
+    base_dir: str | Path, *, workspace_root: str | Path | None = None,
+    package_root: str | Path | None = None,
+) -> BoundContext:
     """Return a client whose calls cannot drift with the process working directory."""
 
-    return BoundContext(base_dir)
+    return BoundContext(base_dir, workspace_root=workspace_root, package_root=package_root)
 
 
 async def run(action: str, **kwargs: Any) -> Any:
@@ -4075,6 +4126,8 @@ async def run(action: str, **kwargs: Any) -> Any:
         "audit": audit,
         "gate": gate,
         "workspace_observation": workspace_observation,
+        "runtime_identity": runtime_identity,
+        "checked_resume": checked_resume,
     }
     function = actions.get(action)
     if function is None:
@@ -4100,7 +4153,20 @@ __all__ = [
     "audit",
     "gate",
     "workspace_observation",
+    "runtime_identity",
+    "checked_resume",
     "BoundContext",
     "bind",
     "run",
 ]
+
+
+# Do not defer this to the first guarded resume: a process that observed a
+# package replacement while loading must remain unverified until it is restarted.
+_capture_baseline((
+    Path(__file__).resolve(),
+    Path(_identity_core.__file__).resolve(),
+    Path(_evidence_module.__file__).resolve(),
+    Path(_truth_sources_module.__file__).resolve(),
+    Path(_runtime_identity_module.__file__).resolve(),
+), initial_manifest_path=_IDENTITY_MANIFEST_BEFORE, initial_manifest_sha256=_IDENTITY_DIGEST_BEFORE)

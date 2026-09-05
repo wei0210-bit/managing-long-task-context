@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -12,6 +13,24 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping
+
+
+def _manifest_identity() -> tuple[Path | None, str | None]:
+    for parent in Path(__file__).resolve().parents:
+        manifest = parent / "skill-manifest.json"
+        try:
+            raw = manifest.read_bytes()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return manifest, None
+        return manifest, hashlib.sha256(raw).hexdigest()
+    return None, None
+
+
+_MANIFEST_BEFORE, _MANIFEST_DIGEST_BEFORE = _manifest_identity()
+
+import context_identity_core as identity_core
 
 
 TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -32,6 +51,14 @@ MUTATING_COMMANDS = {
 MUTATING_GIT = {"add", "am", "branch", "checkout", "cherry-pick", "clean", "commit", "merge", "pull", "push", "rebase", "reset", "restore", "revert", "switch", "tag"}
 MUTATING_GH = {"issue edit", "issue close", "issue create", "pr merge", "pr close", "pr create", "run rerun", "workflow run"}
 VAGUE_REFERENCE = re.compile(r"^(?:here|there|above|earlier|previous|当前|这里|那里|上面|刚才|之前)$", re.IGNORECASE)
+
+
+_MANIFEST_AFTER, _MANIFEST_DIGEST_AFTER = _manifest_identity()
+_LOADED_MANIFEST_SHA256 = (
+    _MANIFEST_DIGEST_BEFORE
+    if _MANIFEST_BEFORE is not None and _MANIFEST_AFTER == _MANIFEST_BEFORE
+    and _MANIFEST_DIGEST_BEFORE == _MANIFEST_DIGEST_AFTER else None
+)
 
 
 def _error(code: str, message: str, **details: object) -> dict[str, object]:
@@ -311,7 +338,46 @@ def _parser() -> argparse.ArgumentParser:
     observe = subparsers.add_parser("observe-path")
     observe.add_argument("--state-id", required=True)
     observe.add_argument("--path", type=Path, required=True)
+    resume = subparsers.add_parser("resume")
+    resume.add_argument("--package-root")
+    resume.add_argument("--context-root")
+    resume.add_argument("--workspace-root")
+    resume.add_argument("--task-id")
     return parser
+
+
+def _resume(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    required = (args.package_root, args.context_root, args.workspace_root, args.task_id)
+    if not all(required):
+        report = identity_core.input_failure("identity", "task", "all resume arguments are required")
+        return {"diagnostic": report, "context": None}, 1
+    diagnostic = identity_core.identity_diagnostic(
+        package_root=args.package_root,
+        runtime_paths=(Path(__file__).resolve(), Path(identity_core.__file__).resolve()),
+        loaded_manifest_sha256=_LOADED_MANIFEST_SHA256,
+        capabilities=("runtime-identity/v1", "workspace-binding/v1", "checked-resume/v1"),
+        binding_context_root=args.context_root,
+        workspace_root=args.workspace_root,
+        task_id=args.task_id,
+    )
+    if diagnostic["status"] != "pass":
+        return {"diagnostic": diagnostic, "context": None}, {"fail": 1, "unknown": 2}.get(diagnostic["status"], 2)
+    target = Path(args.context_root).resolve() / args.task_id / "NOW.md"
+    text, failure = _read(target)
+    if failure is not None or text is None:
+        diagnostic = identity_core._report(
+            mode="identity", scope="task", identity=diagnostic["identity"], binding=diagnostic["binding"],
+            checks=list(diagnostic["checks"]) + [identity_core._check("resume", "unknown", "READ_FAILED", "cannot read NOW.md")],
+        )
+        return {"diagnostic": diagnostic, "context": None}, 2
+    validation = validate_text(text, args.task_id)
+    if validation["status"] != "valid":
+        diagnostic = identity_core._report(
+            mode="identity", scope="task", identity=diagnostic["identity"], binding=diagnostic["binding"],
+            checks=list(diagnostic["checks"]) + [identity_core._check("resume", "fail", "RESUME_BLOCKED", "Lite NOW validation failed")],
+        )
+        return {"diagnostic": diagnostic, "context": None}, 1
+    return {"diagnostic": diagnostic, "context": text}, 0
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -322,6 +388,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         code = 0 if report["status"] == "valid" else 1
     elif args.command == "write":
         report, code = _write(args.candidate, args.base_dir.resolve(), args.task_id)
+    elif args.command == "resume":
+        report, code = _resume(args)
     else:
         readable = args.path.is_file() and os.access(args.path, os.R_OK)
         report = {

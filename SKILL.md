@@ -18,6 +18,13 @@ recovery should use Context Lite; a static single-turn judgment should use neith
 
 ## Workflow
 
+After package installation/update, run `scripts/context_doctor.py check --mode full
+--package-root <absolute-package>` (Strict needs explicit `PYTHONPATH=<package>/src`).
+For bound task recovery, prefer `checked_resume()`; it checks identity before returning
+context. Missing/mismatched identity stops recovery without silently rebinding. Full
+diagnosis is not a per-turn step. See `references/runtime-identity.md` when configuring
+binding or diagnosing an error; legacy direct APIs remain outside this identity check.
+
 ### 1. Bind storage, publish, then release
 
 Prefer one absolute store so process `cwd` cannot select a different task:
@@ -147,6 +154,8 @@ red?** Do not load that reference for routine execution.
 | Call | Purpose |
 |---|---|
 | `bind(base_dir)` | Bind all operations to one absolute context store |
+| `runtime_identity(...)` | Observe the calling process's package identity |
+| `checked_resume(...)` | Check explicit task/workspace identity before recovery |
 | `publish_contract(...)` | Validate, seal, and atomically publish a contract |
 | `record(...)` / `update_item(...)` | Append facts and state transitions |
 | `externalize_item(...)` | Shrink wording without changing fact identity or controls |

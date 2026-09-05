@@ -18,19 +18,33 @@ COPIED_FILES = (
     Path("examples/strict_completion.py"),
     Path("examples/truth_source_contract.py"),
     Path("references/production-failure-patterns.md"),
+    Path("references/runtime-identity.md"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
+    Path("src/managing_long_task_context/runtime_identity.py"),
+    Path("src/managing_long_task_context/_identity_core.py"),
     Path("tests/test_context.py"),
     Path("tests/test_dynamic_context_scenario.py"),
     Path("tests/test_evidence.py"),
     Path("tests/test_production_feedback.py"),
     Path("tests/test_truth_sources.py"),
+    Path("tests/test_runtime_identity.py"),
+    Path("tests/test_context_doctor.py"),
     Path("tests/fixtures/truth_source_pilot.md"),
 )
 
 
 class ContextStrictDistributionTests(unittest.TestCase):
+    def test_generated_diagnostic_tools_match_single_sources(self) -> None:
+        for package in (STRICT, ROOT / "skills/context-lite"):
+            for filename in ("context_doctor.py", "context_identity_core.py", "skill_package.py"):
+                with self.subTest(package=package.name, file=filename):
+                    self.assertEqual((package / "scripts" / filename).read_bytes(),
+                                     (ROOT / "scripts" / filename).read_bytes())
+        self.assertEqual((ROOT / "scripts/context_identity_core.py").read_bytes(),
+                         (ROOT / "src/managing_long_task_context/_identity_core.py").read_bytes())
+
     def test_distribution_matches_maintained_sources(self) -> None:
         expected_skill = (ROOT / "SKILL.md").read_text(encoding="utf-8").replace(
             "name: managing-long-task-context",

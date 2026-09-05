@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "skill_name": "context-lite",
-  "skill_version": "1.1.0",
+  "skill_version": "1.2.0",
   "payload_roots": [
     "SKILL.md",
     "assets",
@@ -10,9 +10,16 @@
   "required_paths": [
     "SKILL.md",
     "assets/NOW.template.md",
-    "scripts/context_lite.py"
+    "scripts/context_lite.py",
+    "scripts/context_doctor.py",
+    "scripts/context_identity_core.py",
+    "scripts/skill_package.py"
   ],
   "capabilities": {
+    "runtime-identity/v1": {"python_exports": []},
+    "workspace-binding/v1": {"python_exports": []},
+    "context-doctor/v1": {"python_exports": []},
+    "checked-resume/v1": {"python_exports": []},
     "markdown-recovery/v1": {
       "python_exports": []
     },

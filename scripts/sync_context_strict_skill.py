@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import runpy
 from pathlib import Path
 
 
@@ -18,14 +19,19 @@ COPIED_FILES = (
     Path("examples/strict_completion.py"),
     Path("examples/truth_source_contract.py"),
     Path("references/production-failure-patterns.md"),
+    Path("references/runtime-identity.md"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
+    Path("src/managing_long_task_context/runtime_identity.py"),
+    Path("src/managing_long_task_context/_identity_core.py"),
     Path("tests/test_context.py"),
     Path("tests/test_dynamic_context_scenario.py"),
     Path("tests/test_evidence.py"),
     Path("tests/test_production_feedback.py"),
     Path("tests/test_truth_sources.py"),
+    Path("tests/test_runtime_identity.py"),
+    Path("tests/test_context_doctor.py"),
     Path("tests/fixtures/truth_source_pilot.md"),
 )
 
@@ -47,6 +53,7 @@ def distributed_package_declaration() -> dict[str, object]:
 
 
 def sync() -> None:
+    runpy.run_path(str(ROOT / "scripts/sync_context_tools.py"))["sync"]()
     DESTINATION.mkdir(parents=True, exist_ok=True)
     (DESTINATION / "SKILL.md").write_text(distributed_skill_text(), encoding="utf-8")
     (DESTINATION / "skill-package.json").write_text(

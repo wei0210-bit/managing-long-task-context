@@ -51,6 +51,20 @@ prove, opt into `required_hops_mode: "single-evidence-ordered"`; legacy contract
 aggregate hop coverage. Detailed failure modes and boundaries live in
 [`references/production-failure-patterns.md`](references/production-failure-patterns.md).
 
+## Runtime identity and diagnostics
+
+Strict 0.6 and Lite 1.2 add `scripts/context_doctor.py` to complete packages. Use
+`check --mode full --package-root <absolute-package>` after installation/update;
+use identity-only checks and checked recovery during tasks. Strict callers must
+explicitly select their Python module path (`PYTHONPATH=<package>/src`); diagnostics
+do not silently repair a wrong import. Unknown or conflicting identities return
+no recovery content, and legacy APIs keep their existing behavior.
+
+See [runtime identity](references/runtime-identity.md) for binding initialization,
+CLI/Python examples, limitations and upgrade handling. These checks do not prove
+completion or replace existing evidence gates. [Issue 9 specification](docs/specs/runtime-identity-doctor.md)
+defines the acceptance matrix.
+
 ## Manual routing
 
 `scripts/context_skill_router.py` accepts explicit task characteristics and returns

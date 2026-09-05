@@ -22,6 +22,14 @@ python3 scripts/context_lite.py write --candidate <candidate> --base-dir <worksp
 
 ## Use When
 
+After installing/updating a complete package, run `scripts/context_doctor.py check
+--mode full --package-root <absolute-package>`. For identity-bound recovery use its
+`resume` command with explicit `--package-root`, `--workspace-root`, `--context-root`
+(the `.context-lite` directory), and `--task-id`. Initialize the existing task's binding
+explicitly with `init-binding` and the trusted build receipt's manifest hash. Missing
+or mismatched identity returns no recovery text; do not silently rebind. Full checks
+are not per-turn work; legacy validate/write semantics are unchanged.
+
 - One primary agent owns a low-risk task that spans turns, context windows, or days.
 - Ordinary review or tests can recover mistakes, and the goal is to avoid repeated
   exploration, lost decisions, or an unclear next step.
