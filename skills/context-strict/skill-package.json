@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "skill_name": "context-strict",
-  "skill_version": "0.6.0",
+  "skill_version": "0.7.0",
   "package_name": "managing-long-task-context",
-  "package_version": "0.6.0",
+  "package_version": "0.7.0",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",
@@ -20,9 +20,18 @@
     "pyproject.toml",
     "assets/task-contract.example.json",
     "assets/truth-source-contract.example.json",
+    "assets/experience-candidate.schema.json",
+    "assets/experience-validation.schema.json",
+    "assets/rule-execution.schema.json",
     "examples/strict_completion.py",
     "examples/truth_source_contract.py",
+    "examples/experience_review.py",
+    "examples/experience_candidates.py",
+    "examples/rule_execution.py",
+    "examples/experience_rule_gate.py",
+    "examples/independent_validation.py",
     "references/production-failure-patterns.md",
+    "references/independent-validation.md",
     "src/managing_long_task_context/__init__.py",
     "src/managing_long_task_context/evidence.py",
     "src/managing_long_task_context/truth_sources.py",
@@ -37,9 +46,18 @@
     "scripts/skill_package.py",
     "src/managing_long_task_context/runtime_identity.py",
     "src/managing_long_task_context/_identity_core.py",
+    "src/managing_long_task_context/_experience_store.py",
+    "src/managing_long_task_context/experience.py",
+    "src/managing_long_task_context/rule_execution.py",
     "references/runtime-identity.md",
     "tests/test_runtime_identity.py",
-    "tests/test_context_doctor.py"
+    "tests/test_context_doctor.py",
+    "scripts/context_experience.py",
+    "tests/test_context_experience_cli.py",
+    "tests/test_experience_review.py",
+    "tests/test_rule_execution.py",
+    "tests/test_experience_rule_gate.py",
+    "tests/test_independent_validation.py"
   ],
   "capabilities": {
     "runtime-identity/v1": {
@@ -124,6 +142,29 @@
       "python_exports": [
         "brief",
         "brief_diagnostics",
+        "gate"
+      ]
+    },
+    "experience-store/v1": {
+      "python_exports": [
+        "bind_experience"
+      ]
+    },
+    "experience-review/v1": {
+      "python_exports": [
+        "bind_experience"
+      ]
+    },
+    "rule-execution/v1": {
+      "python_exports": [
+        "publish_contract",
+        "gate"
+      ]
+    },
+    "independent-validation/v1": {
+      "python_exports": [
+        "bind",
+        "publish_contract",
         "gate"
       ]
     }

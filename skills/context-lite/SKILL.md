@@ -136,6 +136,32 @@ executor state, or a previous turn. It never auto-retries an in-flight action;
 re-execution requires clear evidence it did not run and either that it is safe to
 retry or explicit new user authorization.
 
+### Optional verified-experience suggestions
+
+For a low-risk recovery, an explicitly initialized project-local experience store
+may be queried only when both arguments are supplied together:
+
+```sh
+python3 scripts/context_lite.py resume --package-root <package> --context-root <context-root> \
+  --workspace-root <workspace> --task-id <task-id> \
+  --experience-store <store> --experience-tags <tag1,tag2>
+```
+
+Identity and `NOW.md` validation happen before this optional query. Suggestions
+are bounded, separately reported advice; they do not change `NOW.md`, erase a
+Blocker, prove applicability, or authorize an action. Candidates are never
+returned as reliable suggestions. If the experience store cannot be queried, its
+status is `unknown` and a valid low-risk resume remains usable.
+
+When the host knows a task needs selected-rule proof, it must pass
+`--requires-rule-proof`. Lite then returns `unknown/STRICT_REQUIRED` with no
+resumable context; select Context Strict. Lite has no review, approval, promotion,
+or automatic experience-library creation path, including at `finish`.
+
+For explicit candidate storage/query only, use `scripts/context_experience.py` with
+`assets/experience-candidate.schema.json`; run `examples/experience_candidates.py`.
+It has no review or approval command.
+
 ## finish
 
 **Observations:** verify that the user has selected a completion path and identify

@@ -342,7 +342,7 @@ class ContextSkillTests(unittest.TestCase):
         )
         self.assertFalse(report["passed"])
         self.assertEqual(report["criteria"]["AC-01"]["independent_validation"], {
-            "status": "unknown", "codes": ["MISSING_VALIDATED_AT"]
+            "status": "unknown", "assurance": "unknown", "codes": ["MISSING_VALIDATION_REF"]
         })
 
         dated_report = context.gate(
@@ -364,9 +364,9 @@ class ContextSkillTests(unittest.TestCase):
             base_dir=self.base,
             emit=False,
         )
-        self.assertTrue(dated_report["passed"], dated_report["errors"])
+        self.assertFalse(dated_report["passed"])
         self.assertEqual(dated_report["criteria"]["AC-01"]["independent_validation"], {
-            "status": "pass", "codes": []
+            "status": "unknown", "assurance": "unknown", "codes": ["MISSING_VALIDATION_REF"]
         })
 
     def test_completion_rejects_invalid_and_future_validated_at(self):
@@ -1290,10 +1290,10 @@ class ContextSkillTests(unittest.TestCase):
 
         self.assertFalse(report["passed"])
         result = report["criteria"]["AC-01"]
-        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["status"], "unknown")
         self.assertEqual(
             result["evidence_results"][0]["checks"]["integrity_and_freshness"],
-            {"status": "fail", "codes": ["MISSING_GENERATED_AT"]},
+            {"status": "unknown", "raw_status": "fail", "codes": ["MISSING_GENERATED_AT"]},
         )
 
     def test_completion_rejects_invalid_generated_at_when_freshness_required(self) -> None:
@@ -1370,10 +1370,10 @@ class ContextSkillTests(unittest.TestCase):
         self.assertTrue(before["passed"])
         self.assertFalse(after["passed"])
         result = after["criteria"]["AC-01"]
-        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["status"], "unknown")
         self.assertEqual(
             result["evidence_results"][0]["checks"]["resolve"],
-            {"status": "fail", "codes": ["NOT_FOUND"]},
+            {"status": "unknown", "raw_status": "fail", "codes": ["NOT_FOUND"]},
         )
         self.assertTrue(any("AC-01" in error and "EV-DELETION" in error for error in after["errors"]))
 
@@ -1473,18 +1473,18 @@ class ContextSkillTests(unittest.TestCase):
         )
 
         self.assertFalse(stale["passed"])
-        self.assertEqual(stale["criteria"]["AC-01"]["status"], "fail")
+        self.assertEqual(stale["criteria"]["AC-01"]["status"], "unknown")
         self.assertEqual(
             stale["criteria"]["AC-01"]["evidence_results"][0]["checks"][
                 "integrity_and_freshness"
             ],
-            {"status": "fail", "codes": ["STALE"]},
+            {"status": "unknown", "raw_status": "fail", "codes": ["STALE"]},
         )
         self.assertFalse(mismatched["passed"])
-        self.assertEqual(mismatched["criteria"]["AC-01"]["status"], "fail")
+        self.assertEqual(mismatched["criteria"]["AC-01"]["status"], "unknown")
         self.assertEqual(
             mismatched["criteria"]["AC-01"]["evidence_results"][0]["checks"]["scope"],
-            {"status": "fail", "codes": ["SCOPE_MISMATCH"]},
+            {"status": "unknown", "raw_status": "fail", "codes": ["SCOPE_MISMATCH"]},
         )
 
     def test_completion_requires_delivery_receipt(self) -> None:
@@ -1951,7 +1951,7 @@ class ContextSkillTests(unittest.TestCase):
         )
 
         self.assertFalse(report["passed"])
-        self.assertTrue(any("validator" in error.lower() for error in report["errors"]))
+        self.assertTrue(any("independent" in error.lower() for error in report["errors"]))
 
     def test_completion_rejects_validator_who_produced_delivery_receipt(self) -> None:
         criterion = self.contract["acceptance_criteria"][0]

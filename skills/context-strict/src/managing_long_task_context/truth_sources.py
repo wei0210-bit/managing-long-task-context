@@ -14,7 +14,7 @@ from typing import AbstractSet, Any, Callable, Mapping, Union
 
 
 CAPABILITY = "truth-sources/v1"
-SUPPORTED_CAPABILITIES = frozenset({CAPABILITY, "evidence-handlers/v1"})
+SUPPORTED_CAPABILITIES = frozenset({CAPABILITY, "evidence-handlers/v1", "rule-execution/v1"})
 TRUTH_ROOT_FIELDS = frozenset({"schema", "items"})
 TRUTH_ITEM_FIELDS = frozenset({
     "id", "purpose", "source_ref", "owner", "max_age_seconds",

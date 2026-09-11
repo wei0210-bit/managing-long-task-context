@@ -15,22 +15,40 @@ COPIED_FILES = (
     Path("pyproject.toml"),
     Path("assets/task-contract.example.json"),
     Path("assets/truth-source-contract.example.json"),
+    Path("assets/experience-candidate.schema.json"),
+    Path("assets/experience-validation.schema.json"),
+    Path("assets/rule-execution.schema.json"),
     Path("examples/strict_completion.py"),
     Path("examples/truth_source_contract.py"),
+    Path("examples/experience_review.py"),
+    Path("examples/experience_candidates.py"),
+    Path("examples/rule_execution.py"),
+    Path("examples/experience_rule_gate.py"),
+    Path("examples/independent_validation.py"),
     Path("references/production-failure-patterns.md"),
+    Path("references/independent-validation.md"),
     Path("references/runtime-identity.md"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
     Path("src/managing_long_task_context/runtime_identity.py"),
     Path("src/managing_long_task_context/_identity_core.py"),
+    Path("src/managing_long_task_context/_experience_store.py"),
+    Path("src/managing_long_task_context/experience.py"),
+    Path("src/managing_long_task_context/rule_execution.py"),
     Path("tests/test_context.py"),
+    Path("tests/test_completion_upgrade.py"),
     Path("tests/test_dynamic_context_scenario.py"),
     Path("tests/test_evidence.py"),
     Path("tests/test_production_feedback.py"),
     Path("tests/test_truth_sources.py"),
     Path("tests/test_runtime_identity.py"),
     Path("tests/test_context_doctor.py"),
+    Path("tests/test_context_experience_cli.py"),
+    Path("tests/test_experience_review.py"),
+    Path("tests/test_rule_execution.py"),
+    Path("tests/test_experience_rule_gate.py"),
+    Path("tests/test_independent_validation.py"),
     Path("tests/fixtures/truth_source_pilot.md"),
 )
 
@@ -38,12 +56,14 @@ COPIED_FILES = (
 class ContextStrictDistributionTests(unittest.TestCase):
     def test_generated_diagnostic_tools_match_single_sources(self) -> None:
         for package in (STRICT, ROOT / "skills/context-lite"):
-            for filename in ("context_doctor.py", "context_identity_core.py", "skill_package.py"):
+            for filename in ("context_doctor.py", "context_experience.py", "context_identity_core.py", "skill_package.py"):
                 with self.subTest(package=package.name, file=filename):
                     self.assertEqual((package / "scripts" / filename).read_bytes(),
                                      (ROOT / "scripts" / filename).read_bytes())
         self.assertEqual((ROOT / "scripts/context_identity_core.py").read_bytes(),
                          (ROOT / "src/managing_long_task_context/_identity_core.py").read_bytes())
+        self.assertEqual((ROOT / "scripts/context_experience.py").read_bytes(),
+                         (ROOT / "src/managing_long_task_context/_experience_store.py").read_bytes())
 
     def test_distribution_matches_maintained_sources(self) -> None:
         expected_skill = (ROOT / "SKILL.md").read_text(encoding="utf-8").replace(
@@ -76,6 +96,16 @@ class ContextStrictDistributionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_distributed_independent_validation_example_executes_from_skill_root(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "examples/independent_validation.py"],
+            cwd=STRICT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_distribution_includes_truth_source_files(self) -> None:
         required = (
             Path("assets/truth-source-contract.example.json"),
@@ -96,6 +126,9 @@ class ContextStrictDistributionTests(unittest.TestCase):
             Path("src/managing_long_task_context/truth_sources.py"),
             Path("tests/test_truth_sources.py"),
             Path("tests/fixtures/truth_source_pilot.md"),
+            Path("examples/independent_validation.py"),
+            Path("references/independent-validation.md"),
+            Path("tests/test_independent_validation.py"),
         ):
             self.assertEqual(COPIED_FILES.count(relative), 1)
 

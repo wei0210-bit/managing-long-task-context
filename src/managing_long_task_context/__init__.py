@@ -44,6 +44,10 @@ _IDENTITY_MANIFEST_BEFORE, _IDENTITY_DIGEST_BEFORE = _identity_import_manifest()
 from . import _identity_core
 from . import evidence as _evidence_module
 from . import truth_sources as _truth_sources_module
+from . import rule_execution as _rule_execution_module
+from . import experience as _experience_module
+from . import _experience_store as _experience_store_module
+from .experience import bind_experience
 from .evidence import (
     BUILTIN_RESOLVER_CAPABILITIES,
     MAX_CLOCK_SKEW_SECONDS,
@@ -60,6 +64,12 @@ from .truth_sources import (
     resolve_file_source,
     truth_sources_enabled,
     validate_truth_source_contract,
+)
+from .rule_execution import (
+    evaluate_rule_execution,
+    recheck_rule_sources,
+    rule_execution_enabled,
+    validate_rule_execution_contract,
 )
 from . import runtime_identity as _runtime_identity_module
 from .runtime_identity import _capture_baseline, checked_resume, runtime_identity
@@ -305,6 +315,126 @@ def _contract_digest(contract: Mapping[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(_canonical_contract(contract)).hexdigest()
 
 
+def _validate_independent_validation_inputs(
+    independent_validation_required: bool | None, validation_resolver: Any,
+) -> None:
+    """Validate host-owned independence inputs; JSON never supplies a callable."""
+    if independent_validation_required is not None and type(independent_validation_required) is not bool:
+        raise TypeError("independent_validation_required must be a boolean or None")
+    if validation_resolver is not None and not callable(validation_resolver):
+        raise TypeError("validation_resolver must be callable or None")
+
+
+def _all_criteria_require_independent_validation(contract: Mapping[str, Any]) -> bool:
+    criteria = contract.get("acceptance_criteria")
+    return (
+        isinstance(criteria, list)
+        and bool(criteria)
+        and all(isinstance(item, Mapping) and item.get("independent_validation_required") is True for item in criteria)
+    )
+
+
+def _independence_downgraded(
+    previous: Mapping[str, Any], candidate: Mapping[str, Any],
+) -> bool:
+    old_criteria = previous.get("acceptance_criteria")
+    new_criteria = candidate.get("acceptance_criteria")
+    if not isinstance(old_criteria, list) or not isinstance(new_criteria, list):
+        return False
+    new_by_id = {
+        item.get("id"): item for item in new_criteria
+        if isinstance(item, Mapping) and isinstance(item.get("id"), str)
+    }
+    return any(
+        isinstance(old, Mapping)
+        and old.get("independent_validation_required") is True
+        and (
+            not isinstance(new_by_id.get(old.get("id")), Mapping)
+            or new_by_id[old.get("id")].get("independent_validation_required") is not True
+        )
+        for old in old_criteria
+    )
+
+
+def _gate_independence_policy_error(
+    contract: Mapping[str, Any], independent_validation_required: bool | None,
+) -> str | None:
+    if independent_validation_required is True and not _all_criteria_require_independent_validation(contract):
+        return "host independent_validation_required=true conflicts with stored contract"
+    return None
+
+
+def _mark_independence_callback_changed(report: dict[str, Any]) -> None:
+    """A callback changed the sealed baseline, so its apparent proof is unusable."""
+    criteria = report.get("criteria")
+    if not isinstance(criteria, Mapping):
+        return
+    for result in criteria.values():
+        if not isinstance(result, dict):
+            continue
+        independence = result.get("independent_validation")
+        if not isinstance(independence, dict) or independence.get("assurance") != "verified":
+            continue
+        independence["status"] = "unknown"
+        independence["assurance"] = "unknown"
+        independence["codes"] = ["VALIDATION_CALLBACK_CHANGED_BASELINE"]
+        if result.get("status") == "pass":
+            result["status"] = "unknown"
+
+
+def _recheck_independent_validation_times(
+    report: dict[str, Any], contract: Mapping[str, Any], now: datetime,
+) -> list[str]:
+    """Invalidate verified receipts that are no longer current at completion."""
+    criteria = report.get("criteria")
+    stored_criteria = contract.get("acceptance_criteria")
+    if not isinstance(criteria, Mapping) or not isinstance(stored_criteria, list):
+        return []
+    baselines = {
+        item.get("id"): item for item in stored_criteria
+        if isinstance(item, Mapping) and isinstance(item.get("id"), str)
+    }
+    errors: list[str] = []
+    for identifier, result in criteria.items():
+        if not isinstance(identifier, str) or not isinstance(result, dict):
+            continue
+        independence = result.get("independent_validation")
+        baseline = baselines.get(identifier)
+        if (
+            not isinstance(independence, dict)
+            or independence.get("assurance") != "verified"
+            or not isinstance(baseline, Mapping)
+        ):
+            continue
+        validated_at = _parse_explicit_utc_timestamp(independence.get("validated_at"))
+        expires_at = _parse_explicit_utc_timestamp(independence.get("expires_at"))
+        code: str | None = None
+        if validated_at is None or expires_at is None:
+            code = "MISSING_OR_INVALID_VALIDATION_TIME"
+        elif validated_at > now or expires_at < now or expires_at < validated_at:
+            code = "VALIDATION_RECEIPT_NOT_CURRENT"
+        else:
+            maximum_age = baseline.get("max_evidence_age_seconds")
+            if type(maximum_age) is int and now - validated_at > timedelta(seconds=maximum_age):
+                code = "VALIDATION_RECEIPT_STALE"
+        if code is None:
+            continue
+        independence["status"] = "unknown"
+        independence["assurance"] = "unknown"
+        independence["codes"] = [code]
+        if result.get("status") == "pass":
+            result["status"] = "unknown"
+        errors.append(f"criterion {identifier} independent validation is unknown: ['{code}']")
+    return errors
+
+
+def _completion_context_token(task_id: str, base_dir: str | Path | None) -> bytes | None:
+    try:
+        return canonical_json_bytes(_read_json(_paths(task_id, base_dir)["snapshot"]))
+    except ContextError:
+        return None
+
+
 def _version_key(value: Any) -> tuple[int, str]:
     if isinstance(value, int):
         return value, str(value)
@@ -337,6 +467,7 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
         errors.append("contract.acceptance_criteria must contain publisher-written criteria")
         errors.extend(validate_truth_source_contract(contract))
         errors.extend(validate_evidence_handler_contract(contract))
+        errors.extend(validate_rule_execution_contract(contract))
         return errors
 
     actor_roles = contract.get("actor_roles")
@@ -453,6 +584,7 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
         errors.extend(_criterion_revision_shape_errors(criterion, prefix))
     errors.extend(validate_truth_source_contract(contract))
     errors.extend(validate_evidence_handler_contract(contract))
+    errors.extend(validate_rule_execution_contract(contract))
     return errors
 
 
@@ -1229,6 +1361,8 @@ def publish_contract(
     confirmed_by: str,
     base_dir: str | Path | None = None,
     protect_contract: bool = True,
+    independent_validation_required: bool | None = None,
+    validation_resolver: Any = None,
 ) -> dict[str, Any]:
     """Validate, seal, and publish a publisher-authored task contract.
 
@@ -1237,6 +1371,9 @@ def publish_contract(
 
     if not isinstance(protect_contract, bool):
         raise TypeError("protect_contract must be a boolean")
+    _validate_independent_validation_inputs(
+        independent_validation_required, validation_resolver,
+    )
 
     value = deepcopy(dict(contract))
     value.setdefault("schema", SCHEMA_VERSION)
@@ -1244,6 +1381,10 @@ def publish_contract(
     errors = _validate_contract_shape(value)
     if errors:
         raise ContextError("contract rejected: " + "; ".join(errors))
+    if independent_validation_required is True and not _all_criteria_require_independent_validation(value):
+        raise ContextError(
+            "independent_validation_required=true requires every acceptance criterion to require independent validation"
+        )
     try:
         value = _json_clone(value)
     except (TypeError, ValueError) as exc:
@@ -1303,6 +1444,13 @@ def publish_contract(
                     raise ContextError(commit_errors[0])
             if _version_key(value["version"]) <= _version_key(existing.get("version")):
                 raise ContextError("contract update requires a greater version")
+            if (
+                independent_validation_required is not False
+                and _independence_downgraded(existing, value)
+            ):
+                raise ContextError(
+                    "independent validation cannot be removed without independent_validation_required=false"
+                )
 
         value.pop("seal", None)
         value["seal"] = {
@@ -3202,7 +3350,7 @@ def _append_missing_evidence_type_errors(
 def _gate_truth_enabled(
     task_id: str, *, entry: Mapping[str, Any], evidence_map: Mapping[str, Mapping[str, Any]] | None,
     resolvers: Mapping[str, Any] | None, verifiers: Mapping[str, Any] | None,
-    emit: bool, base_dir: str | Path | None, clock: Any,
+    validation_resolver: Any, emit: bool, base_dir: str | Path | None, clock: Any,
 ) -> dict[str, Any]:
     """Run completion callbacks outside the entry lock, then fix its tail verdict under lock."""
     entry_view = entry["view"]
@@ -3226,7 +3374,8 @@ def _gate_truth_enabled(
                 try:
                     criterion_report = _evaluate_completion_criterion(
                         deepcopy(criterion), evidence_entry, deepcopy(entry_view["contract"]),
-                        resolvers=resolvers, verifiers=verifiers, now=entry["now"],
+                        resolvers=resolvers, verifiers=verifiers,
+                        validation_resolver=validation_resolver, now=entry["now"],
                     )
                 except Exception as exc:
                     criterion_report = {"status": "unknown", "evidence_results": [], "missing_evidence_types": [], "missing_hops": [], "missing_delivery_types": [], "independent_validation": {"status": "unknown", "codes": ["CRITERION_EVALUATION_ERROR"]}}
@@ -3246,6 +3395,7 @@ def _gate_truth_enabled(
                     tail_view = _load_committed_task_view_locked(task_id, paths)
                 except ContextError as exc:
                     errors.append(f"truth source tail unavailable: {type(exc).__name__}")
+                    _mark_independence_callback_changed({"criteria": criterion_reports})
                     tail_truth = deepcopy(entry_truth)
                     for item in tail_truth.get("results", []):
                         if isinstance(item, dict):
@@ -3256,6 +3406,7 @@ def _gate_truth_enabled(
                     tail_truth = _evaluate_truth_phase_locked(tail_view, now=tail_now)
                     if tail_truth is None:
                         errors.append("truth source tail unavailable: ContextError")
+                        _mark_independence_callback_changed({"criteria": criterion_reports})
                         tail_truth = deepcopy(entry_truth)
                         for item in tail_truth.get("results", []):
                             if isinstance(item, dict):
@@ -3265,8 +3416,10 @@ def _gate_truth_enabled(
                         tail_evaluated = True
                         if _truth_entry_token(tail_view) != entry["token"]:
                             errors.append("truth source control changed during completion")
+                            _mark_independence_callback_changed({"criteria": criterion_reports})
                         if not tail_truth["passed"]:
                             errors.extend(_truth_gate_errors(tail_truth))
+                            _mark_independence_callback_changed({"criteria": criterion_reports})
                 final_truth = tail_truth
                 entry_stats = entry_truth.get("stats", {})
                 tail_stats = tail_truth.get("stats", {}) if tail_evaluated else {}
@@ -3285,6 +3438,7 @@ def _gate_truth_enabled(
         if tail_lock_acquired:
             raise
         errors.append(f"truth source tail unavailable: {type(exc).__name__}")
+        _mark_independence_callback_changed({"criteria": criterion_reports})
         final_truth = deepcopy(entry_truth)
         for item in final_truth.get("results", []):
             if isinstance(item, dict):
@@ -3308,6 +3462,7 @@ def _gate_core(
     documents: Sequence[str | Path] | None = None,
     resolvers: Mapping[str, Any] | None = None,
     verifiers: Mapping[str, Any] | None = None,
+    validation_resolver: Any = None,
     clock: Any = _trusted_utc_now,
     emit: bool = True,
     base_dir: str | Path | None = None,
@@ -3449,6 +3604,7 @@ def _gate_core(
                         deepcopy(contract_baseline),
                         resolvers=resolvers,
                         verifiers=verifiers,
+                        validation_resolver=validation_resolver,
                         now=observed_now,
                     )
                 except Exception as exc:
@@ -3540,6 +3696,7 @@ def _evaluate_completion_criterion(
     resolvers: Mapping[str, Any] | None,
     verifiers: Mapping[str, Any] | None,
     now: datetime,
+    validation_resolver: Any = None,
 ) -> dict[str, Any]:
     """Derive one criterion from an immutable requirements/evidence baseline."""
 
@@ -3693,6 +3850,31 @@ def _evaluate_completion_criterion(
             verifiers=verifiers,
             now=now,
         )
+        # Unavailable evidence is not proof that the acceptance condition is
+        # false. Preserve raw checks for diagnostics; both outcomes still block.
+        unavailable_codes = {
+            "NOT_FOUND", "STALE", "DIGEST_MISMATCH", "REVISION_MISMATCH",
+            "SCOPE_MISMATCH", "OUTSIDE_ALLOWED_ROOT", "MISSING_GENERATED_AT",
+        }
+        for layer in ("resolve", "integrity_and_freshness", "scope", "claim"):
+            value = result["checks"].get(layer, {})
+            codes = set(value.get("codes", []))
+            if value.get("status") == "fail" and codes and codes <= unavailable_codes:
+                value["raw_status"] = "fail"
+                value["status"] = "unknown"
+        if "contract_version" in source and (
+            type(source["contract_version"]) is not int
+            or source["contract_version"] != contract_baseline.get("version")
+        ):
+            result["checks"]["contract_binding"] = {
+                "status": "unknown", "codes": ["CONTRACT_VERSION_MISMATCH"],
+            }
+        statuses = [value["status"] for value in result["checks"].values()]
+        result["status"] = "fail" if "fail" in statuses else "unknown" if "unknown" in statuses else "pass"
+        if evidence_handlers_enabled(contract_baseline):
+            result["locator"] = source.get("locator")
+            result["repo_revision"] = source.get("repo_revision")
+            result["scope"] = deepcopy(source.get("scope"))
         if label == "evidence" and "covered_hops" in source and not _valid_string_list(
             source.get("covered_hops"), allow_empty=True
         ):
@@ -3754,6 +3936,8 @@ def _evaluate_completion_criterion(
         [*primary_sources, *receipt_sources],
         contract_baseline,
         now,
+        criterion_baseline=criterion_baseline,
+        validation_resolver=validation_resolver,
     )
     statuses = [result.get("status", "unknown") for result in evidence_results]
     if not primary_results:
@@ -3774,6 +3958,9 @@ def _evaluate_completion_criterion(
     }
     if hop_validation is not None:
         result["hop_validation"] = hop_validation
+    if evidence_handlers_enabled(contract_baseline):
+        result.update(criterion_id=criterion_id, contract_version=contract_baseline.get("version"),
+                      workspace_root=contract_baseline.get("workspace_root"))
     return result
 
 
@@ -3843,57 +4030,163 @@ def _independent_validation_check(
     evidence_sources: Sequence[Mapping[str, Any] | None],
     contract: Mapping[str, Any],
     now: datetime,
+    *,
+    criterion_baseline: Mapping[str, Any],
+    validation_resolver: Any,
 ) -> dict[str, Any]:
+    """Check a host receipt without accepting model-supplied identity claims."""
     if not required:
-        return {"status": "pass", "codes": []}
-    validated_at_value = entry.get("validated_at")
-    if validated_at_value is None:
-        return {"status": "unknown", "codes": ["MISSING_VALIDATED_AT"]}
-    validated_at = _parse_explicit_utc_timestamp(validated_at_value)
-    if validated_at is None:
-        return {"status": "fail", "codes": ["INVALID_VALIDATED_AT"]}
-    if validated_at > now + timedelta(seconds=MAX_CLOCK_SKEW_SECONDS):
-        return {"status": "fail", "codes": ["FUTURE_VALIDATED_AT"]}
-    validator = entry.get("validated_by")
-    if not isinstance(validator, str) or not validator.strip():
-        return {"status": "unknown", "codes": ["MISSING_INDEPENDENT_VALIDATOR"]}
+        result = {"status": "pass", "codes": []}
+        if evidence_handlers_enabled(contract):
+            result["assurance"] = "not_required"
+        return result
 
-    actor_roles = contract.get("actor_roles")
-    if not isinstance(actor_roles, Mapping):
-        return {"status": "fail", "codes": ["VALIDATOR_ROLE_UNENFORCEABLE"]}
-    validator_roles = actor_roles.get(validator)
-    if not isinstance(validator_roles, list) or "validator" not in validator_roles:
-        return {"status": "fail", "codes": ["VALIDATOR_ROLE_REQUIRED"]}
-
-    producer_fields = ("produced_by", "submitted_by", "owner", "executor", "actor")
-    producers: set[str] = set()
-    missing_producer = False
-    for source in evidence_sources:
-        if not isinstance(source, Mapping):
-            continue
-        identities = {
+    # Keep explicit legacy role/time violations blocking.  These fields cannot
+    # establish independence, but an already supplied self-review or impossible
+    # timestamp must not become acceptable merely because host proof is absent.
+    legacy_validated_at = entry.get("validated_at")
+    if legacy_validated_at is not None:
+        parsed_legacy_time = _parse_explicit_utc_timestamp(legacy_validated_at)
+        if parsed_legacy_time is None:
+            return {"status": "fail", "assurance": "failed", "codes": ["INVALID_VALIDATED_AT"]}
+        if parsed_legacy_time > now + timedelta(seconds=MAX_CLOCK_SKEW_SECONDS):
+            return {"status": "fail", "assurance": "failed", "codes": ["FUTURE_VALIDATED_AT"]}
+    legacy_validator = entry.get("validated_by")
+    if isinstance(legacy_validator, str) and legacy_validator.strip():
+        actor_roles = contract.get("actor_roles")
+        if not isinstance(actor_roles, Mapping):
+            return {"status": "fail", "assurance": "failed", "codes": ["VALIDATOR_ROLE_UNENFORCEABLE"]}
+        if not isinstance(actor_roles.get(legacy_validator), list) or "validator" not in actor_roles[legacy_validator]:
+            return {"status": "fail", "assurance": "failed", "codes": ["VALIDATOR_ROLE_REQUIRED"]}
+        producer_fields = ("produced_by", "submitted_by", "owner", "executor", "actor")
+        producers = {
             str(source.get(field))
+            for source in evidence_sources if isinstance(source, Mapping)
             for field in producer_fields
             if isinstance(source.get(field), str) and str(source.get(field)).strip()
         }
-        if not identities:
-            missing_producer = True
-        producers.update(identities)
-    for field in ("producer", "owner", "executor"):
-        if isinstance(entry.get(field), str) and str(entry.get(field)).strip():
-            producers.add(str(entry.get(field)))
+        producers.update(
+            str(entry.get(field)) for field in ("producer", "owner", "executor")
+            if isinstance(entry.get(field), str) and str(entry.get(field)).strip()
+        )
+        if legacy_validator in producers:
+            return {"status": "fail", "assurance": "failed", "codes": ["VALIDATOR_NOT_INDEPENDENT"]}
+    validation_ref = entry.get("validation_ref")
+    if not isinstance(validation_ref, str) or not validation_ref.strip():
+        return {"status": "unknown", "assurance": "unknown", "codes": ["MISSING_VALIDATION_REF"]}
+    if validation_resolver is None:
+        return {"status": "unknown", "assurance": "unknown", "codes": ["MISSING_TRUSTED_VALIDATION_RESOLVER"]}
 
-    if validator in producers:
-        return {"status": "fail", "codes": ["VALIDATOR_NOT_INDEPENDENT"]}
-    unknown_producers = [producer for producer in producers if producer not in actor_roles]
-    if missing_producer:
-        return {"status": "unknown", "codes": ["MISSING_EVIDENCE_PRODUCER"]}
-    if unknown_producers:
-        return {"status": "unknown", "codes": ["PRODUCER_ROLE_UNKNOWN"]}
-    return {"status": "pass", "codes": []}
+    def unknown(code: str) -> dict[str, Any]:
+        return {"status": "unknown", "assurance": "unknown", "codes": [code], "validation_ref": validation_ref}
+
+    workspace_root = contract.get("workspace_root")
+    if workspace_root is None or (isinstance(workspace_root, str) and not workspace_root.strip()):
+        return unknown("MISSING_CONTRACT_WORKSPACE_ROOT")
+    if not isinstance(workspace_root, str):
+        return unknown("INVALID_CONTRACT_WORKSPACE_ROOT")
+    try:
+        workspace_path = Path(workspace_root)
+        if not workspace_path.is_absolute():
+            return unknown("INVALID_CONTRACT_WORKSPACE_ROOT")
+        expected_workspace = str(workspace_path.resolve())
+    except (OSError, RuntimeError, ValueError):
+        return unknown("INVALID_CONTRACT_WORKSPACE_ROOT")
+    try:
+        receipt = validation_resolver(validation_ref)
+    except Exception:
+        return {"status": "unknown", "assurance": "unknown", "codes": ["VALIDATION_RESOLVER_ERROR"]}
+    if not isinstance(receipt, Mapping):
+        return {"status": "unknown", "assurance": "unknown", "codes": ["MALFORMED_VALIDATION_RECEIPT"]}
+    receipt_now = _trusted_utc_now()
+
+    criterion_id = criterion_baseline.get("id")
+    seal = contract.get("seal")
+    expected_digest = seal.get("integrity_digest") if isinstance(seal, Mapping) else None
+    exact_fields = {
+        "validation_ref": validation_ref,
+        "task_id": contract.get("task_id"),
+        "criterion_id": criterion_id,
+        "contract_digest": expected_digest,
+        "workspace_root": expected_workspace,
+    }
+    if any(receipt.get(key) != value for key, value in exact_fields.items()):
+        return unknown("VALIDATION_RECEIPT_BINDING_MISMATCH")
+
+    principals = receipt.get("executor_principals")
+    validator = receipt.get("validator_principal")
+    run_id = receipt.get("run_id")
+    checker_id = receipt.get("checker_id")
+    if (
+        not isinstance(principals, list)
+        or not principals
+        or any(not isinstance(item, str) or not item.strip() for item in principals)
+        or len(principals) != len(set(principals))
+        or not isinstance(validator, str) or not validator.strip()
+        or not isinstance(run_id, str) or not run_id.strip()
+        or not isinstance(checker_id, str) or not checker_id.strip()
+    ):
+        return unknown("MALFORMED_TRUSTED_PRINCIPALS_OR_RUN")
+    if validator in principals:
+        return {
+            "status": "fail", "assurance": "failed", "codes": ["VALIDATOR_NOT_INDEPENDENT"],
+            "validation_ref": validation_ref,
+            "executor_principals": list(principals), "validator_principal": validator,
+            "run_id": run_id, "checker_id": checker_id,
+        }
+
+    actor_roles = contract.get("actor_roles")
+    if not isinstance(actor_roles, Mapping):
+        return unknown("VALIDATOR_ROLE_UNENFORCEABLE")
+    if not isinstance(actor_roles.get(validator), list) or "validator" not in actor_roles[validator]:
+        return unknown("VALIDATOR_ROLE_REQUIRED")
+    if any(not isinstance(actor_roles.get(actor), list) or "executor" not in actor_roles[actor] for actor in principals):
+        return unknown("EXECUTOR_ROLE_REQUIRED")
+
+    validated_at = _parse_explicit_utc_timestamp(receipt.get("validated_at"))
+    expires_at = _parse_explicit_utc_timestamp(receipt.get("expires_at"))
+    if validated_at is None or expires_at is None:
+        return unknown("MISSING_OR_INVALID_VALIDATION_TIME")
+    if validated_at > receipt_now or expires_at < receipt_now or expires_at < validated_at:
+        return unknown("VALIDATION_RECEIPT_NOT_CURRENT")
+    maximum_age = criterion_baseline.get("max_evidence_age_seconds")
+    if type(maximum_age) is int and receipt_now - validated_at > timedelta(seconds=maximum_age):
+        return unknown("VALIDATION_RECEIPT_STALE")
+
+    expected_evidence: dict[str, str] = {}
+    for source in evidence_sources:
+        if not isinstance(source, Mapping):
+            return unknown("MALFORMED_EVIDENCE_BINDING")
+        evidence_id = source.get("evidence_id")
+        artifact_digest = source.get("artifact_digest")
+        if not isinstance(evidence_id, str) or not evidence_id.strip() or not isinstance(artifact_digest, str) or not artifact_digest:
+            return unknown("MISSING_EVIDENCE_DIGEST")
+        expected_evidence[evidence_id] = artifact_digest
+    receipt_digests = receipt.get("evidence_digests")
+    if not isinstance(receipt_digests, Mapping) or dict(receipt_digests) != expected_evidence:
+        return unknown("EVIDENCE_DIGEST_BINDING_MISMATCH")
+
+    required_revision = criterion_baseline.get("required_revision")
+    if required_revision is None:
+        required_revision = criterion_baseline.get("required_repo_revision")
+    if required_revision is not None and receipt.get("repo_revision") != required_revision:
+        return unknown("REPO_REVISION_BINDING_MISMATCH")
+    check_result = receipt.get("check_result")
+    if check_result == "fail":
+        return {"status": "fail", "assurance": "failed", "codes": ["TRUSTED_CHECK_FAILED"], "validation_ref": validation_ref,
+                "executor_principals": list(principals), "validator_principal": validator,
+                "run_id": run_id, "checker_id": checker_id}
+    if check_result != "pass":
+        return unknown("TRUSTED_CHECK_UNKNOWN")
+    return {
+        "status": "pass", "assurance": "verified", "codes": [], "validation_ref": validation_ref,
+        "executor_principals": list(principals), "validator_principal": validator,
+        "run_id": run_id, "checker_id": checker_id,
+        "validated_at": receipt.get("validated_at"), "expires_at": receipt.get("expires_at"),
+    }
 
 
-def gate(
+def _gate_without_rule_execution(
     task_id: str,
     *,
     stage: str,
@@ -3902,6 +4195,7 @@ def gate(
     documents: Sequence[str | Path] | None = None,
     resolvers: Mapping[str, Any] | None = None,
     verifiers: Mapping[str, Any] | None = None,
+    validation_resolver: Any = None,
     emit: bool = True,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -3914,6 +4208,7 @@ def gate(
         return report
 
     truth_contract: Mapping[str, Any] | None = None
+    deferred_legacy_callback = False
     initial_route_pending = True
     try:
         with _shared_locked_existing(paths["root"]):
@@ -3929,6 +4224,7 @@ def gate(
                     task_id, stage=stage, evidence_map=evidence_map,
                     required_item_ids=required_item_ids, documents=documents,
                     resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
+                    validation_resolver=validation_resolver,
                     emit=emit, base_dir=base_dir, run_probe=True,
                 ))
             initial_route_pending = False
@@ -3947,13 +4243,23 @@ def gate(
                         contract=view["contract"], evaluation=entry["truth"], emit=emit,
                     ))
             else:
-                # The route and legacy verdict are both protected by this lock.
-                return with_storage(_gate_core(
+                # A required host callback must not run while this shared lock
+                # is held; completion fixes its verdict after a fresh tail read.
+                criteria = view["contract"].get("acceptance_criteria")
+                deferred_legacy_callback = (
+                    stage == "completion" and validation_resolver is not None
+                    and isinstance(criteria, list)
+                    and any(isinstance(item, Mapping) and item.get("independent_validation_required") is True
+                            for item in criteria)
+                )
+                if not deferred_legacy_callback:
+                    return with_storage(_gate_core(
                     task_id, stage=stage, evidence_map=evidence_map,
                     required_item_ids=required_item_ids, documents=documents,
                     resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
+                    validation_resolver=validation_resolver,
                     emit=emit, base_dir=base_dir, run_probe=True,
-                ))
+                    ))
     except ContextError as exc:
         if not initial_route_pending:
             raise
@@ -3982,11 +4288,253 @@ def gate(
         if emit:
             _emit_report(report)
         return with_storage(report)
+    if deferred_legacy_callback:
+        return with_storage(_gate_core(
+            task_id, stage=stage, evidence_map=evidence_map,
+            required_item_ids=required_item_ids, documents=documents,
+            resolvers=resolvers, verifiers=verifiers, validation_resolver=validation_resolver,
+            clock=_trusted_utc_now, emit=emit, base_dir=base_dir, run_probe=True,
+        ))
     return with_storage(_gate_truth_enabled(
         task_id, entry=entry, evidence_map=evidence_map,
         resolvers=resolvers, verifiers=verifiers, emit=emit,
-        base_dir=base_dir, clock=_trusted_utc_now,
+        validation_resolver=validation_resolver, base_dir=base_dir, clock=_trusted_utc_now,
     ))
+
+
+def _rule_execution_contract_snapshot(
+    task_id: str, base_dir: str | Path | None,
+) -> tuple[dict[str, Any], str] | None:
+    """Copy selected rules under lock; callbacks are deliberately run later."""
+    paths = _paths(task_id, base_dir)
+    try:
+        with _shared_locked_existing(paths["root"]):
+            view = _load_committed_task_view_locked(task_id, paths)
+            contract = view["contract"]
+            if not rule_execution_enabled(contract):
+                return None
+            return deepcopy(contract), _contract_digest(contract)
+    except ContextError:
+        return None
+
+
+def _rule_execution_contract_unchanged(
+    task_id: str, base_dir: str | Path | None, expected_digest: str,
+) -> bool:
+    paths = _paths(task_id, base_dir)
+    try:
+        with _shared_locked_existing(paths["root"]):
+            view = _load_committed_task_view_locked(task_id, paths)
+            return _contract_digest(view["contract"]) == expected_digest
+    except ContextError:
+        return False
+
+
+def _gate_with_rules(
+    task_id: str,
+    *,
+    stage: str,
+    evidence_map: Mapping[str, Mapping[str, Any]] | None = None,
+    required_item_ids: Sequence[str] | None = None,
+    documents: Sequence[str | Path] | None = None,
+    resolvers: Mapping[str, Any] | None = None,
+    verifiers: Mapping[str, Any] | None = None,
+    validation_resolver: Any = None,
+    rule_runtime: object = None,
+    emit: bool = True,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Run the existing gate and, when opted in, selected rules as an AND check."""
+    if stage not in GATE_STAGES:
+        raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
+    # Preserve the legacy/truth route's existing linearization unless the
+    # currently published contract explicitly requests this new extension.
+    # The legacy gate itself takes the authoritative shared lock below.
+    try:
+        contract_hint = _read_json(_paths(task_id, base_dir)["contract"])
+    except ContextError:
+        contract_hint = {}
+    if not rule_execution_enabled(contract_hint):
+        return _gate_without_rule_execution(
+            task_id, stage=stage, evidence_map=evidence_map,
+            required_item_ids=required_item_ids, documents=documents,
+            resolvers=resolvers, verifiers=verifiers, emit=emit, base_dir=base_dir,
+            validation_resolver=validation_resolver,
+        )
+    snapshot = _rule_execution_contract_snapshot(task_id, base_dir)
+    if snapshot is None:
+        return _gate_without_rule_execution(
+            task_id, stage=stage, evidence_map=evidence_map,
+            required_item_ids=required_item_ids, documents=documents,
+            resolvers=resolvers, verifiers=verifiers, emit=emit, base_dir=base_dir,
+            validation_resolver=validation_resolver,
+        )
+
+    contract, expected_digest = snapshot
+    base_report = _gate_without_rule_execution(
+        task_id, stage=stage, evidence_map=evidence_map,
+        required_item_ids=required_item_ids, documents=documents,
+        resolvers=resolvers, verifiers=verifiers, emit=False, base_dir=base_dir,
+        validation_resolver=validation_resolver,
+    )
+    rule_report = evaluate_rule_execution(
+        contract, task_id, stage, rule_runtime, now=_trusted_utc_now(),
+    )
+    rules = rule_report["rules"]
+    changed_sources = recheck_rule_sources(
+        contract, rule_report.get("recheck_refs"), now=_trusted_utc_now(),
+    )
+    input_changed = False
+    if not _rule_execution_contract_unchanged(task_id, base_dir, expected_digest):
+        input_changed = True
+        rules = [
+            {"rule_id": item["rule_id"], "status": "unknown", "codes": ["INPUT_CHANGED"], "source_refs": []}
+            for item in rules
+        ]
+        rule_report = {"rules": rules, "coverage": "unknown"}
+    elif changed_sources:
+        input_changed = True
+        rules = [
+            {"rule_id": item["rule_id"], "status": "unknown", "codes": ["INPUT_CHANGED"], "source_refs": []}
+            if item["rule_id"] in changed_sources else item
+            for item in rules
+        ]
+        rule_report["rules"] = rules
+        rule_report["coverage"] = "unknown"
+
+    selected = {
+        str(rule.get("rule_id")): rule
+        for rule in contract.get("rule_execution", {}).get("rules", [])
+        if isinstance(rule, Mapping) and stage in rule.get("applies_at", [])
+    }
+    base_passed = base_report["passed"] is True
+    errors = list(base_report["errors"])
+    warnings = list(base_report["warnings"])
+    rules_allow = True
+    if input_changed:
+        errors.append("rule execution input changed during gate")
+        rules_allow = False
+    for result in rules:
+        rule = selected.get(result["rule_id"])
+        if not isinstance(rule, Mapping):
+            continue
+        if rule.get("severity") == "load-bearing" and result["status"] not in {"pass", "not_applicable"}:
+            errors.append(f"rule {result['rule_id']} is {result['status']}: {result['codes']}")
+            rules_allow = False
+        elif rule.get("severity") == "advisory" and result["status"] not in {"pass", "not_applicable"}:
+            warnings.append(f"advisory rule {result['rule_id']} is {result['status']}: {result['codes']}")
+    base_report["errors"] = errors
+    base_report["warnings"] = warnings
+    base_report["passed"] = base_passed and rules_allow
+    base_report["rules"] = rules
+    base_report["coverage"] = rule_report["coverage"]
+    if emit:
+        _emit_report(base_report)
+    return base_report
+
+
+def gate(
+    task_id: str, *, stage: str,
+    evidence_map: Mapping[str, Mapping[str, Any]] | None = None,
+    required_item_ids: Sequence[str] | None = None,
+    documents: Sequence[str | Path] | None = None,
+    resolvers: Mapping[str, Any] | None = None,
+    verifiers: Mapping[str, Any] | None = None,
+    rule_runtime: object = None, emit: bool = True,
+    base_dir: str | Path | None = None,
+    independent_validation_required: bool | None = None,
+    validation_resolver: Any = None,
+) -> dict[str, Any]:
+    """Run the gate; completion is a read-only, point-in-time decision.
+
+    Local file evidence is re-resolved after *all* callbacks, including rules.
+    Semantic verifiers are never retried. This does not authorize a later write
+    or authenticate an untrusted host callable.
+    """
+    _validate_independent_validation_inputs(
+        independent_validation_required, validation_resolver,
+    )
+    kwargs = dict(required_item_ids=required_item_ids, documents=documents,
+                  resolvers=resolvers, verifiers=verifiers, rule_runtime=rule_runtime,
+                  base_dir=base_dir, validation_resolver=validation_resolver)
+    if stage != "completion":
+        report = _gate_with_rules(task_id, stage=stage, evidence_map=evidence_map, emit=False, **kwargs)
+        try:
+            contract = _read_json(_paths(task_id, base_dir)["contract"])
+        except ContextError:
+            contract = {}
+        policy_error = _gate_independence_policy_error(contract, independent_validation_required)
+        if policy_error is not None:
+            report["errors"].append(policy_error)
+            report["passed"] = False
+        if emit:
+            _emit_report(report)
+        return report
+    frozen_map = deepcopy(evidence_map)
+    try:
+        contract = _read_json(_paths(task_id, base_dir)["contract"])
+    except ContextError:
+        contract = {}
+    criteria = contract.get("acceptance_criteria")
+    callback_context_check = (
+        validation_resolver is not None
+        and not truth_sources_enabled(contract)
+        and isinstance(criteria, list)
+        and any(isinstance(item, Mapping) and item.get("independent_validation_required") is True
+                for item in criteria)
+    )
+    context_token = _completion_context_token(task_id, base_dir) if callback_context_check else None
+    report = _gate_with_rules(task_id, stage=stage, evidence_map=deepcopy(frozen_map), emit=False, **kwargs)
+    rechecks = 0
+    if report["passed"]:
+        if not contract or not _rule_execution_contract_unchanged(task_id, base_dir, _contract_digest(contract)):
+            report["errors"].append("completion contract changed or became unreadable")
+            _mark_independence_callback_changed(report)
+        else:
+            for criterion in contract["acceptance_criteria"]:
+                identifier = criterion["id"]
+                entry = frozen_map.get(identifier, {})
+                for evidence in [*entry.get("evidence", []), *entry.get("delivery_receipts", [])]:
+                    # Other resolver kinds keep their existing guarantees. A
+                    # generic URL or custom report is not a local file snapshot.
+                    if evidence.get("kind") != "file":
+                        continue
+                    rechecks += 1
+                    resolved = evaluate_evidence(evidence, criterion, contract,
+                                                 resolvers=resolvers, now=_trusted_utc_now())
+                    layers = {key: value for key, value in resolved["checks"].items() if key != "claim"}
+                    intact = all(value["status"] == "pass" for value in layers.values())
+                    item = next(value for value in report["criteria"][identifier]["evidence_results"]
+                                if value["evidence_id"] == evidence["evidence_id"])
+                    item["checks"]["completion_recheck"] = {
+                        "status": "pass" if intact else "unknown",
+                        "codes": [] if intact else ["EVIDENCE_CHANGED_OR_UNAVAILABLE"],
+                        "resolution": layers,
+                    }
+                    if not intact:
+                        item["status"] = "unknown"
+                        report["criteria"][identifier]["status"] = "unknown"
+                        report["errors"].append(f"criterion {identifier} evidence {evidence['evidence_id']}: EVIDENCE_CHANGED_OR_UNAVAILABLE")
+            if not _rule_execution_contract_unchanged(task_id, base_dir, _contract_digest(contract)):
+                report["errors"].append("completion contract changed during evidence recheck")
+                _mark_independence_callback_changed(report)
+            if callback_context_check and _completion_context_token(task_id, base_dir) != context_token:
+                report["errors"].append("completion context changed during callbacks")
+                _mark_independence_callback_changed(report)
+            report["errors"].extend(
+                _recheck_independent_validation_times(report, contract, _trusted_utc_now())
+            )
+    policy_error = _gate_independence_policy_error(contract, independent_validation_required)
+    if policy_error is not None:
+        report["errors"].append(policy_error)
+    report["passed"] = report["passed"] and not report["errors"]
+    statuses = [value["status"] for value in report["criteria"].values()]
+    if evidence_handlers_enabled(contract):
+        report["decision"] = "pass" if report["passed"] else "fail" if "fail" in statuses else "unknown"
+        report["stats"]["completion_rechecks"] = rechecks
+    if emit:
+        _emit_report(report)
+    return report
 
 
 def workspace_observation(path: str | Path = ".") -> dict[str, Any]:
@@ -4048,6 +4596,8 @@ class BoundContext:
     def __init__(
         self, base_dir: str | Path, *, workspace_root: str | Path | None = None,
         package_root: str | Path | None = None,
+        independent_validation_required: bool | None = None,
+        validation_resolver: Any = None,
     ) -> None:
         resolved, _ = _resolve_base_dir(base_dir)
         self.base_dir = resolved
@@ -4059,6 +4609,11 @@ class BoundContext:
             raise ValueError("package_root must be an absolute path")
         self.workspace_root = Path(workspace_root).expanduser().resolve() if workspace_root is not None else None
         self.package_root = Path(package_root).expanduser().resolve() if package_root is not None else None
+        _validate_independent_validation_inputs(
+            independent_validation_required, validation_resolver,
+        )
+        self.independent_validation_required = independent_validation_required
+        self.validation_resolver = validation_resolver
 
     def checked_resume(self, task_id: str) -> dict[str, object]:
         """Resume only when this bound client captured a complete identity."""
@@ -4081,6 +4636,11 @@ class BoundContext:
         def bound_call(*args: Any, **kwargs: Any) -> Any:
             if "base_dir" in kwargs:
                 raise TypeError("bound context calls do not accept base_dir")
+            if name in {"publish_contract", "gate"}:
+                if "independent_validation_required" in kwargs or "validation_resolver" in kwargs:
+                    raise ContextError("bound context calls cannot override independent validation policy or resolver")
+                kwargs["independent_validation_required"] = self.independent_validation_required
+                kwargs["validation_resolver"] = self.validation_resolver
             result = function(*args, **kwargs, base_dir=self.base_dir)
             if (
                 name in {"brief_diagnostics", "audit", "gate"}
@@ -4100,10 +4660,16 @@ class BoundContext:
 def bind(
     base_dir: str | Path, *, workspace_root: str | Path | None = None,
     package_root: str | Path | None = None,
+    independent_validation_required: bool | None = None,
+    validation_resolver: Any = None,
 ) -> BoundContext:
     """Return a client whose calls cannot drift with the process working directory."""
 
-    return BoundContext(base_dir, workspace_root=workspace_root, package_root=package_root)
+    return BoundContext(
+        base_dir, workspace_root=workspace_root, package_root=package_root,
+        independent_validation_required=independent_validation_required,
+        validation_resolver=validation_resolver,
+    )
 
 
 async def run(action: str, **kwargs: Any) -> Any:
@@ -4155,6 +4721,7 @@ __all__ = [
     "workspace_observation",
     "runtime_identity",
     "checked_resume",
+    "bind_experience",
     "BoundContext",
     "bind",
     "run",
@@ -4168,5 +4735,8 @@ _capture_baseline((
     Path(_identity_core.__file__).resolve(),
     Path(_evidence_module.__file__).resolve(),
     Path(_truth_sources_module.__file__).resolve(),
+    Path(_rule_execution_module.__file__).resolve(),
+    Path(_experience_module.__file__).resolve(),
+    Path(_experience_store_module.__file__).resolve(),
     Path(_runtime_identity_module.__file__).resolve(),
 ), initial_manifest_path=_IDENTITY_MANIFEST_BEFORE, initial_manifest_sha256=_IDENTITY_DIGEST_BEFORE)

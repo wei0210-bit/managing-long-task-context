@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -255,6 +256,59 @@ def _read(path: Path) -> tuple[str | None, dict[str, object] | None]:
         }
 
 
+def _unknown_experience(codes: object) -> dict[str, object]:
+    stable_codes = codes if isinstance(codes, list) and codes and all(isinstance(code, str) and code for code in codes) else ["EXPERIENCE_QUERY_UNAVAILABLE"]
+    return {"status": "unknown", "codes": stable_codes, "suggestions": [], "requires_strict": False}
+
+
+def _query_experience(workspace_root: str, store_root: str, tags: str) -> dict[str, object]:
+    manifest_before, digest_before = _manifest_identity()
+    if (
+        manifest_before != _MANIFEST_BEFORE
+        or digest_before != _LOADED_MANIFEST_SHA256
+        or _LOADED_MANIFEST_SHA256 is None
+    ):
+        return _unknown_experience(["RUNTIME_UNVERIFIED"])
+    try:
+        experience = importlib.import_module("context_experience")
+    except Exception:
+        return _unknown_experience(["EXPERIENCE_QUERY_UNAVAILABLE"])
+    manifest_after, digest_after = _manifest_identity()
+    expected_module = Path(__file__).resolve().with_name("context_experience.py")
+    try:
+        module_path = Path(experience.__file__).resolve()
+    except (AttributeError, TypeError, OSError):
+        return _unknown_experience(["RUNTIME_PATH_MISMATCH"])
+    if (
+        module_path != expected_module
+        or manifest_after != manifest_before
+        or digest_after != digest_before
+    ):
+        return _unknown_experience(["PACKAGE_IDENTITY_MISMATCH"])
+    try:
+        workspace = Path(workspace_root).resolve()
+        store = experience._store_path(workspace, store_root)
+        result = experience.query_records(
+            workspace, store, tags, False, 3, 2000,
+        )
+    except Exception as exc:
+        code = getattr(exc, "code", "EXPERIENCE_QUERY_UNAVAILABLE")
+        return _unknown_experience([code] if isinstance(code, str) else ["EXPERIENCE_QUERY_UNAVAILABLE"])
+    if not isinstance(result, dict):
+        return _unknown_experience(["EXPERIENCE_QUERY_INVALID"])
+    status, codes, data = result.get("status"), result.get("codes"), result.get("data")
+    if status != "pass":
+        return _unknown_experience(codes)
+    if not isinstance(codes, list) or not all(isinstance(code, str) and code for code in codes):
+        return _unknown_experience(["EXPERIENCE_QUERY_INVALID"])
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list) or len(data["items"]) > 3:
+        return _unknown_experience(["EXPERIENCE_QUERY_INVALID"])
+    suggestions = data["items"]
+    if any(not isinstance(item, dict) or item.get("status") not in {"validated", "approved"} for item in suggestions):
+        return _unknown_experience(["EXPERIENCE_QUERY_INVALID"])
+    return {"status": "pass", "codes": codes, "suggestions": suggestions, "requires_strict": False}
+
+
 def _write(candidate: Path, base_dir: Path, task_id: str) -> tuple[dict[str, object], int]:
     text, failure = _read(candidate)
     if failure is not None or text is None:
@@ -343,6 +397,9 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument("--context-root")
     resume.add_argument("--workspace-root")
     resume.add_argument("--task-id")
+    resume.add_argument("--requires-rule-proof", action="store_true")
+    resume.add_argument("--experience-store")
+    resume.add_argument("--experience-tags")
     return parser
 
 
@@ -350,6 +407,11 @@ def _resume(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     required = (args.package_root, args.context_root, args.workspace_root, args.task_id)
     if not all(required):
         report = identity_core.input_failure("identity", "task", "all resume arguments are required")
+        return {"diagnostic": report, "context": None}, 1
+    experience_store = getattr(args, "experience_store", None)
+    experience_tags = getattr(args, "experience_tags", None)
+    if bool(experience_store) != bool(experience_tags):
+        report = identity_core.input_failure("identity", "task", "experience-store and experience-tags must be supplied together")
         return {"diagnostic": report, "context": None}, 1
     diagnostic = identity_core.identity_diagnostic(
         package_root=args.package_root,
@@ -377,6 +439,26 @@ def _resume(args: argparse.Namespace) -> tuple[dict[str, object], int]:
             checks=list(diagnostic["checks"]) + [identity_core._check("resume", "fail", "RESUME_BLOCKED", "Lite NOW validation failed")],
         )
         return {"diagnostic": diagnostic, "context": None}, 1
+    if getattr(args, "requires_rule_proof", False):
+        diagnostic = identity_core._report(
+            mode="identity", scope="task", identity=diagnostic["identity"], binding=diagnostic["binding"],
+            checks=list(diagnostic["checks"]) + [identity_core._check(
+                "resume", "unknown", "STRICT_REQUIRED", "Lite cannot prove selected rules",
+            )],
+        )
+        return {
+            "diagnostic": diagnostic,
+            "context": None,
+            "experience": {
+                "status": "unknown", "codes": ["STRICT_REQUIRED"], "suggestions": [], "requires_strict": True,
+            },
+        }, 2
+    if experience_store is not None:
+        return {
+            "diagnostic": diagnostic,
+            "context": text,
+            "experience": _query_experience(args.workspace_root, experience_store, experience_tags),
+        }, 0
     return {"diagnostic": diagnostic, "context": text}, 0
 
 

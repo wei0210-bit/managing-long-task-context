@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -17,16 +18,42 @@ import managing_long_task_context as context
 VERIFIER_CAPABILITY = "example:file-claim/v1"
 
 
-def verify_file_claim(evidence, criterion, resolution):
-    """Bind a resolver-passing file to this example's acceptance criterion."""
+CONTENT_CRITERION = "The result contains exactly strict completion result followed by a newline"
 
-    expected_scope = criterion.get("required_scope", {})
-    actual_scope = evidence.get("scope", {})
-    supports_claim = all(actual_scope.get(key) == value for key, value in expected_scope.items())
-    return {
-        "status": "pass" if supports_claim else "fail",
-        "codes": [] if supports_claim else ["CLAIM_SCOPE_MISMATCH"],
-    }
+
+def make_file_claim_verifier(workspace):
+    """Host-bound semantic checker, never constructed from model-supplied JSON.
+
+    This intentionally proves only the example's exact content requirement, not
+    that a business process ran or that a handwritten test report is authentic.
+    """
+    trusted_root = Path(workspace).resolve()
+
+    def verify_file_claim(evidence, criterion, resolution):
+        if criterion.get("criterion") != CONTENT_CRITERION:
+            return {"status": "unknown", "codes": ["UNSUPPORTED_CONTENT_CRITERION"]}
+        required_revision = criterion.get("required_revision")
+        if required_revision is not None:
+            actual = subprocess.run(
+                ["git", "-C", str(trusted_root), "rev-parse", "--verify", "HEAD"],
+                capture_output=True, text=True, timeout=3, check=False,
+            )
+            if actual.returncode != 0 or actual.stdout.strip() != required_revision:
+                return {"status": "unknown", "codes": ["WORKSPACE_REVISION_MISMATCH"]}
+        path = (trusted_root / evidence["locator"].split("#", 1)[0]).resolve()
+        if trusted_root not in path.parents:
+            return {"status": "unknown", "codes": ["WORKSPACE_MISMATCH"]}
+        # Read only the small artifact this checker understands. Missing or
+        # unreadable evidence is normalized by the caller's evidence evaluator.
+        with path.open("rb") as stream:
+            content = stream.read(4097)
+        if content == b"strict completion result\n":
+            return {"status": "pass", "codes": ["EXACT_CONTENT_VERIFIED"]}
+        if content == b"strict completion result: FAILED\n":
+            return {"status": "fail", "codes": ["CONTENT_REQUIREMENT_VIOLATED"]}
+        return {"status": "unknown", "codes": ["UNRELATED_OR_INCOMPLETE_CONTENT"]}
+
+    return verify_file_claim
 
 
 def run_example():
@@ -63,9 +90,9 @@ def run_example():
             "acceptance_criteria": [
                 {
                     "id": "AC-01",
-                    "criterion": "The result artifact exists and matches its digest",
+                    "criterion": CONTENT_CRITERION,
                     "required_evidence_types": ["file"],
-                    "required_scope": {"module": "docs-example"},
+                    "required_scope": {"module": "docs-example", "contract_version": 1},
                     "max_evidence_age_seconds": 3600,
                     "required_hops": ["artifact-created"],
                     "required_hops_mode": "single-evidence-ordered",
@@ -82,7 +109,7 @@ def run_example():
         runtime_verifiers = {
             "file": {
                 "capability": VERIFIER_CAPABILITY,
-                "handler": verify_file_claim,
+                "handler": make_file_claim_verifier(workspace),
             }
         }
         release = context.gate(
@@ -107,7 +134,8 @@ def run_example():
                             "locator": "result.txt#complete-artifact",
                             "artifact_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
                             "generated_at": generated_at,
-                            "scope": {"module": "docs-example"},
+                            "scope": {"module": "docs-example", "contract_version": 1},
+                            "contract_version": 1,
                             "covered_hops": ["artifact-created"],
                         }
                     ],

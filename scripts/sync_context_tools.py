@@ -7,7 +7,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOLS = ("context_doctor.py", "context_identity_core.py", "skill_package.py")
+TOOLS = (
+    "context_doctor.py",
+    "context_experience.py",
+    "context_identity_core.py",
+    "skill_package.py",
+)
 
 
 def _copy(source: Path, destination: Path) -> None:
@@ -26,6 +31,11 @@ def sync() -> None:
         _copy(source, lite / "scripts" / name)
     _copy(ROOT / "scripts" / "context_identity_core.py", ROOT / "src" / "managing_long_task_context" / "_identity_core.py")
     _copy(ROOT / "scripts" / "context_identity_core.py", strict / "src" / "managing_long_task_context" / "_identity_core.py")
+    _copy(ROOT / "scripts" / "context_experience.py", ROOT / "src" / "managing_long_task_context" / "_experience_store.py")
+    _copy(ROOT / "scripts" / "context_experience.py", strict / "src" / "managing_long_task_context" / "_experience_store.py")
+    _copy(ROOT / "assets" / "experience-candidate.schema.json", lite / "assets" / "experience-candidate.schema.json")
+    _copy(ROOT / "examples" / "experience_candidates.py", lite / "examples" / "experience_candidates.py")
+    _copy(ROOT / "tests" / "test_context_experience_cli.py", lite / "tests" / "test_context_experience_cli.py")
 
 
 if __name__ == "__main__":

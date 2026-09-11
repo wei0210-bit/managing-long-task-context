@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Verified experience validation references",
+  "type": "object",
+  "required": ["cross", "counterexample", "effectiveness"],
+  "additionalProperties": false,
+  "properties": {
+    "cross": {"$ref": "#/$defs/cross"},
+    "counterexample": {"$ref": "#/$defs/counterexample"},
+    "effectiveness": {"$ref": "#/$defs/effectiveness"}
+  },
+  "$defs": {
+    "sourceRef": {"type": "object", "required": ["path", "sha256"], "additionalProperties": false, "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "cross": {"type": "object", "additionalProperties": false, "required": ["source_refs", "checker_id", "checker_version", "validated_at", "expires_at", "independence_basis"], "properties": {"source_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceRef"}}, "checker_id": {"type": "string", "minLength": 1}, "checker_version": {"type": "string", "minLength": 1}, "validated_at": {"type": "string", "format": "date-time"}, "expires_at": {"type": "string", "format": "date-time"}, "independence_basis": {"type": "string", "minLength": 1}}},
+    "counterexample": {"type": "object", "additionalProperties": false, "required": ["source_refs", "checker_id", "checker_version", "validated_at", "expires_at", "original_pass_ref", "mutated_fail_ref", "restored_pass_ref", "mutation_hit_ref"], "properties": {"source_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceRef"}}, "checker_id": {"type": "string", "minLength": 1}, "checker_version": {"type": "string", "minLength": 1}, "validated_at": {"type": "string", "format": "date-time"}, "expires_at": {"type": "string", "format": "date-time"}, "original_pass_ref": {"$ref": "#/$defs/sourceRef"}, "mutated_fail_ref": {"$ref": "#/$defs/sourceRef"}, "restored_pass_ref": {"$ref": "#/$defs/sourceRef"}, "mutation_hit_ref": {"$ref": "#/$defs/sourceRef"}}},
+    "effectiveness": {"type": "object", "additionalProperties": false, "required": ["source_refs", "checker_id", "checker_version", "validated_at", "expires_at", "representative_run_ref", "non_applicable_run_ref"], "properties": {"source_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceRef"}}, "checker_id": {"type": "string", "minLength": 1}, "checker_version": {"type": "string", "minLength": 1}, "validated_at": {"type": "string", "format": "date-time"}, "expires_at": {"type": "string", "format": "date-time"}, "representative_run_ref": {"$ref": "#/$defs/sourceRef"}, "non_applicable_run_ref": {"$ref": "#/$defs/sourceRef"}}}
+  }
+}

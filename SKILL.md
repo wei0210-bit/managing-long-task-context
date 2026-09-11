@@ -135,15 +135,29 @@ Evidence envelopes do not prove themselves: the resolver must read the reference
 artifact and the verifier must establish that it supports the criterion. A caveat that
 cannot make a deterministic check red is not an enforced control.
 
+With `evidence-handlers/v1`, completion adds a read-only `decision`
+(`pass`/`fail`/`unknown`), not a completed-state write. Unavailable, stale or mismatched
+evidence blocks as `unknown`; explicit content
+violations remain `fail`. Bind `contract_version` in evidence and the sealed required
+scope; legacy envelopes may omit it. Passing local `file` evidence is re-resolved after
+all callbacks without retrying verifiers. Other kinds retain their existing guarantees.
+The example binds a content-reading checker in host code: never load executable checkers
+from model output. A pass is point-in-time, not authorization for a later side effect.
+
 Legacy `required_hops` aggregates hop coverage across passing evidence. When one
 execution must prove an ordered chain, set
 `required_hops_mode: "single-evidence-ordered"`; one passing evidence object must contain
 the sequence in order. This opt-in mode requires `evidence-handlers/v1`.
 
-Independent validation requires declared actor roles, a separate validator, and explicit
-UTC `validated_at`. Delivery receipts require stable IDs, target/artifact references,
-external ID, sent/observed times, and readback method. Evidence freshness, scope, and Git
-revision rules remain verifier-backed hard stops.
+For a criterion marked `independent_validation_required: true`, host code supplies the
+policy and receipt resolver to `bind`, `publish_contract`, or `gate`; model JSON supplies
+only a lookup `validation_ref` for that receipt; normal evidence remains required, never
+proof. A stored true requirement without a trusted resolver blocks; false/omitted low-risk
+criteria keep their existing path. Read
+`references/independent-validation.md` when defining this boundary. Delivery receipts
+require stable IDs, target/artifact references, external ID, sent/observed times, and
+readback method. Evidence freshness, scope, and Git revision rules remain verifier-backed
+hard stops.
 
 When designing/reviewing these controls, read
 `references/production-failure-patterns.md` and ask: **if this claim is false, what goes
@@ -163,6 +177,19 @@ red?** Do not load that reference for routine execution.
 | `checkpoint(...)` | Record phase delta, blockers, evidence, and next action |
 | `brief(...)` / `brief_diagnostics(...)` | Produce or preflight the controlled handoff packet |
 | `audit(...)` / `gate(...)` | Run integrity, state, truth, and acceptance checks |
+| `bind_experience(workspace_root, store_root)` | Bind Strict-only experience review and approval |
+
+## Verified experience and rule execution
+
+Use `scripts/context_experience.py` only to initialize, record, query, or get
+project-local candidates. They never gain authority automatically. Strict hosts use
+`bind_experience()` to review and approve new experience before selecting it; existing
+rules may be selected directly by the contract publisher. Opt into
+`rule-execution/v1` for selected rules and call `gate()` from the controlled entry:
+the library cannot intercept an action when its gate was never called. Runnable
+examples: `examples/experience_review.py`, `examples/rule_execution.py`, and
+`examples/experience_rule_gate.py`. The candidate CLI example is
+`examples/experience_candidates.py`.
 
 State lives under `.prime/context/<task-id>/` as a sealed contract, append-only
 `events.jsonl`, and rebuildable `snapshot.json`. Events are history; snapshot is a cache;
