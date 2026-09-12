@@ -1,0 +1,68 @@
+name: CI
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Tests and skill packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Prepare existing temporary-file fixtures
+        # Existing tests use this macOS-style path; keep their assertions unchanged.
+        run: sudo install -d -m 1777 /private/tmp
+
+      - name: Run all tests, including distribution consistency
+        run: python -m unittest discover -s tests -v
+
+      - name: Verify complete skill packages outside the checkout
+        run: |
+          for skill in context-lite context-strict; do
+            package="$RUNNER_TEMP/$skill"
+            receipt="$RUNNER_TEMP/$skill-build.json"
+            python scripts/skill_package.py check-source --source "skills/$skill"
+            python scripts/skill_package.py build \
+              --source "skills/$skill" --destination "$package" \
+              --source-revision "git:$GITHUB_SHA" | tee "$receipt"
+            manifest_hash="$(python -c 'import json, sys; print(json.load(sys.stdin)["manifest_sha256"])' < "$receipt")"
+            python scripts/skill_package.py verify --package "$package" \
+              --expected-manifest-sha256 "$manifest_hash" \
+              --expected-source-revision "git:$GITHUB_SHA"
+            (
+              cd "$RUNNER_TEMP"
+              PYTHONPATH="$package/src" python "$package/scripts/context_doctor.py" \
+                check --mode full --package-root "$package"
+            )
+          done
+
+      - name: Ensure checks did not rewrite tracked files
+        run: git diff --exit-code

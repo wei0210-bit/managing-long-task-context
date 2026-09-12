@@ -3,6 +3,20 @@
 Choose manually; this MVP does not auto-classify a task or transfer a task between
 the two skills.
 
+## Continuous integration
+
+[CI](.github/workflows/ci.yml) runs on pushes to `main`, pull requests targeting
+`main`, and manual dispatch. A single Ubuntu / Python 3.12 job runs every unittest
+(including distribution consistency and historical compatibility), then builds,
+hash-verifies, and fully diagnoses both skill packages outside the checkout.
+It fetches full Git history and prepares `/private/tmp` for existing test fixtures.
+No synchronization writer runs before the checks, so source/mirror drift fails CI.
+
+The job has read-only repository permissions, a five-minute timeout and cancellation
+of superseded branch runs. It installs no project dependencies, calls no models,
+and does not deploy or update globally installed skills. A green result is repository
+test/package evidence, not proof of natural Agent effectiveness or business completion.
+
 ## Versioned packages
 
 Each distributable skill has a `skill-package.json`. Build a complete copy and
