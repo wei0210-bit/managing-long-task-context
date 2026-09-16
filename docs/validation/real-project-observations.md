@@ -74,3 +74,10 @@
 - 当前窗口压力样本另记录 `sample_id/expires_at/window_tokens/used_tokens/reserve_tokens/growth_tokens/basis` 及 `safe_point/task_complete/execution_unknown/milestone`。窗口使用量不可由累计量、字符数或上述任务总量替代。
 - E6 本轮没有读取真实项目完整聊天、真实宿主 usage、模型调用、价格或账单；真实用量、全任务覆盖、费用、重试成本、Skill 归因和产品收益均为 **UNKNOWN**。
 - 本轮只以合成资料验证本地函数及有界 CLI；不新增自然项目任务记录，不据此改变本台账现有“完整复核真实项目任务：0”的事实。
+
+## 2026-09-16 起启用前瞻素材记录
+
+新增 [`scripts/real_validation.py`](../../scripts/real_validation.py) 与
+[`real-evidence` 操作说明](real-evidence/README.md)，从任务开始时登记固定项目、revision、包身份、宿主边界和验收原件，之后按事件追加 native control、自然任务结果、provider usage 与账单成本。已有事件 ID 不覆盖；同 ID 不同内容拒绝，常见敏感字段拒绝。
+
+记录器的 `material_available` 只表示某类结构化素材出现，三项 claim 始终返回 `UNKNOWN`，不会把模型自报、manifest、单个成功样本或部分 usage 自动升级成真实宿主接管、自然项目因果效果或 token/成本收益。首条 `OBS-20260916-RECORDING-001` 只登记启用时边界，不增加“完整复核真实项目任务”计数。

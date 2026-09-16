@@ -1,0 +1,28 @@
+{
+  "schema": "real-validation-event/v1",
+  "event_id": "EV-USAGE-NNN",
+  "observation_id": "OBS-YYYYMMDD-NNN",
+  "task_id": "TASK-STABLE-ID",
+  "event_type": "usage",
+  "observed_at": "2026-09-16T00:00:00Z",
+  "actor": "usage-receipt-observer",
+  "source_refs": [
+    "provider-receipt:stable-reference"
+  ],
+  "payload": {
+    "event_id": "PROVIDER-USAGE-NNN",
+    "session_id": "PROVIDER-SESSION-ID",
+    "task_id": "TASK-STABLE-ID",
+    "provider": "provider-name",
+    "model": "model-name",
+    "reasoning_effort": "unknown",
+    "mode": "delta",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "cache_accounting": "included",
+    "source_ref": "provider-receipt:stable-reference",
+    "observed_at": "2026-09-16T00:00:00Z"
+  }
+}

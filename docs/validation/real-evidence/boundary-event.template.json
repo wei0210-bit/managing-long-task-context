@@ -1,0 +1,20 @@
+{
+  "schema": "real-validation-event/v1",
+  "event_id": "EV-BOUNDARY-NNN",
+  "observation_id": "OBS-YYYYMMDD-NNN",
+  "task_id": "TASK-STABLE-ID",
+  "event_type": "boundary",
+  "observed_at": "2026-09-16T00:00:00Z",
+  "actor": "observer-stable-id",
+  "source_refs": [
+    "repo:path/to/boundary-evidence.md@FULL_REVISION"
+  ],
+  "payload": {
+    "claim_status": {
+      "native_host_takeover": "NOT_RUN",
+      "natural_project_effect": "UNKNOWN",
+      "token_cost_benefit": "UNKNOWN"
+    },
+    "reason": "State what is missing or blocked without inferring success."
+  }
+}

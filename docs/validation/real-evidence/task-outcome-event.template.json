@@ -1,0 +1,21 @@
+{
+  "schema": "real-validation-event/v1",
+  "event_id": "EV-TASK-NNN",
+  "observation_id": "OBS-YYYYMMDD-NNN",
+  "task_id": "TASK-STABLE-ID",
+  "event_type": "task_outcome",
+  "observed_at": "2026-09-16T00:00:00Z",
+  "actor": "independent-task-reviewer",
+  "source_refs": [
+    "repo:path/to/acceptance-result.json@FULL_REVISION"
+  ],
+  "payload": {
+    "natural_project": true,
+    "skill_selection": "strict",
+    "outcome": "unknown",
+    "acceptance": "not_run",
+    "extra_turns": null,
+    "retries": null,
+    "manual_corrections": null
+  }
+}

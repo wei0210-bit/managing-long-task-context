@@ -1,0 +1,45 @@
+{
+  "schema": "real-validation-observation/v1",
+  "observation_id": "OBS-YYYYMMDD-NNN",
+  "task_id": "TASK-STABLE-ID",
+  "started_at": "2026-09-16T00:00:00Z",
+  "sampling": "prospective",
+  "project": {
+    "root": "/absolute/project/path",
+    "revision": "git:FULL_COMMIT_OR_EXPLICIT_NON_GIT_REVISION",
+    "dirty": false
+  },
+  "skill": {
+    "selection": "strict",
+    "package_root": "/absolute/package/path",
+    "skill_version": "0.8.0",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "host": {
+    "provider": "codex-desktop",
+    "interface": "native",
+    "session_id": null,
+    "identity_evidence_ref": null
+  },
+  "execution": {
+    "model": null,
+    "reasoning_effort": null,
+    "configuration_ref": null
+  },
+  "comparison": {
+    "group_id": null,
+    "task_definition_ref": null
+  },
+  "claims": {
+    "native_host_takeover": "NOT_RUN",
+    "natural_project_effect": "UNKNOWN",
+    "token_cost_benefit": "UNKNOWN"
+  },
+  "acceptance_refs": [
+    "repo:path/to/frozen-acceptance.md@FULL_REVISION"
+  ],
+  "privacy": {
+    "raw_content_retained": false,
+    "secrets_retained": false
+  }
+}

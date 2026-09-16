@@ -1,5 +1,9 @@
 # 单任务观察记录（模板，不是实测结果）
 
+机器可校验、在记录器 API 内排他发布且不主动覆盖（非 WORM）的前瞻素材优先使用
+[`scripts/real_validation.py`](../../scripts/real_validation.py) 和
+[`real-evidence/`](real-evidence/README.md) 内的 JSON 模板。本 Markdown 继续用于人工复核叙述，不能替代 provider/宿主/验收原件。
+
 - observation_id / task_id：unknown
 - 项目绝对路径 / 仓库 revision（含 dirty 情况）：unknown
 - 观察起止 UTC / 原始事件时间：unknown
