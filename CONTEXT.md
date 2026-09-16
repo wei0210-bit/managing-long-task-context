@@ -5,7 +5,7 @@ eng_review: complete
 task: short-session-handoff
 updated_at: 2026-09-16T01:45:39Z
 branch: codex/short-session-remaining
-observed_head: 0f5898e19b4951c661edce1f7db80f95cc1b2ecc
+observed_head: a0a1f9116578f3f44179a48491c3880b2ad7a56a
 plan_version: 0.39
 plan_sha256: caa698a5bcdc385685c99d063b6d4636a3e6e5bc85ddaca10abe4bbd312d6472
 ---
@@ -21,9 +21,9 @@ Context Strict／Lite 支持可验证的短会话接续：有效、精致而经�
 
 ## 工作区与当前结论
 
-原main：`/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context`，保留E1-E3未提交源码。
-最新开发：该根下 `.worktrees/short-session-remaining`，分支 `codex/short-session-remaining`。
-该分支以HEAD加E1-E3未提交快照为基线；HEAD本身不代表当前代码，恢复先核对Git和文件身份。
+原main：`/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context`。
+最新开发：该根下 `.worktrees/short-session-remaining`，分支 `codex/short-session-remaining`；实现提交 `a0a1f9116578f3f44179a48491c3880b2ad7a56a` 已推送到同名远程分支。
+该提交包含本轮实现、测试和冻结验证资料；工作区仍保留既有未跟踪冲突副本及本机原始对话，不得把它们纳入发布或清理。
 E0-E3及E5/E6本地验收通过；E4仅能力报告/拒绝路径本地通过，真实原生宿主接管BLOCKED；E7预算条件未触发。
 最新：[发布前对抗复审](docs/validation/2026-09-16-prelanding-security-review.md)。569/569全回归、完整包Strict434/434、Lite64/64，均0skip/资源警告；R1–R4及后续7项安全/分发缺陷均已闭环。
 F1-F5全部独立复审关闭；先前42/42、549/549中间绿色不足的原因、修复及原日志保留，不替代最终结果。
@@ -38,7 +38,7 @@ Strict0.8.0与Lite1.4.0最终包必须以提交 SHA 重建；临时候选可能�
 Codex/Claude真实接管、宿主可信身份/fencing/干净会话、模型冷启动和自然项目效果仍未验证。
 真实token节省/缓存费用/模型稳定性UNKNOWN；本地合成耗时与进程RSS不能冒充收益。
 无Strict运行绑定/控制权证明；本入口是导航，不能从旧摘要继承权限。外置记录不授予授权，未知执行不自动重试。
-先前远程上传受阻；用户随后明确授权脱敏摘要，已发布并回读 [Issue #22](https://github.com/wei0210-bit/managing-long-task-context/issues/22)。仅摘要已同步，源码未推送、远程CI未运行，不重复发送。
+先前远程上传受阻；用户随后明确授权脱敏摘要，已发布并回读 [Issue #22](https://github.com/wei0210-bit/managing-long-task-context/issues/22)。摘要不重复发送；源码现已推送到候选分支，PR与远程CI状态只以对应远程回执为准。
 
 ## 下一步
 
@@ -46,6 +46,6 @@ Codex/Claude真实接管、宿主可信身份/fencing/干净会话、模型冷�
 
 2026-09-16追加只读/隔离使用验收：[报告](docs/validation/2026-09-16-skill-acceptance-report.md)。review-fix两包身份重新核实；Strict55/Lite14项定向测试通过，公开合成链通过。Lite原件变化仍返回待核实材料，不能当自动stale拦截；真实Agent冷启动与token收益未验证。没有产品修补、安装或发布。
 
-First action: 以最终提交 SHA 重建并核验两个完整包，安装后再以安装路径执行 full doctor；远程状态以本分支 PR 和 CI 回执为准。若扩大真实自动接管，先补可信宿主证据与隔离真实路径验证，未验证能力保持关闭。
+First action: 以最终提交 SHA 重建并核验两个完整包，安装后再以安装路径执行 full doctor，并核对本分支 PR 与 CI 回执。若扩大真实自动接管，先补可信宿主证据与隔离真实路径验证，未验证能力保持关闭。
 旧恢复入口完整保留于 [CONTEXT-v0.36](docs/validation/archive/CONTEXT-v0.36.md)，仅具体争议时读取。
 各阶段红绿、主控裁决与代价在最终报告及隔离工作区 `.superpowers/sdd/short-session-handoff/progress.md`；不得只信执行者自报。
