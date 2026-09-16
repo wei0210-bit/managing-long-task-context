@@ -1,0 +1,229 @@
+{
+  "schema": "local-verification-runs/v1",
+  "stage": "E3-local-accepted",
+  "source_kind": "synthetic",
+  "model_execution": "NOT_RUN",
+  "model_execution_scope": "evaluation and real CLI tasks only; development agents are active and their token cost is not independently measured",
+  "natural_usage": "NOT_RUN",
+  "live_host_execution": "NOT_RUN",
+  "token_cost": null,
+  "final_package": {
+    "path": "/private/tmp/mltc-e3-controller.NK3pJL/context-strict-final",
+    "manifest_sha256": "cf4b6266af825704fcf377120e9daf24574df4946180745d385c87a46d46c074",
+    "source_tree_sha256": "94de99a5e47698f2af08b1b6bfc1e9fceb27a56660885781ebca19a52d6fdb7a",
+    "source_revision": "candidate:dirty-worktree-0.8.0-E3",
+    "files": 59, "verify": "pass", "doctor_full": "pass"
+  },
+  "mechanism_metrics": {
+    "unit": "frozen root TestCase method groups; subinputs are not separate denominator entries",
+    "false_allow": {"count": 0, "denominator": 12},
+    "false_block": {"count": 0, "denominator": 8},
+    "same_scenario_repetitions": 3,
+    "assertion_groups_passed": 60,
+    "assertion_groups_total": 60,
+    "model_raw_judgments": null,
+    "model_stability": "NOT_RUN",
+    "limitation": "E3 local protected operations and recovery only, not business-completion or production failure rates"
+  },
+  "runs": [
+    {
+      "name": "root-final-complete-regression",
+      "command": "MLTC_LEGACY_PACKAGE=/private/tmp/mltc-review-baseline.GYDdVc/context-strict PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 -W always::ResourceWarning -m unittest discover -s tests -q",
+      "exit_code": 0, "tests": 507, "failures": 0, "errors": 0, "skips": 0,
+      "resource_warnings": 0, "elapsed_seconds": 55.844
+    },
+    {
+      "name": "root-final-package-outside-source",
+      "cwd": "/private/tmp/mltc-e3-controller.NK3pJL",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/private/tmp/mltc-e3-controller.NK3pJL/context-strict-final/src:/private/tmp/mltc-e3-controller.NK3pJL/context-strict-final/tests /opt/homebrew/bin/python3.12 -W always::ResourceWarning -m unittest test_handoff_codex_cli test_handoff_host_records -q",
+      "exit_code": 0, "tests": 33, "failures": 0, "errors": 0,
+      "resource_warnings": 0, "elapsed_seconds": 13.110
+    },
+    {
+      "name": "root-final-E2-package-compatibility-probes",
+      "command": "MLTC_E2_PACKAGE=/private/tmp/mltc-e3-controller.NK3pJL/context-strict-final PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 docs/validation/e2_controller_probes.py -q",
+      "exit_code": 0, "tests": 6, "failures": 0, "elapsed_seconds": 1.077
+    },
+    {
+      "name": "root-final-three-mechanism-repeats",
+      "commands": ["PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -q", "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_process_probes.py -q"],
+      "controller_tests_per_run": 17, "process_tests_per_run": 3,
+      "controller_seconds": [0.611, 0.625, 0.632],
+      "process_seconds": [1.012, 1.000, 1.020],
+      "exit_codes": [0, 0, 0, 0, 0, 0],
+      "classification": "three equivalent synthetic scenario repetitions, not actual model stability or production reliability"
+    },
+    {
+      "name": "root-first-complete-E3-package",
+      "package": "/private/tmp/mltc-e3-controller.NK3pJL/context-strict",
+      "manifest_sha256": "83b531edd328fee21bf29b2d4f79ddbd7550826cf29693994d61f3e62c04257d",
+      "source_tree_sha256": "3228e268ee4841db388b53099b597f0335c4d2bb5be2ee6ebf2117e7a474edaa",
+      "files": 59, "verify": "pass", "doctor_full": "pass",
+      "package_tests": 32, "package_tests_seconds": 10.795, "package_exit_code": 0,
+      "release_status": "WITHDRAWN_PENDING_PIPE_RESOURCE_FIX",
+      "reason": "ResourceWarning unclosed BufferedReader after inherited-pipe fixture; not silently accepted as clean validation"
+    },
+    {
+      "name": "root-first-full-regression-E3",
+      "command": "MLTC_LEGACY_PACKAGE=/private/tmp/mltc-review-baseline.GYDdVc/context-strict PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 -m unittest discover -s tests -q",
+      "exit_code": 0, "tests": 506, "failures": 0, "skips": 0, "elapsed_seconds": 117.053,
+      "warning": "unclosed BufferedReader ResourceWarning; resource repair and rerun required",
+      "timing_context": "other local test groups ran concurrently; not a controlled before-after performance benchmark"
+    },
+    {
+      "name": "root-P16-package-boundary",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_host_distribution -v",
+      "exit_code": 0, "tests": 1, "failures": 0, "elapsed_seconds": 4.453,
+      "negative_subcases": 6,
+      "result": "both host modules: missing, content tamper, outside import all rejected; normal complete candidate imports"
+    },
+    {
+      "name": "root-unicode-positive-control-red",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py LedgerProbes.test_p01_unicode_workspace_keeps_cross_layer_digest_compatible -v",
+      "exit_code": 1, "tests": 1, "failures": 1, "elapsed_seconds": 0.077,
+      "result": "legal Unicode workspace rejected with HOST_OBSERVATION_BINDING_MISMATCH after record digest encoding changed",
+      "classification": "actual false-block regression; preserve UTF8 canonical digest across transport and ledger"
+    },
+    {
+      "name": "root-late-attempt-independent-probe",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -q",
+      "exit_code": 0, "tests": 15, "failures": 0, "elapsed_seconds": 0.534,
+      "classification": "root persistent test first ran after implementation repair; not root TDD red. Separate read-only reviewer had reproduced old late result pass before repair"
+    },
+    {
+      "name": "root-E1-protocol-regression",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_protocol test_handoff_activation test_handoff_writes test_handoff_concurrency test_handoff_process_recovery test_handoff_gate_combinations -q",
+      "exit_code": 0, "tests": 66, "failures": 0, "elapsed_seconds": 18.920
+    },
+    {
+      "name": "root-post-check-authorization-revocation-red",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -q",
+      "exit_code": 1, "tests": 14, "failures": 1, "elapsed_seconds": 0.529,
+      "result": "verifier revokes registered host authorization; processing still committed pass",
+      "classification": "actual isolated authorization state mutation; behavioral red"
+    },
+    {
+      "name": "root-post-check-authorization-revocation-green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -q",
+      "exit_code": 0, "tests": 14, "failures": 0, "elapsed_seconds": 0.509
+    },
+    {
+      "name": "root-process-concurrency-and-recovery-green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_process_probes.py -v",
+      "exit_code": 0, "tests": 3, "failures": 0, "elapsed_seconds": 1.033,
+      "result": "P12 pre/post process kill plus P04 two processes, different attempts, same thread: exactly one durable reservation"
+    },
+    {
+      "name": "root-transport-14-after-format",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_codex_cli -q",
+      "exit_code": 0, "tests": 14, "failures": 0, "elapsed_seconds": 3.499
+    },
+    {
+      "name": "root-E1-independent-regression",
+      "commands": ["e1_01_controller_probes.py", "e1_02_controller_probes.py", "e1_03_controller_probes.py", "e1_04_controller_probes.py"],
+      "command_prefix": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/",
+      "exit_codes": [0, 0, 0, 0], "tests": [10, 18, 17, 4], "elapsed_seconds": [0.087, 0.451, 0.760, 0.137],
+      "failures": 0, "total_tests": 49
+    },
+    {
+      "name": "root-transport-ledger-independent-11-green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -q",
+      "exit_code": 0, "tests": 11, "failures": 0, "errors": 0, "elapsed_seconds": 0.490,
+      "classification": "root rerun; transport boundary ledger and real ledger file tests are separate; not live host proof"
+    },
+    {
+      "name": "root-executor-targeted-16-green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_host_records test_handoff_codex_cli -q",
+      "exit_code": 0, "tests": 16, "failures": 0, "errors": 0, "elapsed_seconds": 2.514
+    },
+    {
+      "name": "P12-process-fixture-first-run",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_process_probes.py -v",
+      "exit_code": 1, "tests": 2, "failures": 2, "elapsed_seconds": 0.293,
+      "classification": "fixture defect: /var vs /private/var prevented barrier matching; NOT behavioral product red"
+    },
+    {
+      "name": "P12-real-process-interruption-green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_process_probes.py -v",
+      "exit_code": 0, "tests": 2, "failures": 0, "elapsed_seconds": 0.784,
+      "classification": "canonical-path barrier; actual isolated process killed before/after event replace; fresh process reconciliation twice ends at one commit; not power failure"
+    },
+    {
+      "name": "ledger-root-first-run",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py LedgerProbes -v",
+      "exit_code": 1,
+      "tests": 3,
+      "failures": 3,
+      "errors": 0,
+      "elapsed_seconds": 0.115,
+      "result": "impostor published; same result committed 3 times; changed-after-check archive still committed pass",
+      "classification": "real isolated event/file behavior; not model evidence"
+    },
+    {
+      "name": "transport-root-expiry-encoding-red",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -v",
+      "exit_code": 1,
+      "tests": 8,
+      "failures": 1,
+      "errors": 2,
+      "elapsed_seconds": 0.544,
+      "result": "expired receipt launched actual fixture; surrogate UnicodeEncodeError and embedded NUL ValueError"
+    },
+    {
+      "name": "transport-root-exact-thread-run",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -v",
+      "exit_code": 0,
+      "tests": 6,
+      "failures": 0,
+      "elapsed_seconds": 0.431,
+      "result": "resume observed thread matches requested UUID; includes exact observed thread assertion"
+    },
+    {
+      "name": "transport-root-second-run",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -v",
+      "exit_code": 0,
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "elapsed_seconds": 0.402,
+      "result": "explicit --json repair and finalized synthetic observer receipt",
+      "limitation": "before adding exact observed resume thread assertion; does not prove durable integration"
+    },
+    {
+      "name": "transport-root-first-run",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -v",
+      "exit_code": 1,
+      "tests": 6,
+      "failures": 1,
+      "errors": 0,
+      "elapsed_seconds": 0.407,
+      "result": "resume argv missing --json; 5 passed",
+      "classification": "transport-only synthetic ledger; not durable recovery evidence"
+    },
+    {
+      "name": "E2-frozen-package-recheck",
+      "command": "PYTHONDONTWRITEBYTECODE=1 /opt/homebrew/bin/python3.12 scripts/skill_package.py verify --package /private/tmp/mltc-e2-controller.rGw7ow/context-strict --expected-manifest-sha256 51331cb7ea3edb2c120d1f1a5efa76dff32d79edd7644a1f0f98312ab0817165 --expected-source-revision candidate:dirty-worktree-0.8.0",
+      "exit_code": 0,
+      "result": "pass",
+      "files": 51
+    },
+    {
+      "name": "E0-immutable-input-recheck",
+      "command": "PYTHONDONTWRITEBYTECODE=1 /opt/homebrew/bin/python3.12 tests/handoff_spec.py tests/fixtures/handoff --expected-manifest-sha256 435e407c064b32a7d5012e0161c9b2e7bddc38c8d70ce42e12659102e7f52a7b",
+      "exit_code": 0,
+      "elapsed_seconds": 0.028996833018027246,
+      "result": "fixture validation only; not product execution"
+    },
+    {
+      "name": "host-package-red",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_host_distribution -v",
+      "exit_code": 1,
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "elapsed_seconds": 0.131,
+      "result": "required host module absent from built package declaration",
+      "classification": "distribution contract assertion; not transport/ledger behavioral red"
+    }
+  ]
+}

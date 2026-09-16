@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "phase": "frozen-before-controller-execution",
+  "test_layer": "synthetic-local-mechanism",
+  "contract_sha256": "7d68663f23c62b3041f760d7f886cd0c8c1027dc1d3137bdaf220b00a8a26d4d",
+  "cases": [
+    {"id": "W01", "action": "prepare without trusted write_authorizer but with content verifier", "expected": "not_pass_and_no_committed_prepared"},
+    {"id": "W02", "action": "valid original controller prepare with current evidence", "expected": "pass_prepared_once_no_generation_change"},
+    {"id": "W03", "action": "same prepare request repeated and then request reused with different record or mismatching request workspace; recovery cannot override input checks", "expected": "same_is_idempotent_different_is_conflict"},
+    {"id": "W04", "action": "prepared task eight direct writers without runtime authorization", "expected": "all_rejected_before_content_change"},
+    {"id": "W05", "action": "valid existing child progress during prepared, contrasted with child contract publication or dispatch, including child/contract_publish inconsistent host result after cancel", "expected": "progress_allowed_control_changes_rejected"},
+    {"id": "W06", "action": "cancel valid prepared then attempt direct record with no identity", "expected": "cancel_once_same_generation_bare_write_still_rejected"},
+    {"id": "W07", "action": "authorization fields use bool or float instead of integer generation, different operation, expired observation", "expected": "not_pass_and_no_committed_change"},
+    {"id": "W08", "action": "authorization callback mutates original authority file or stored handoff record before returning old pass", "expected": "input_changed_not_committed"},
+    {"id": "W09", "action": "authorizer unknown or exception on cancel", "expected": "no_cancel_no_restored_dispatch"},
+    {"id": "W10", "action": "prepared artifacts remain but authoritative events missing; or events remain but prepared record directory is missing, with current or stale snapshot", "expected": "no_legacy_write_fallback"},
+    {"id": "W11", "action": "verifier returns only status/content_status pass", "expected": "not_pass_no_committed_prepared"},
+    {"id": "W12", "action": "published contract digest mismatches sealed contract before prepare", "expected": "unknown_no_committed_prepared"},
+    {"id": "W13", "action": "legacy task with no handoff and valid 2000-event log appends two ordinary records", "expected": "both_accepted_handoff_limit_not_applied_to_legacy"}
+  ],
+  "model_execution": "NOT_RUN",
+  "natural_usage": "NOT_RUN",
+  "token_cost": null
+}

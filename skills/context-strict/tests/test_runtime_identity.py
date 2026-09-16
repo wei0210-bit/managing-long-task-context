@@ -401,6 +401,57 @@ raise SystemExit(code)
         self.assertNotEqual(report["status"], "pass", report)
         self.assertIn("RUNTIME_UNVERIFIED", report["codes"])
 
+    def test_payload_tampered_before_first_import_never_reports_runtime_pass(self) -> None:
+        tampered_package = self.root / "tampered-before-import"
+        shutil.copytree(self.package, tampered_package)
+        runtime = tampered_package / "src/managing_long_task_context/runtime_identity.py"
+        shutil.copyfile(
+            ROOT / "src/managing_long_task_context/runtime_identity.py", runtime
+        )
+        manifest_path = tampered_package / "skill-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        runtime_entry = next(
+            item for item in manifest["files"]
+            if item["path"] == "src/managing_long_task_context/runtime_identity.py"
+        )
+        runtime_entry.update(sha256=sha256(runtime), size=runtime.stat().st_size)
+        manifest["source_tree_sha256"] = hashlib.sha256(
+            json.dumps(
+                manifest["files"],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        manifest_path.write_text(
+            json.dumps(
+                manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ) + "\n",
+            encoding="utf-8",
+        )
+        payload = tampered_package / "src/managing_long_task_context/host_codex_native.py"
+        payload.write_bytes(payload.read_bytes() + b"\n# tampered before first import\n")
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import json, managing_long_task_context as c; "
+                    "print(json.dumps(c.runtime_identity(package_root=__import__('sys').argv[1])))"
+                ),
+                str(tampered_package),
+            ],
+            cwd=self.root,
+            env={**os.environ, "PYTHONPATH": str(tampered_package / "src")},
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertNotEqual(report["status"], "pass", report)
+        self.assertIn("RUNTIME_UNVERIFIED", report["codes"])
+
     def test_bound_strict_resume_succeeds_from_another_cwd_and_preserves_sealed_errors(self) -> None:
         self.init_binding()
         script = '''

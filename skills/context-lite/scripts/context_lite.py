@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,6 +53,7 @@ MUTATING_COMMANDS = {
 MUTATING_GIT = {"add", "am", "branch", "checkout", "cherry-pick", "clean", "commit", "merge", "pull", "push", "rebase", "reset", "restore", "revert", "switch", "tag"}
 MUTATING_GH = {"issue edit", "issue close", "issue create", "pr merge", "pr close", "pr create", "run rerun", "workflow run"}
 VAGUE_REFERENCE = re.compile(r"^(?:here|there|above|earlier|previous|当前|这里|那里|上面|刚才|之前)$", re.IGNORECASE)
+MAX_NOW_BYTES = 8_000 * 4
 
 
 _MANIFEST_AFTER, _MANIFEST_DIGEST_AFTER = _manifest_identity()
@@ -256,6 +258,63 @@ def _read(path: Path) -> tuple[str | None, dict[str, object] | None]:
         }
 
 
+def _read_bounded_bytes(path: Path) -> tuple[bytes | None, dict[str, object] | None]:
+    try:
+        with path.open("rb") as stream:
+            value = stream.read(MAX_NOW_BYTES + 1)
+    except OSError as exc:
+        return None, {
+            "status": "invalid",
+            "codes": ["NOW_READ_FAILED"],
+            "errors": [_error("NOW_READ_FAILED", type(exc).__name__)],
+            "stats": {},
+        }
+    if len(value) > MAX_NOW_BYTES:
+        return None, {
+            "status": "invalid",
+            "codes": ["NOW_READ_LIMIT_EXCEEDED"],
+            "errors": [_error("NOW_READ_LIMIT_EXCEEDED", f"more than {MAX_NOW_BYTES} UTF-8 bytes")],
+            "stats": {},
+        }
+    return value, None
+
+
+def _read_bound_now_bytes(context_root: str, task_id: str) -> tuple[bytes | None, dict[str, object] | None]:
+    """Read a task NOW file without following task or file symlinks."""
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0)
+    nofollow_flags = directory_flags | getattr(os, "O_NOFOLLOW", 0)
+    file_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    root_fd = task_fd = file_fd = None
+    try:
+        root_fd = os.open(str(Path(context_root).resolve(strict=True)), directory_flags)
+        task_fd = os.open(task_id, nofollow_flags, dir_fd=root_fd)
+        file_fd = os.open("NOW.md", file_flags, dir_fd=task_fd)
+        if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+            raise OSError("NOW.md is not a regular file")
+        with os.fdopen(file_fd, "rb") as stream:
+            file_fd = None
+            value = stream.read(MAX_NOW_BYTES + 1)
+    except OSError as exc:
+        return None, {
+            "status": "invalid",
+            "codes": ["NOW_READ_FAILED"],
+            "errors": [_error("NOW_READ_FAILED", type(exc).__name__)],
+            "stats": {},
+        }
+    finally:
+        for descriptor in (file_fd, task_fd, root_fd):
+            if descriptor is not None:
+                os.close(descriptor)
+    if len(value) > MAX_NOW_BYTES:
+        return None, {
+            "status": "invalid",
+            "codes": ["NOW_READ_LIMIT_EXCEEDED"],
+            "errors": [_error("NOW_READ_LIMIT_EXCEEDED", f"more than {MAX_NOW_BYTES} UTF-8 bytes")],
+            "stats": {},
+        }
+    return value, None
+
+
 def _unknown_experience(codes: object) -> dict[str, object]:
     stable_codes = codes if isinstance(codes, list) and codes and all(isinstance(code, str) and code for code in codes) else ["EXPERIENCE_QUERY_UNAVAILABLE"]
     return {"status": "unknown", "codes": stable_codes, "suggestions": [], "requires_strict": False}
@@ -309,7 +368,9 @@ def _query_experience(workspace_root: str, store_root: str, tags: str) -> dict[s
     return {"status": "pass", "codes": codes, "suggestions": suggestions, "requires_strict": False}
 
 
-def _write(candidate: Path, base_dir: Path, task_id: str) -> tuple[dict[str, object], int]:
+def _write(
+    candidate: Path, base_dir: Path, task_id: str, *, include_persisted_bytes: bool = False,
+) -> tuple[dict[str, object], int]:
     text, failure = _read(candidate)
     if failure is not None or text is None:
         return failure or {}, 1
@@ -337,7 +398,31 @@ def _write(candidate: Path, base_dir: Path, task_id: str) -> tuple[dict[str, obj
                 "errors": [_error("NOW_GOAL_CONFLICT", "same task ID has a different exact goal")], "stats": {},
             }, 1
         if old_text == text:
-            return {**report, "status": "unchanged", "path": str(target.resolve())}, 0
+            unchanged: dict[str, object] = {**report, "status": "unchanged", "path": str(target.resolve())}
+            if include_persisted_bytes:
+                persisted, persisted_failure = _read_bounded_bytes(target)
+                if persisted_failure is not None or persisted is None:
+                    return {**(persisted_failure or {}), "status": "unknown"}, 2
+                try:
+                    persisted_text = persisted.decode("utf-8")
+                except UnicodeError:
+                    return {
+                        "status": "unknown", "codes": ["NOW_CHANGED_DURING_FLUSH"],
+                        "errors": [_error("NOW_CHANGED_DURING_FLUSH", "persisted NOW.md is no longer the validated source")],
+                        "stats": {},
+                    }, 2
+                # ``_read`` uses universal newlines, and unchanged CRLF NOW.md
+                # files retain their original bytes by design. Compare the same
+                # textual source while hashing the exact persisted bytes below.
+                persisted_source = persisted_text.replace("\r\n", "\n").replace("\r", "\n")
+                if persisted_source != old_text:
+                    return {
+                        "status": "unknown", "codes": ["NOW_CHANGED_DURING_FLUSH"],
+                        "errors": [_error("NOW_CHANGED_DURING_FLUSH", "persisted NOW.md changed between source validation and digest")],
+                        "stats": {},
+                    }, 2
+                unchanged["_persisted_now_bytes"] = persisted
+            return unchanged, 0
 
     target_dir.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
@@ -376,7 +461,24 @@ def _write(candidate: Path, base_dir: Path, task_id: str) -> tuple[dict[str, obj
                 temporary_path.unlink()
             except FileNotFoundError:
                 pass
-    return {**report, "status": "written", "path": str(target.resolve())}, 0
+    written: dict[str, object] = {**report, "status": "written", "path": str(target.resolve())}
+    if include_persisted_bytes:
+        written["_persisted_now_bytes"] = text.encode("utf-8")
+    return written, 0
+
+
+def _flush(candidate: Path, base_dir: Path, task_id: str) -> tuple[dict[str, object], int]:
+    """Write through the single NOW store and expose its persisted version."""
+    report, code = _write(candidate, base_dir, task_id, include_persisted_bytes=True)
+    if code != 0:
+        return report, code
+    persisted = report.pop("_persisted_now_bytes", None)
+    if not isinstance(persisted, bytes):
+        return {
+            "status": "unknown", "codes": ["NOW_READ_FAILED"],
+            "errors": [_error("NOW_READ_FAILED", "flush has no persisted NOW.md bytes")], "stats": {},
+        }, 2
+    return {**report, "now_sha256": hashlib.sha256(persisted).hexdigest()}, 0
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -389,6 +491,10 @@ def _parser() -> argparse.ArgumentParser:
     write.add_argument("--candidate", type=Path, required=True)
     write.add_argument("--base-dir", type=Path, required=True)
     write.add_argument("--task-id", required=True)
+    flush = subparsers.add_parser("flush")
+    flush.add_argument("--candidate", type=Path, required=True)
+    flush.add_argument("--base-dir", type=Path, required=True)
+    flush.add_argument("--task-id", required=True)
     observe = subparsers.add_parser("observe-path")
     observe.add_argument("--state-id", required=True)
     observe.add_argument("--path", type=Path, required=True)
@@ -400,10 +506,19 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument("--requires-rule-proof", action="store_true")
     resume.add_argument("--experience-store")
     resume.add_argument("--experience-tags")
+    cold_check = subparsers.add_parser("cold-check")
+    cold_check.add_argument("--package-root")
+    cold_check.add_argument("--context-root")
+    cold_check.add_argument("--workspace-root")
+    cold_check.add_argument("--task-id")
+    cold_check.add_argument("--requires-rule-proof", action="store_true")
+    cold_check.add_argument("--experience-store")
+    cold_check.add_argument("--experience-tags")
+    cold_check.add_argument("--expected-now-sha256")
     return parser
 
 
-def _resume(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+def _resume(args: argparse.Namespace, *, include_now_bytes: bool = False) -> tuple[dict[str, object], int]:
     required = (args.package_root, args.context_root, args.workspace_root, args.task_id)
     if not all(required):
         report = identity_core.input_failure("identity", "task", "all resume arguments are required")
@@ -424,9 +539,16 @@ def _resume(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     )
     if diagnostic["status"] != "pass":
         return {"diagnostic": diagnostic, "context": None}, {"fail": 1, "unknown": 2}.get(diagnostic["status"], 2)
-    target = Path(args.context_root).resolve() / args.task_id / "NOW.md"
-    text, failure = _read(target)
-    if failure is not None or text is None:
+    raw, failure = _read_bound_now_bytes(args.context_root, args.task_id)
+    if failure is not None or raw is None:
+        diagnostic = identity_core._report(
+            mode="identity", scope="task", identity=diagnostic["identity"], binding=diagnostic["binding"],
+            checks=list(diagnostic["checks"]) + [identity_core._check("resume", "unknown", "READ_FAILED", "cannot read NOW.md")],
+        )
+        return {"diagnostic": diagnostic, "context": None}, 2
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError:
         diagnostic = identity_core._report(
             mode="identity", scope="task", identity=diagnostic["identity"], binding=diagnostic["binding"],
             checks=list(diagnostic["checks"]) + [identity_core._check("resume", "unknown", "READ_FAILED", "cannot read NOW.md")],
@@ -453,13 +575,98 @@ def _resume(args: argparse.Namespace) -> tuple[dict[str, object], int]:
                 "status": "unknown", "codes": ["STRICT_REQUIRED"], "suggestions": [], "requires_strict": True,
             },
         }, 2
+    result: dict[str, object] = {"diagnostic": diagnostic, "context": text}
+    if include_now_bytes:
+        result["_now_bytes"] = raw
     if experience_store is not None:
-        return {
-            "diagnostic": diagnostic,
-            "context": text,
-            "experience": _query_experience(args.workspace_root, experience_store, experience_tags),
-        }, 0
-    return {"diagnostic": diagnostic, "context": text}, 0
+        result["experience"] = _query_experience(args.workspace_root, experience_store, experience_tags)
+        return result, 0
+    return result, 0
+
+
+def _cold_envelope(
+    status: str, diagnostic: object, material: Mapping[str, object] | None, codes: list[str] | None = None,
+) -> dict[str, object]:
+    report: dict[str, object] = {
+        "status": status,
+        "diagnostic": diagnostic,
+        "material": material,
+        "history_inheritance": "unknown",
+        "semantic_verification": "pending",
+        "archive_allowed": False,
+    }
+    if codes:
+        report["codes"] = codes
+    return report
+
+
+def _material_lines(lines: list[str]) -> list[str]:
+    value = list(lines)
+    while value and not value[-1].strip():
+        value.pop()
+    return value
+
+
+def _cold_material(text: str, now_sha256: str) -> dict[str, object]:
+    """Create a read-only handoff view; refresh references are deliberately inert."""
+    validation = validate_text(text)
+    sections = _sections(text.splitlines())
+    first_match = next(
+        match for line in sections["## Next"]
+        for match in [re.match(r"^1\.\s+First:\s+(\S(?:.*\S)?)\s*$", line)]
+        if match is not None
+    )
+    refresh_mappings = {
+        match.group(1): match.group(2)
+        for line in sections["## Refresh On Resume"]
+        for match in [re.match(r"^-\s+(STATE-[A-Za-z0-9._-]+|RUN-[A-Za-z0-9._-]+)\s+->\s+(.+)$", line)]
+        if match is not None
+    }
+    return {
+        "task_id": validation["task_id"],
+        "now_sha256": now_sha256,
+        "goal": validation["goal"],
+        "acceptance": _material_lines(sections["## Acceptance"]),
+        "current_state": _material_lines(sections["## Current State"]),
+        "decisions": _material_lines(sections["## Decisions"]),
+        "in_flight": _material_lines(sections["## In Flight"]),
+        "blockers": _material_lines(sections["## Blockers"]),
+        "next": _material_lines(sections["## Next"]),
+        "first_action": first_match.group(1),
+        "refresh_mappings": refresh_mappings,
+        "history_inheritance": "unknown",
+        "semantic_verification": "pending",
+        "archive_allowed": False,
+    }
+
+
+def _cold_check(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    """Return a bounded, identity-bound read of NOW.md without executing it."""
+    resumed, code = _resume(args, include_now_bytes=True)
+    diagnostic = resumed.get("diagnostic")
+    context = resumed.get("context")
+    original = resumed.get("_now_bytes")
+    if code != 0 or not isinstance(context, str) or not isinstance(original, bytes):
+        status = diagnostic.get("status") if isinstance(diagnostic, Mapping) else "unknown"
+        return _cold_envelope(status if status in {"fail", "unknown"} else "unknown", diagnostic, None), code
+
+    # This is the first NOW read. Its exact bytes determine both the
+    # digest and extracted material; a bounded second read detects a later
+    # replacement before any handoff material leaves this process.
+    now_sha256 = hashlib.sha256(original).hexdigest()
+    expected = args.expected_now_sha256
+    if expected is not None:
+        if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+            return _cold_envelope("unknown", diagnostic, None, ["EXPECTED_NOW_SHA256_INVALID"]), 2
+        if expected != now_sha256:
+            return _cold_envelope("unknown", diagnostic, None, ["NOW_SHA256_MISMATCH"]), 2
+
+    observed, failure = _read_bound_now_bytes(args.context_root, args.task_id)
+    if failure is not None or observed is None:
+        return _cold_envelope("unknown", diagnostic, None, ["NOW_READ_FAILED"]), 2
+    if observed != original:
+        return _cold_envelope("unknown", diagnostic, None, ["NOW_CHANGED_DURING_COLD_CHECK"]), 2
+    return _cold_envelope("pass", diagnostic, _cold_material(context, now_sha256)), 0
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -470,8 +677,12 @@ def main(argv: Iterable[str] | None = None) -> int:
         code = 0 if report["status"] == "valid" else 1
     elif args.command == "write":
         report, code = _write(args.candidate, args.base_dir.resolve(), args.task_id)
+    elif args.command == "flush":
+        report, code = _flush(args.candidate, args.base_dir.resolve(), args.task_id)
     elif args.command == "resume":
         report, code = _resume(args)
+    elif args.command == "cold-check":
+        report, code = _cold_check(args)
     else:
         readable = args.path.is_file() and os.access(args.path, os.R_OK)
         report = {

@@ -1,0 +1,18 @@
+{
+  "contract_sha256": "1b8aa9154f36e7495c27d598a3ea0bf666dc9fe599dbab18f7cb824ab2ee7e04",
+  "synthetic_only": true,
+  "runs": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_activation -v",
+      "exit_code": 0,
+      "tests": 8,
+      "duration_seconds": 0.76
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "not_final_full_regression": true,
+  "unknown": ["real_host", "power_loss", "business_actions", "model_stability", "token_cost"]
+}

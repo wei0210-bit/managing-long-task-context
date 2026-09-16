@@ -1,0 +1,320 @@
+{
+  "schema": "replay-probe/v1",
+  "runs_per_workload": 5,
+  "business_validation": "not_run",
+  "token_cost": "unknown",
+  "workloads": [
+    {
+      "kind": "real",
+      "locator": "/Users/zhaowei/Desktop/David/project.nosync/.prime/context/8D-FEEDBACK-ROUND-20260914-R5/events.jsonl",
+      "runs": [
+        {
+          "kind": "real",
+          "events": 40,
+          "bytes": 35417,
+          "source_sha256": "292f84f7a4550a5fd6f40e024242f4031dcb860d48621e9f1fff6e7c7444f9ff",
+          "read_or_generation_seconds": 0.00030745798721909523,
+          "rebuild_seconds": 0.004234749998431653,
+          "process_peak_rss_bytes": 44433408,
+          "items": 17,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 40,
+          "bytes": 35417,
+          "source_sha256": "292f84f7a4550a5fd6f40e024242f4031dcb860d48621e9f1fff6e7c7444f9ff",
+          "read_or_generation_seconds": 0.0003957920125685632,
+          "rebuild_seconds": 0.004322292050346732,
+          "process_peak_rss_bytes": 44384256,
+          "items": 17,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 40,
+          "bytes": 35417,
+          "source_sha256": "292f84f7a4550a5fd6f40e024242f4031dcb860d48621e9f1fff6e7c7444f9ff",
+          "read_or_generation_seconds": 0.00030187499942258,
+          "rebuild_seconds": 0.003933499974664301,
+          "process_peak_rss_bytes": 44646400,
+          "items": 17,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 40,
+          "bytes": 35417,
+          "source_sha256": "292f84f7a4550a5fd6f40e024242f4031dcb860d48621e9f1fff6e7c7444f9ff",
+          "read_or_generation_seconds": 0.00030283303931355476,
+          "rebuild_seconds": 0.003915540990419686,
+          "process_peak_rss_bytes": 44580864,
+          "items": 17,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 40,
+          "bytes": 35417,
+          "source_sha256": "292f84f7a4550a5fd6f40e024242f4031dcb860d48621e9f1fff6e7c7444f9ff",
+          "read_or_generation_seconds": 0.0002995000104419887,
+          "rebuild_seconds": 0.003941541945096105,
+          "process_peak_rss_bytes": 44548096,
+          "items": 17,
+          "source_unchanged": true
+        }
+      ]
+    },
+    {
+      "kind": "real",
+      "locator": "/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/.prime/context/TRUTH-SOURCE-PILOT/events.jsonl",
+      "runs": [
+        {
+          "kind": "real",
+          "events": 10,
+          "bytes": 4847,
+          "source_sha256": "141259e99ebc612d4eba8236d60253cfa5cc8c4b460a4187fc1c763cde911fe7",
+          "read_or_generation_seconds": 0.00010470900451764464,
+          "rebuild_seconds": 0.0005468750023283064,
+          "process_peak_rss_bytes": 44417024,
+          "items": 0,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 10,
+          "bytes": 4847,
+          "source_sha256": "141259e99ebc612d4eba8236d60253cfa5cc8c4b460a4187fc1c763cde911fe7",
+          "read_or_generation_seconds": 0.00010370899690315127,
+          "rebuild_seconds": 0.0005975830135867,
+          "process_peak_rss_bytes": 44400640,
+          "items": 0,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 10,
+          "bytes": 4847,
+          "source_sha256": "141259e99ebc612d4eba8236d60253cfa5cc8c4b460a4187fc1c763cde911fe7",
+          "read_or_generation_seconds": 0.00010091601870954037,
+          "rebuild_seconds": 0.0005867909640073776,
+          "process_peak_rss_bytes": 44433408,
+          "items": 0,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 10,
+          "bytes": 4847,
+          "source_sha256": "141259e99ebc612d4eba8236d60253cfa5cc8c4b460a4187fc1c763cde911fe7",
+          "read_or_generation_seconds": 0.00012470799265429378,
+          "rebuild_seconds": 0.0005649170489050448,
+          "process_peak_rss_bytes": 44400640,
+          "items": 0,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 10,
+          "bytes": 4847,
+          "source_sha256": "141259e99ebc612d4eba8236d60253cfa5cc8c4b460a4187fc1c763cde911fe7",
+          "read_or_generation_seconds": 0.00012554199201986194,
+          "rebuild_seconds": 0.0005462919943965971,
+          "process_peak_rss_bytes": 44498944,
+          "items": 0,
+          "source_unchanged": true
+        }
+      ]
+    },
+    {
+      "kind": "real",
+      "locator": "/Users/zhaowei/Desktop/David/project.nosync/n8n/SEO GEO/.prime/context/SEO-GEO-TF-SOCIAL-SEED-04/events.jsonl",
+      "runs": [
+        {
+          "kind": "real",
+          "events": 62,
+          "bytes": 87418,
+          "source_sha256": "f63b59381f48bb3f8880c48a64db7259be90bffeedb49dc0915d0f685cb40607",
+          "read_or_generation_seconds": 0.0005869169835932553,
+          "rebuild_seconds": 0.012478707998525351,
+          "process_peak_rss_bytes": 44482560,
+          "items": 35,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 62,
+          "bytes": 87418,
+          "source_sha256": "f63b59381f48bb3f8880c48a64db7259be90bffeedb49dc0915d0f685cb40607",
+          "read_or_generation_seconds": 0.0005987079930491745,
+          "rebuild_seconds": 0.012359915999695659,
+          "process_peak_rss_bytes": 44646400,
+          "items": 35,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 62,
+          "bytes": 87418,
+          "source_sha256": "f63b59381f48bb3f8880c48a64db7259be90bffeedb49dc0915d0f685cb40607",
+          "read_or_generation_seconds": 0.000834624981507659,
+          "rebuild_seconds": 0.012530666019301862,
+          "process_peak_rss_bytes": 44482560,
+          "items": 35,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 62,
+          "bytes": 87418,
+          "source_sha256": "f63b59381f48bb3f8880c48a64db7259be90bffeedb49dc0915d0f685cb40607",
+          "read_or_generation_seconds": 0.0005817500059492886,
+          "rebuild_seconds": 0.012516457994934171,
+          "process_peak_rss_bytes": 44384256,
+          "items": 35,
+          "source_unchanged": true
+        },
+        {
+          "kind": "real",
+          "events": 62,
+          "bytes": 87418,
+          "source_sha256": "f63b59381f48bb3f8880c48a64db7259be90bffeedb49dc0915d0f685cb40607",
+          "read_or_generation_seconds": 0.0005942090065218508,
+          "rebuild_seconds": 0.012398332997690886,
+          "process_peak_rss_bytes": 44597248,
+          "items": 35,
+          "source_unchanged": true
+        }
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "locator": "1000",
+      "runs": [
+        {
+          "kind": "synthetic",
+          "events": 1000,
+          "bytes": 2281889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.0198964579612948,
+          "rebuild_seconds": 0.5731724579818547,
+          "process_peak_rss_bytes": 52445184,
+          "items": 1000,
+          "source_unchanged": true
+        },
+        {
+          "kind": "synthetic",
+          "events": 1000,
+          "bytes": 2281889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.019017874961718917,
+          "rebuild_seconds": 0.5863883339916356,
+          "process_peak_rss_bytes": 52477952,
+          "items": 1000,
+          "source_unchanged": true
+        },
+        {
+          "kind": "synthetic",
+          "events": 1000,
+          "bytes": 2281889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.03688108397182077,
+          "rebuild_seconds": 0.5979152090149,
+          "process_peak_rss_bytes": 52133888,
+          "items": 1000,
+          "source_unchanged": true
+        },
+        {
+          "kind": "synthetic",
+          "events": 1000,
+          "bytes": 2281889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.01892354100709781,
+          "rebuild_seconds": 0.5651321249897592,
+          "process_peak_rss_bytes": 52232192,
+          "items": 1000,
+          "source_unchanged": true
+        },
+        {
+          "kind": "synthetic",
+          "events": 1000,
+          "bytes": 2281889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.01899683300871402,
+          "rebuild_seconds": 0.6015407919767313,
+          "process_peak_rss_bytes": 52084736,
+          "items": 1000,
+          "source_unchanged": true
+        }
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "locator": "2000",
+      "runs": [
+        {
+          "kind": "synthetic",
+          "events": 2000,
+          "bytes": 4564889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.04206770798191428,
+          "rebuild_seconds": 2.399105624994263,
+          "process_peak_rss_bytes": 60555264,
+          "items": 2000,
+          "source_unchanged": true
+        },
+        {
+          "kind": "synthetic",
+          "events": 2000,
+          "bytes": 4564889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.04036179097602144,
+          "rebuild_seconds": 2.36454808403505,
+          "process_peak_rss_bytes": 61112320,
+          "items": 2000,
+          "source_unchanged": true
+        },
+        {
+          "kind": "synthetic",
+          "events": 2000,
+          "bytes": 4564889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.037515916978009045,
+          "rebuild_seconds": 2.3837622909923084,
+          "process_peak_rss_bytes": 61210624,
+          "items": 2000,
+          "source_unchanged": true
+        },
+        {
+          "kind": "synthetic",
+          "events": 2000,
+          "bytes": 4564889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.053299041057471186,
+          "rebuild_seconds": 2.3755626250058413,
+          "process_peak_rss_bytes": 60653568,
+          "items": 2000,
+          "source_unchanged": true
+        },
+        {
+          "kind": "synthetic",
+          "events": 2000,
+          "bytes": 4564889,
+          "source_sha256": null,
+          "read_or_generation_seconds": 0.05015724996337667,
+          "rebuild_seconds": 2.3414459169725887,
+          "process_peak_rss_bytes": 61112320,
+          "items": 2000,
+          "source_unchanged": true
+        }
+      ]
+    }
+  ],
+  "source_manifest_sha256": "871a8e99a48f05705e64d35c15ce3625a74df3f373b5ecaca43d18a667256f38",
+  "source_fingerprints_match_frozen_sample": true,
+  "measurement_notes": [
+    "Fresh interpreter per run; filesystem cache not flushed.",
+    "Peak RSS includes interpreter/imports, not incremental skill heap or enforced OS limit.",
+    "Pure replay only; no evidence resolution, host calls, business checks or new model calls."
+  ]
+}

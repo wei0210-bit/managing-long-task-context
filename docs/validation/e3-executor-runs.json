@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "status": "local_transport_complete_real_host_not_run",
+  "runs": [
+    {
+      "kind": "local_transport_fixture",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -W always::ResourceWarning -m unittest test_handoff_codex_cli -v",
+      "actual": "15 passed with ResourceWarning enabled",
+      "real_codex_host": "NOT_RUN",
+      "real_model": "NOT_RUN",
+      "natural_use": "NOT_RUN"
+    },
+    {
+      "kind": "real_temporary_ledger_integration",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_codex_cli.CodexCliHostTests.test_real_ledger_archives_then_recovers_without_duplicate_launch -v",
+      "actual": "1 passed; reserve, Python fixture, 0600 archive, fresh Ledger observe, duplicate launch count=1",
+      "real_codex_host": "NOT_RUN",
+      "real_model": "NOT_RUN",
+      "natural_use": "NOT_RUN"
+    },
+    {
+      "kind": "supporting_ledger_and_controller_probes",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_host_records -v; PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -v",
+      "actual": "15 ledger tests passed; 14 controller probes passed",
+      "real_codex_host": "NOT_RUN",
+      "real_model": "NOT_RUN",
+      "natural_use": "NOT_RUN"
+    }
+  ]
+}

@@ -1,0 +1,243 @@
+{
+  "source_kind": "synthetic",
+  "record": {
+    "protocol": "short-session-handoff/v1",
+    "task_id": "TASK-E0",
+    "contract_version": 1,
+    "contract_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "workspace_root": "/fixture/workspace",
+    "package_manifest_sha256": "3d3e4f44b454adaa358d69c4e75eec4bbaa2ecedcb5d84abfdc6b34e33e50cc7",
+    "handoff_id": "HO-1",
+    "request_id": "REQ-prepare-1",
+    "controller_generation": 7,
+    "source_session_ref": {
+      "ref_id": "source-session",
+      "task_id": "TASK-E0",
+      "uri": "fixture:source-session",
+      "sha256": "89eef9d44532b95c376732c10734fa20d30751dc729a8547772d3afcfe5f40a0"
+    },
+    "target_session_ref": {
+      "ref_id": "target-session",
+      "task_id": "TASK-E0",
+      "uri": "fixture:target-session",
+      "sha256": "f3cb382731976dd153a8069d3fb78327b030dd0b4607cdcd03214ded21d6e1b0"
+    },
+    "authorization_ref": {
+      "ref_id": "authorization",
+      "task_id": "TASK-E0",
+      "uri": "fixture:authorization",
+      "sha256": "8c604d0fd378a7de99f373262df8164b4039a0318d9fc1c7343062f28da35514"
+    },
+    "basis_refs": [
+      {
+        "ref_id": "AC-1",
+        "task_id": "TASK-E0",
+        "uri": "fixture:AC-1",
+        "sha256": "2d3ac4b1c46f60f9826aea49dce478ca30aec46956dc3db97f937592fa7f7ab2"
+      },
+      {
+        "ref_id": "baseline",
+        "task_id": "TASK-E0",
+        "uri": "fixture:baseline",
+        "sha256": "9d037427c8fda6033a5e1fa69da6e026cd13c9f5ccdd333f860380a07dd7cca4"
+      }
+    ],
+    "artifact_manifest_ref": {
+      "ref_id": "artifacts",
+      "task_id": "TASK-E0",
+      "uri": "fixture:artifacts",
+      "sha256": "7e6ad6e3e405550b55a32e9ffceec81e6466dd7e7196d7e4307435b3fdd44ba7"
+    },
+    "created_at": "2026-09-15T00:00:00Z",
+    "event_cursor": "EV-10"
+  },
+  "filesystem": {
+    "AC-1": "assert add(2, 3) == 5",
+    "baseline": "synthetic source revision 1",
+    "authorization": "synthetic trusted host grants controller role within TASK-E0; no real authorization",
+    "artifacts": "synthetic immutable manifest",
+    "source-session": "synthetic host:controller-old",
+    "target-session": "synthetic host:controller-new; history_inherited=false"
+  },
+  "trusted_host": {
+    "source_identity": "host:controller-old",
+    "target_identity": "host:controller-new",
+    "target_inherits_history": false,
+    "authorization_status": "verified",
+    "executor_identity": "host:worker-1",
+    "verifier_identity": "host:reviewer-1"
+  },
+  "state": {
+    "controller_generation": 7,
+    "event_cursor": "EV-10",
+    "dispatch_frozen": true,
+    "handoff_phase": "prepared",
+    "child_attempt_id": "ATT-1",
+    "child_state": "running",
+    "business_gate": "unknown"
+  },
+  "requests": {
+    "prepare_handoff": {
+      "task_id": "TASK-E0",
+      "base_dir": "/fixture/context",
+      "workspace_root": "/fixture/workspace",
+      "package_root": "/fixture/package",
+      "request_id": "REQ-prepare_handoff",
+      "controller_generation": 7,
+      "record": {
+        "protocol": "short-session-handoff/v1",
+        "task_id": "TASK-E0",
+        "contract_version": 1,
+        "contract_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "workspace_root": "/fixture/workspace",
+        "package_manifest_sha256": "3d3e4f44b454adaa358d69c4e75eec4bbaa2ecedcb5d84abfdc6b34e33e50cc7",
+        "handoff_id": "HO-1",
+        "request_id": "REQ-prepare_handoff",
+        "controller_generation": 7,
+        "source_session_ref": {
+          "ref_id": "source-session",
+          "task_id": "TASK-E0",
+          "uri": "fixture:source-session",
+          "sha256": "89eef9d44532b95c376732c10734fa20d30751dc729a8547772d3afcfe5f40a0"
+        },
+        "target_session_ref": {
+          "ref_id": "target-session",
+          "task_id": "TASK-E0",
+          "uri": "fixture:target-session",
+          "sha256": "f3cb382731976dd153a8069d3fb78327b030dd0b4607cdcd03214ded21d6e1b0"
+        },
+        "authorization_ref": {
+          "ref_id": "authorization",
+          "task_id": "TASK-E0",
+          "uri": "fixture:authorization",
+          "sha256": "8c604d0fd378a7de99f373262df8164b4039a0318d9fc1c7343062f28da35514"
+        },
+        "basis_refs": [
+          {
+            "ref_id": "AC-1",
+            "task_id": "TASK-E0",
+            "uri": "fixture:AC-1",
+            "sha256": "2d3ac4b1c46f60f9826aea49dce478ca30aec46956dc3db97f937592fa7f7ab2"
+          },
+          {
+            "ref_id": "baseline",
+            "task_id": "TASK-E0",
+            "uri": "fixture:baseline",
+            "sha256": "9d037427c8fda6033a5e1fa69da6e026cd13c9f5ccdd333f860380a07dd7cca4"
+          }
+        ],
+        "artifact_manifest_ref": {
+          "ref_id": "artifacts",
+          "task_id": "TASK-E0",
+          "uri": "fixture:artifacts",
+          "sha256": "7e6ad6e3e405550b55a32e9ffceec81e6466dd7e7196d7e4307435b3fdd44ba7"
+        },
+        "created_at": "2026-09-15T00:00:00Z",
+        "event_cursor": "EV-10"
+      }
+    },
+    "validate_handoff": {
+      "task_id": "TASK-E0",
+      "base_dir": "/fixture/context",
+      "workspace_root": "/fixture/workspace",
+      "package_root": "/fixture/package",
+      "handoff_id": "HO-1"
+    },
+    "activate_handoff": {
+      "task_id": "TASK-E0",
+      "base_dir": "/fixture/context",
+      "workspace_root": "/fixture/workspace",
+      "package_root": "/fixture/package",
+      "request_id": "REQ-activate_handoff",
+      "controller_generation": 7,
+      "handoff_id": "HO-1"
+    },
+    "cancel_handoff": {
+      "task_id": "TASK-E0",
+      "base_dir": "/fixture/context",
+      "workspace_root": "/fixture/workspace",
+      "package_root": "/fixture/package",
+      "request_id": "REQ-cancel_handoff",
+      "controller_generation": 7,
+      "handoff_id": "HO-1"
+    },
+    "handoff_status": {
+      "task_id": "TASK-E0",
+      "base_dir": "/fixture/context",
+      "workspace_root": "/fixture/workspace",
+      "package_root": "/fixture/package",
+      "handoff_id": "HO-1"
+    }
+  },
+  "response": {
+    "check_status": "pass",
+    "commit_status": "confirmed_committed",
+    "controller_generation": 8,
+    "blocking_reasons": [],
+    "verification_refs": [
+      {
+        "ref_id": "AC-1",
+        "task_id": "TASK-E0",
+        "uri": "fixture:AC-1",
+        "sha256": "2d3ac4b1c46f60f9826aea49dce478ca30aec46956dc3db97f937592fa7f7ab2"
+      }
+    ],
+    "next_readonly_action": "Read handoff_status; business completion remains unknown."
+  },
+  "events": [
+    {
+      "type": "handoff_prepared",
+      "task_id": "TASK-E0",
+      "request_id": "REQ-handoff_prepared",
+      "handoff_id": "HO-1",
+      "created_at": "2026-09-15T00:00:01Z",
+      "expected_controller_generation": 7,
+      "controller_generation": 7,
+      "record_sha256": "4cce35189024674f2d6b4720d150d8eab330fa547fbe92954e3eba215d45ece8",
+      "verification_refs": [
+        {
+          "ref_id": "AC-1",
+          "task_id": "TASK-E0",
+          "uri": "fixture:AC-1",
+          "sha256": "2d3ac4b1c46f60f9826aea49dce478ca30aec46956dc3db97f937592fa7f7ab2"
+        }
+      ]
+    },
+    {
+      "type": "handoff_activated",
+      "task_id": "TASK-E0",
+      "request_id": "REQ-handoff_activated",
+      "handoff_id": "HO-1",
+      "created_at": "2026-09-15T00:00:01Z",
+      "expected_controller_generation": 7,
+      "controller_generation": 8,
+      "record_sha256": "4cce35189024674f2d6b4720d150d8eab330fa547fbe92954e3eba215d45ece8",
+      "verification_refs": [
+        {
+          "ref_id": "AC-1",
+          "task_id": "TASK-E0",
+          "uri": "fixture:AC-1",
+          "sha256": "2d3ac4b1c46f60f9826aea49dce478ca30aec46956dc3db97f937592fa7f7ab2"
+        }
+      ]
+    },
+    {
+      "type": "handoff_cancelled",
+      "task_id": "TASK-E0",
+      "request_id": "REQ-handoff_cancelled",
+      "handoff_id": "HO-1",
+      "created_at": "2026-09-15T00:00:01Z",
+      "expected_controller_generation": 7,
+      "controller_generation": 7,
+      "record_sha256": "4cce35189024674f2d6b4720d150d8eab330fa547fbe92954e3eba215d45ece8",
+      "verification_refs": [
+        {
+          "ref_id": "AC-1",
+          "task_id": "TASK-E0",
+          "uri": "fixture:AC-1",
+          "sha256": "2d3ac4b1c46f60f9826aea49dce478ca30aec46956dc3db97f937592fa7f7ab2"
+        }
+      ]
+    }
+  ]
+}

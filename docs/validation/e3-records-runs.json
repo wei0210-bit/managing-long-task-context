@@ -1,0 +1,48 @@
+{
+  "schema": "local-verification-runs/v1",
+  "scope": "E3 host record-layer counterexamples and narrow repair",
+  "real_codex_host": "NOT_RUN",
+  "real_model": "NOT_RUN",
+  "business_action": "NOT_RUN",
+  "natural_use": "NOT_RUN",
+  "runs": [
+    {
+      "name": "records-counterexamples-red",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_host_records -v",
+      "exit_code": 1,
+      "tests": 15,
+      "failures": 7,
+      "errors": 1,
+      "classification": "synthetic local red before repair; no real host or model"
+    },
+    {
+      "name": "records-and-dependent-local-green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_host_records test_handoff_codex_cli test_handoff_protocol test_handoff_writes test_handoff_gate_combinations -q",
+      "exit_code": 0,
+      "tests": 76,
+      "failures": 0,
+      "errors": 0,
+      "elapsed_seconds": 6.882,
+      "classification": "synthetic local mechanism checks only"
+    },
+    {
+      "name": "controller-p11-red-before-lock-recheck",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py LedgerProbes.test_p11_verifier_revokes_authorization_no_processing_commit -v",
+      "exit_code": 1,
+      "tests": 14,
+      "failures": 1,
+      "errors": 0,
+      "classification": "independent synthetic controller red before record-layer commit recheck"
+    },
+    {
+      "name": "controller-unicode-and-full-green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e3_controller_probes.py -q",
+      "exit_code": 0,
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "elapsed_seconds": 0.565,
+      "classification": "synthetic controller and UTF-8 canonical-digest checks only"
+    }
+  ]
+}

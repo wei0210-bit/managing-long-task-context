@@ -1,0 +1,35 @@
+{
+  "schema": "handoff-replay-trial-budget/v1",
+  "status": "frozen_trial_acceptance_only",
+  "scope": "local POSIX process: event read/parse/rebuild only; not complete handoff",
+  "sample_manifest_sha256": "871a8e99a48f05705e64d35c15ce3625a74df3f373b5ecaca43d18a667256f38",
+  "limits": {
+    "max_events": 2000,
+    "max_log_bytes": 8388608,
+    "max_event_bytes": 65536,
+    "max_snapshot_items": 2000,
+    "read_parse_rebuild_seconds": 5,
+    "process_peak_rss_bytes": 134217728
+  },
+  "measurement_basis": {
+    "real_tasks_sampled": 114,
+    "real_max_events": 62,
+    "synthetic_events": [
+      1000,
+      2000
+    ],
+    "synthetic_statement_ascii_chars": 2048,
+    "runs_per_workload": 5
+  },
+  "rules": [
+    "Limits are proposed engineering acceptance budgets calibrated to these local samples, not production SLOs.",
+    "Runtime enforcement must be implemented and fault-tested before the capability is enabled.",
+    "Memory budget is whole fresh-process peak RSS acceptance, not a per-call or OS-enforced memory cap.",
+    "Resource exhaustion/limit breach => unknown and no handoff commit; do not truncate evidence.",
+    "Byte/event limits must be enforced during reading, not only from initial stat.",
+    "Deadline is an implementation requirement, not achieved by a post-hoc timer.",
+    "Host creation, verification of external evidence and full cold start need separate host budgets.",
+    "Monitor path must add zero model calls, zero brief calls, zero full event replays; repeat one sample 20 times without duplicate state writes."
+  ],
+  "future_index_trigger": "After representative workloads and environment are pinned: >=3/5 fresh-process runs exceed a budget after eliminating avoidable duplicate reads/copies, or resource exhaustion. Evaluate B; do not auto-deploy."
+}

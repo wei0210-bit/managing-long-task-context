@@ -33,6 +33,29 @@ python3 scripts/skill_package.py verify --package /tmp/context-strict-package
 The build receipt includes the manifest SHA-256. Freeze that hash with the eval or
 installation receipt; copying only `SKILL.md` is not a valid package.
 
+## Short-session handoff
+
+Context Strict 0.8.0 adds the opt-in `short-session-handoff/v1` capability. Its
+public flow is `prepare_handoff` → `validate_handoff` → `activate_handoff`,
+with explicit cancel and read-only status calls. The capability must be sealed in
+the task contract, and activation requires host-provided identity, authorization,
+and content verification. Start with the runnable
+[`examples/short_session_handoff.py`](examples/short_session_handoff.py) example
+and the [handoff reference](references/handoff.md).
+
+Context Lite 1.4.0 provides a lower-risk `flush` / `cold-check` path for an
+already validated `NOW.md`. It returns inert recovery material for independent
+re-observation; it does not inherit chat history, permissions, credentials,
+processes, or control. See the
+[`skills/context-lite/references/short-session.md`](skills/context-lite/references/short-session.md)
+procedure.
+
+The local Codex CLI transport and native-host inventories are bounded adapters,
+not proof of production takeover. Real Codex/Claude native-host switching,
+non-POSIX process-tree guarantees, natural-project effectiveness, and token or
+cost savings remain unverified. See the [Codex CLI boundary](references/host-codex-cli.md)
+and [native-host boundary](references/host-native.md).
+
 ## Executable evidence contracts
 
 New Strict contracts should enable `evidence-handlers/v1`. The sealed

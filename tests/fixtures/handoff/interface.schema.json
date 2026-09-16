@@ -1,0 +1,658 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "E0 proposed handoff interface; NOT installed capability",
+  "$defs": {
+    "record": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "short-session-handoff/v1"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "contract_version": {
+          "type": [
+            "number",
+            "string"
+          ],
+          "description": "Preserve sealed contract version type and value; booleans forbidden.",
+          "minLength": 1
+        },
+        "contract_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "workspace_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "package_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "handoff_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "controller_generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_session_ref": {
+          "type": "object",
+          "properties": {
+            "ref_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "uri": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "ref_id",
+            "task_id",
+            "uri",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        "target_session_ref": {
+          "type": "object",
+          "properties": {
+            "ref_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "uri": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "ref_id",
+            "task_id",
+            "uri",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        "authorization_ref": {
+          "type": "object",
+          "properties": {
+            "ref_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "uri": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "ref_id",
+            "task_id",
+            "uri",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        "basis_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+              },
+              "task_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+              },
+              "uri": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "ref_id",
+              "task_id",
+              "uri",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "artifact_manifest_ref": {
+          "type": "object",
+          "properties": {
+            "ref_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "uri": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "ref_id",
+            "task_id",
+            "uri",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        "created_at": {
+          "type": "string",
+          "format": "utc"
+        },
+        "event_cursor": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        }
+      },
+      "required": [
+        "protocol",
+        "task_id",
+        "contract_version",
+        "contract_digest",
+        "workspace_root",
+        "package_manifest_sha256",
+        "handoff_id",
+        "request_id",
+        "controller_generation",
+        "source_session_ref",
+        "target_session_ref",
+        "authorization_ref",
+        "basis_refs",
+        "artifact_manifest_ref",
+        "created_at",
+        "event_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "check_status": {
+          "enum": [
+            "pass",
+            "fail",
+            "unknown"
+          ]
+        },
+        "commit_status": {
+          "enum": [
+            "confirmed_committed",
+            "confirmed_not_committed",
+            "unknown",
+            "not_attempted"
+          ]
+        },
+        "controller_generation": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "blocking_reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^HANDOFF_[A-Z_]+$"
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            },
+            "required": [
+              "code",
+              "ref",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 256
+        },
+        "verification_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+              },
+              "task_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+              },
+              "uri": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "ref_id",
+              "task_id",
+              "uri",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "next_readonly_action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "check_status",
+        "commit_status",
+        "controller_generation",
+        "blocking_reasons",
+        "verification_refs",
+        "next_readonly_action"
+      ],
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "object",
+      "properties": {
+        "ref_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "ref_id",
+        "task_id",
+        "uri",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "handoff_prepared",
+            "handoff_activated",
+            "handoff_cancelled"
+          ]
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "handoff_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "utc"
+        },
+        "expected_controller_generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controller_generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "record_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "verification_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ref_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+              },
+              "task_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+              },
+              "uri": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "ref_id",
+              "task_id",
+              "uri",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "type",
+        "task_id",
+        "request_id",
+        "handoff_id",
+        "created_at",
+        "expected_controller_generation",
+        "controller_generation",
+        "record_sha256",
+        "verification_refs"
+      ],
+      "additionalProperties": false
+    },
+    "prepare_handoff": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "base_dir": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "workspace_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "package_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "controller_generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "record": {
+          "$ref": "#/$defs/record"
+        }
+      },
+      "required": [
+        "task_id",
+        "base_dir",
+        "workspace_root",
+        "package_root",
+        "request_id",
+        "controller_generation",
+        "record"
+      ],
+      "additionalProperties": false
+    },
+    "validate_handoff": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "base_dir": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "workspace_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "package_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "handoff_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        }
+      },
+      "required": [
+        "task_id",
+        "base_dir",
+        "workspace_root",
+        "package_root",
+        "handoff_id"
+      ],
+      "additionalProperties": false
+    },
+    "activate_handoff": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "base_dir": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "workspace_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "package_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "controller_generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "handoff_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        }
+      },
+      "required": [
+        "task_id",
+        "base_dir",
+        "workspace_root",
+        "package_root",
+        "request_id",
+        "controller_generation",
+        "handoff_id"
+      ],
+      "additionalProperties": false
+    },
+    "cancel_handoff": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "base_dir": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "workspace_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "package_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "controller_generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "handoff_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        }
+      },
+      "required": [
+        "task_id",
+        "base_dir",
+        "workspace_root",
+        "package_root",
+        "request_id",
+        "controller_generation",
+        "handoff_id"
+      ],
+      "additionalProperties": false
+    },
+    "handoff_status": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "base_dir": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "workspace_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "package_root": {
+          "type": "string",
+          "format": "absolute-path",
+          "maxLength": 2048
+        },
+        "handoff_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        }
+      },
+      "required": [
+        "task_id",
+        "base_dir",
+        "workspace_root",
+        "package_root",
+        "handoff_id"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

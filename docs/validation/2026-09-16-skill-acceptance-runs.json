@@ -1,0 +1,330 @@
+{
+  "schema": 1,
+  "kind": "synthetic-offline-package-acceptance",
+  "model_calls": 0,
+  "actual_model_tokens": null,
+  "model_stability": "NOT_RUN",
+  "records": [
+    {
+      "label": "strict-verify",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/skill_package.py",
+        "verify",
+        "--package",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.099098,
+      "stdout": "{\"codes\":[],\"errors\":[],\"identity\":{\"manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"package_version\":\"0.8.0\",\"skill_name\":\"context-strict\",\"skill_version\":\"0.8.0\",\"source_revision\":\"candidate:dirty-worktree-0.8.0-review-fix\",\"source_tree_sha256\":\"2194a3cde30d223bb17a535ff63fdcbd72b515aa9686f6a6c818f3da2b7b27db\"},\"stats\":{\"documented_paths_checked\":11,\"files_checked\":67,\"python_exports_checked\":21},\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "strict-doctor",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/context_doctor.py",
+        "check",
+        "--mode",
+        "full",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.25903,
+      "stdout": "{\"binding\":null,\"checked_at\":\"2026-09-15T17:04:03.974490Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"no task identity was requested\",\"name\":\"binding\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"complete package verification\",\"name\":\"full_verification\",\"status\":\"pass\"},{\"code\":null,\"message\":\"Strict normal brief and expected completion block behaved as expected\",\"name\":\"smoke\",\"status\":\"pass\"}],\"codes\":[],\"full_verification\":\"pass\",\"identity\":{\"actual_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"capabilities\":[\"context-doctor/v1\"],\"expected_manifest_sha256\":null,\"loaded_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict\",\"process_id\":48498,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/context_doctor.py\",\"skill_name\":\"context-strict\",\"skill_version\":\"0.8.0\"},\"mode\":\"full\",\"next_action\":null,\"schema\":1,\"scope\":\"package\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-verify",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/skill_package.py",
+        "verify",
+        "--package",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.045017,
+      "stdout": "{\"codes\":[],\"errors\":[],\"identity\":{\"manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"package_version\":null,\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\",\"source_revision\":\"candidate:dirty-worktree-1.4.0-review-fix\",\"source_tree_sha256\":\"2538a1d5b8692a3fe859723b8ad88584b71db90fa8a84405befbaded68b4d58e\"},\"stats\":{\"documented_paths_checked\":7,\"files_checked\":17,\"python_exports_checked\":0},\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-doctor",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_doctor.py",
+        "check",
+        "--mode",
+        "full",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.064178,
+      "stdout": "{\"binding\":null,\"checked_at\":\"2026-09-15T17:04:04.100954Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"no task identity was requested\",\"name\":\"binding\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"complete package verification\",\"name\":\"full_verification\",\"status\":\"pass\"},{\"code\":null,\"message\":\"Lite valid and blocked-invalid samples behaved as expected\",\"name\":\"smoke\",\"status\":\"pass\"}],\"codes\":[],\"full_verification\":\"pass\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"context-doctor/v1\"],\"expected_manifest_sha256\":null,\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":48500,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_doctor.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"full\",\"next_action\":null,\"schema\":1,\"scope\":\"package\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-flush",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "flush",
+        "--candidate",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/candidate.md",
+        "--base-dir",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.051311,
+      "stdout": "{\"codes\":[],\"errors\":[],\"goal\":\"Resume a synthetic local task\",\"now_sha256\":\"f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8\",\"path\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite/QA-LOCAL/NOW.md\",\"stats\":{\"characters\":1254,\"first_actions\":1,\"headings\":7,\"lines\":26,\"next_items\":1,\"references_checked\":4,\"refresh_mappings\":2},\"status\":\"written\",\"task_id\":\"QA-LOCAL\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-bind",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_doctor.py",
+        "init-binding",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL",
+        "--expected-manifest-sha256",
+        "f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.065189,
+      "stdout": "{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite\",\"created_at\":\"2026-09-15T17:04:04.217522Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"QA-LOCAL\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg\"},\"checked_at\":\"2026-09-15T17:04:04.218479Z\",\"checks\":[{\"code\":null,\"message\":\"binding created atomically\",\"name\":\"binding\",\"status\":\"pass\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":null,\"mode\":\"init\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-cold-0",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL",
+        "--expected-now-sha256",
+        "f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.063929,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite\",\"created_at\":\"2026-09-15T17:04:04.217522Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"QA-LOCAL\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg\"},\"checked_at\":\"2026-09-15T17:04:04.281023Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":48504,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"},\"history_inheritance\":\"unknown\",\"material\":{\"acceptance\":[\"- Independently observe the current original before relying on it.\"],\"archive_allowed\":false,\"blockers\":[\"- RUN-01 outcome is unknown; do not retry.\"],\"current_state\":[\"- [STATE-01] baseline-v1 | mutable: true | source: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt | refreshed_at: 2026-09-16T00:00:00Z | refresh_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"],\"decisions\":[\"- No business action | why: isolated acceptance | evidence: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"],\"first_action\":\"independently read the original\",\"goal\":\"Resume a synthetic local task\",\"history_inheritance\":\"unknown\",\"in_flight\":[\"- [RUN-01] Synthetic unresolved action | owner: fixture | status: unknown | started_at: 2026-09-16T00:00:00Z | correlation_ref: tool:synthetic | recovery_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/missing-result.txt\"],\"next\":[\"1. First: independently read the original\"],\"now_sha256\":\"f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8\",\"refresh_mappings\":{\"RUN-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/missing-result.txt\",\"STATE-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"},\"semantic_verification\":\"pending\",\"task_id\":\"QA-LOCAL\"},\"semantic_verification\":\"pending\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-cold-1",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL",
+        "--expected-now-sha256",
+        "f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.063127,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite\",\"created_at\":\"2026-09-15T17:04:04.217522Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"QA-LOCAL\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg\"},\"checked_at\":\"2026-09-15T17:04:04.344190Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":48507,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"},\"history_inheritance\":\"unknown\",\"material\":{\"acceptance\":[\"- Independently observe the current original before relying on it.\"],\"archive_allowed\":false,\"blockers\":[\"- RUN-01 outcome is unknown; do not retry.\"],\"current_state\":[\"- [STATE-01] baseline-v1 | mutable: true | source: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt | refreshed_at: 2026-09-16T00:00:00Z | refresh_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"],\"decisions\":[\"- No business action | why: isolated acceptance | evidence: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"],\"first_action\":\"independently read the original\",\"goal\":\"Resume a synthetic local task\",\"history_inheritance\":\"unknown\",\"in_flight\":[\"- [RUN-01] Synthetic unresolved action | owner: fixture | status: unknown | started_at: 2026-09-16T00:00:00Z | correlation_ref: tool:synthetic | recovery_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/missing-result.txt\"],\"next\":[\"1. First: independently read the original\"],\"now_sha256\":\"f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8\",\"refresh_mappings\":{\"RUN-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/missing-result.txt\",\"STATE-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"},\"semantic_verification\":\"pending\",\"task_id\":\"QA-LOCAL\"},\"semantic_verification\":\"pending\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-cold-2",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL",
+        "--expected-now-sha256",
+        "f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.066967,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite\",\"created_at\":\"2026-09-15T17:04:04.217522Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"QA-LOCAL\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg\"},\"checked_at\":\"2026-09-15T17:04:04.410892Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":48509,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"},\"history_inheritance\":\"unknown\",\"material\":{\"acceptance\":[\"- Independently observe the current original before relying on it.\"],\"archive_allowed\":false,\"blockers\":[\"- RUN-01 outcome is unknown; do not retry.\"],\"current_state\":[\"- [STATE-01] baseline-v1 | mutable: true | source: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt | refreshed_at: 2026-09-16T00:00:00Z | refresh_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"],\"decisions\":[\"- No business action | why: isolated acceptance | evidence: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"],\"first_action\":\"independently read the original\",\"goal\":\"Resume a synthetic local task\",\"history_inheritance\":\"unknown\",\"in_flight\":[\"- [RUN-01] Synthetic unresolved action | owner: fixture | status: unknown | started_at: 2026-09-16T00:00:00Z | correlation_ref: tool:synthetic | recovery_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/missing-result.txt\"],\"next\":[\"1. First: independently read the original\"],\"now_sha256\":\"f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8\",\"refresh_mappings\":{\"RUN-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/missing-result.txt\",\"STATE-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"},\"semantic_verification\":\"pending\",\"task_id\":\"QA-LOCAL\"},\"semantic_verification\":\"pending\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-bad-hash",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL",
+        "--expected-now-sha256",
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 2,
+      "seconds": 0.063799,
+      "stdout": "{\"archive_allowed\":false,\"codes\":[\"NOW_SHA256_MISMATCH\"],\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite\",\"created_at\":\"2026-09-15T17:04:04.217522Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"QA-LOCAL\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg\"},\"checked_at\":\"2026-09-15T17:04:04.475569Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":48511,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"},\"history_inheritance\":\"unknown\",\"material\":null,\"semantic_verification\":\"pending\",\"status\":\"unknown\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-wrong-workspace",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL",
+        "--workspace-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 1,
+      "seconds": 0.067807,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite\",\"created_at\":\"2026-09-15T17:04:04.217522Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"QA-LOCAL\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg\"},\"checked_at\":\"2026-09-15T17:04:04.543756Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":\"WORKSPACE_MISMATCH\",\"message\":\"binding workspace_root differs\",\"name\":\"workspace\",\"status\":\"fail\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[\"WORKSPACE_MISMATCH\"],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":null,\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":48513,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":\"Correct the reported mismatch; do not resume until identity passes.\",\"schema\":1,\"scope\":\"task\",\"status\":\"fail\"},\"history_inheritance\":\"unknown\",\"material\":null,\"semantic_verification\":\"pending\",\"status\":\"fail\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-original-changed",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL",
+        "--expected-now-sha256",
+        "f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.067258,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite\",\"created_at\":\"2026-09-15T17:04:04.217522Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"QA-LOCAL\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg\"},\"checked_at\":\"2026-09-15T17:04:04.609887Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":48516,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"},\"history_inheritance\":\"unknown\",\"material\":{\"acceptance\":[\"- Independently observe the current original before relying on it.\"],\"archive_allowed\":false,\"blockers\":[\"- RUN-01 outcome is unknown; do not retry.\"],\"current_state\":[\"- [STATE-01] baseline-v1 | mutable: true | source: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt | refreshed_at: 2026-09-16T00:00:00Z | refresh_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"],\"decisions\":[\"- No business action | why: isolated acceptance | evidence: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"],\"first_action\":\"independently read the original\",\"goal\":\"Resume a synthetic local task\",\"history_inheritance\":\"unknown\",\"in_flight\":[\"- [RUN-01] Synthetic unresolved action | owner: fixture | status: unknown | started_at: 2026-09-16T00:00:00Z | correlation_ref: tool:synthetic | recovery_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/missing-result.txt\"],\"next\":[\"1. First: independently read the original\"],\"now_sha256\":\"f4da49f30aadbfb14c6f97595c309711d201de0d8d636335183a6e08898e3dc8\",\"refresh_mappings\":{\"RUN-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/missing-result.txt\",\"STATE-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/original.txt\"},\"semantic_verification\":\"pending\",\"task_id\":\"QA-LOCAL\"},\"semantic_verification\":\"pending\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "lite-missing-now",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+        "--task-id",
+        "QA-LOCAL"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 2,
+      "seconds": 0.070556,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg/.context-lite\",\"created_at\":\"2026-09-15T17:04:04.217522Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"QA-LOCAL\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg\"},\"checked_at\":\"2026-09-15T17:04:04.682005Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"},{\"code\":\"READ_FAILED\",\"message\":\"cannot read NOW.md\",\"name\":\"resume\",\"status\":\"unknown\"}],\"codes\":[\"READ_FAILED\"],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":48518,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":\"Resolve the unavailable identity evidence explicitly; do not resume.\",\"schema\":1,\"scope\":\"task\",\"status\":\"unknown\"},\"history_inheritance\":\"unknown\",\"material\":null,\"semantic_verification\":\"pending\",\"status\":\"unknown\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "strict-public-example",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict/examples/short_session_handoff.py"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 0.366168,
+      "stdout": "{\"activate\": \"confirmed_committed\", \"activation_events\": 1, \"cancel\": \"confirmed_committed\", \"identity\": \"pass\", \"prepare\": \"pass\", \"repeat_activate_generation\": 1, \"repeat_activate_same_event_log\": true, \"status\": \"confirmed_committed\", \"validate\": \"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "label": "strict-targeted-tests",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "-W",
+        "always::ResourceWarning",
+        "-m",
+        "unittest",
+        "test_handoff_activation",
+        "test_handoff_host_records",
+        "test_handoff_codex_cli",
+        "test_handoff_codex_native",
+        "test_handoff_claude_native",
+        "-v"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 13.838064,
+      "stdout": "",
+      "stderr": "test_active_generation_and_source_mismatch_are_rejected_without_a_control_event (test_handoff_activation.HandoffActivationTests.test_active_generation_and_source_mismatch_are_rejected_without_a_control_event) ... ok\ntest_cancelled_handoff_keeps_original_controller_for_the_next_prepare (test_handoff_activation.HandoffActivationTests.test_cancelled_handoff_keeps_original_controller_for_the_next_prepare) ... ok\ntest_precommit_bearing_evidence_change_is_not_an_attempted_commit (test_handoff_activation.HandoffActivationTests.test_precommit_bearing_evidence_change_is_not_an_attempted_commit) ... ok\ntest_registered_child_progress_delta_can_cross_activation_verification (test_handoff_activation.HandoffActivationTests.test_registered_child_progress_delta_can_cross_activation_verification) ... ok\ntest_status_preserves_durable_activation_when_current_verifier_is_unavailable (test_handoff_activation.HandoffActivationTests.test_status_preserves_durable_activation_when_current_verifier_is_unavailable) ... ok\ntest_target_confirmed_activation_appends_once_and_advances_generation (test_handoff_activation.HandoffActivationTests.test_target_confirmed_activation_appends_once_and_advances_generation) ... ok\ntest_two_activations_advance_generation_and_keep_first_commit_history (test_handoff_activation.HandoffActivationTests.test_two_activations_advance_generation_and_keep_first_commit_history) ... ok\ntest_unverifiable_or_bearing_child_delta_blocks_activation_without_rollback (test_handoff_activation.HandoffActivationTests.test_unverifiable_or_bearing_child_delta_blocks_activation_without_rollback) ... ok\ntest_action_outcome_requires_reserved_attempt_and_is_idempotent (test_handoff_host_records.HostRecordReservationTests.test_action_outcome_requires_reserved_attempt_and_is_idempotent) ... ok\ntest_cancelled_handoff_rejects_target_session_controller (test_handoff_host_records.HostRecordReservationTests.test_cancelled_handoff_rejects_target_session_controller) ... ok\ntest_cancelled_handoff_rejects_unregistered_host_identity (test_handoff_host_records.HostRecordReservationTests.test_cancelled_handoff_rejects_unregistered_host_identity) ... ok\ntest_cancelled_handoff_rejects_wrong_controller_generation (test_handoff_host_records.HostRecordReservationTests.test_cancelled_handoff_rejects_wrong_controller_generation) ... ok\ntest_cancelled_source_controller_can_reserve_resume_once (test_handoff_host_records.HostRecordReservationTests.test_cancelled_source_controller_can_reserve_resume_once) ... ok\ntest_cancelled_source_controller_can_reserve_start_once (test_handoff_host_records.HostRecordReservationTests.test_cancelled_source_controller_can_reserve_start_once) ... ok\ntest_conflicting_reservation_history_is_unknown_not_last_write_wins (test_handoff_host_records.HostRecordReservationTests.test_conflicting_reservation_history_is_unknown_not_last_write_wins) ... ok\ntest_contract_change_makes_old_result_unprocessable_without_erasing_history (test_handoff_host_records.HostRecordReservationTests.test_contract_change_makes_old_result_unprocessable_without_erasing_history) ... ok\ntest_current_controller_rejects_old_generation_before_reserving (test_handoff_host_records.HostRecordReservationTests.test_current_controller_rejects_old_generation_before_reserving) ... ok\ntest_expired_host_observation_does_not_erase_history_or_authorize_new_start (test_handoff_host_records.HostRecordReservationTests.test_expired_host_observation_does_not_erase_history_or_authorize_new_start) ... ok\ntest_fifo_result_archive_is_rejected_without_processing_event (test_handoff_host_records.HostRecordReservationTests.test_fifo_result_archive_is_rejected_without_processing_event) ... ok\ntest_fresh_gen0_request_is_durably_reserved_once (test_handoff_host_records.HostRecordReservationTests.test_fresh_gen0_request_is_durably_reserved_once) ... ok\ntest_long_attempt_id_and_invalid_text_fail_closed_without_throwing (test_handoff_host_records.HostRecordReservationTests.test_long_attempt_id_and_invalid_text_fail_closed_without_throwing) ... ok\ntest_mismatched_observation_cannot_finish_prior_attempt_or_unlock_replacement (test_handoff_host_records.HostRecordReservationTests.test_mismatched_observation_cannot_finish_prior_attempt_or_unlock_replacement) ... ok\ntest_nonterminal_observations_do_not_unlock_prior_attempt (test_handoff_host_records.HostRecordReservationTests.test_nonterminal_observations_do_not_unlock_prior_attempt) ... ok\ntest_observation_is_appended_without_a_second_reservation (test_handoff_host_records.HostRecordReservationTests.test_observation_is_appended_without_a_second_reservation) ... ok\ntest_observe_keeps_latest_bounded_summary_and_marks_truncation_unknown (test_handoff_host_records.HostRecordReservationTests.test_observe_keeps_latest_bounded_summary_and_marks_truncation_unknown) ... ok\ntest_observe_returns_result_and_processed_summaries_without_naked_pass (test_handoff_host_records.HostRecordReservationTests.test_observe_returns_result_and_processed_summaries_without_naked_pass) ... ok\ntest_prepared_handoff_still_rejects_source_controller_dispatch (test_handoff_host_records.HostRecordReservationTests.test_prepared_handoff_still_rejects_source_controller_dispatch) ... ok\ntest_prepared_rejects_reserve_and_child_cannot_cross_attempt_result (test_handoff_host_records.HostRecordReservationTests.test_prepared_rejects_reserve_and_child_cannot_cross_attempt_result) ... ok\ntest_repeat_reconciliation_preserves_prior_verdict_and_rechecks_host_authorization (test_handoff_host_records.HostRecordReservationTests.test_repeat_reconciliation_preserves_prior_verdict_and_rechecks_host_authorization) ... ok\ntest_replacement_makes_late_prior_result_historical_not_processable (test_handoff_host_records.HostRecordReservationTests.test_replacement_makes_late_prior_result_historical_not_processable) ... ok\ntest_result_is_archived_then_processed_without_business_action (test_handoff_host_records.HostRecordReservationTests.test_result_is_archived_then_processed_without_business_action) ... ok\ntest_same_result_identity_different_content_is_preserved_and_immediately_unknown (test_handoff_host_records.HostRecordReservationTests.test_same_result_identity_different_content_is_preserved_and_immediately_unknown) ... ok\ntest_busy_reservation_does_not_start_a_second_process (test_handoff_codex_cli.CodexCliHostTests.test_busy_reservation_does_not_start_a_second_process) ... ok\ntest_config_path_replacement_after_reservation_blocks_launch (test_handoff_codex_cli.CodexCliHostTests.test_config_path_replacement_after_reservation_blocks_launch) ... ok\ntest_deep_json_still_archives_unknown_execution_without_retry (test_handoff_codex_cli.CodexCliHostTests.test_deep_json_still_archives_unknown_execution_without_retry) ... ok\ntest_duplicate_json_keys_cannot_hide_thread_conflicts (test_handoff_codex_cli.CodexCliHostTests.test_duplicate_json_keys_cannot_hide_thread_conflicts) ... ok\ntest_inherited_pipe_reader_exits_without_resource_warning (test_handoff_codex_cli.CodexCliHostTests.test_inherited_pipe_reader_exits_without_resource_warning)\nA daemon reader may outlive the direct child, but owns its stream. ... ok\ntest_invalid_prompt_and_baseline_are_rejected_before_reservation (test_handoff_codex_cli.CodexCliHostTests.test_invalid_prompt_and_baseline_are_rejected_before_reservation) ... ok\ntest_malformed_host_observation_blocks_before_reservation (test_handoff_codex_cli.CodexCliHostTests.test_malformed_host_observation_blocks_before_reservation) ... ok\ntest_output_over_budget_after_valid_thread_remains_execution_unknown (test_handoff_codex_cli.CodexCliHostTests.test_output_over_budget_after_valid_thread_remains_execution_unknown) ... ok\ntest_output_over_budget_kills_only_fixture_process_and_records_no_prompt (test_handoff_codex_cli.CodexCliHostTests.test_output_over_budget_kills_only_fixture_process_and_records_no_prompt) ... ok\ntest_real_ledger_archives_then_recovers_without_duplicate_launch (test_handoff_codex_cli.CodexCliHostTests.test_real_ledger_archives_then_recovers_without_duplicate_launch) ... ok\ntest_resume_requires_a_precise_uuid_and_uses_it_without_last (test_handoff_codex_cli.CodexCliHostTests.test_resume_requires_a_precise_uuid_and_uses_it_without_last) ... ok\ntest_start_child_uses_fixed_argv_devnull_and_persists_bounded_observation (test_handoff_codex_cli.CodexCliHostTests.test_start_child_uses_fixed_argv_devnull_and_persists_bounded_observation) ... ok\ntest_stderr_over_budget_and_grandchild_pipe_return_are_bounded (test_handoff_codex_cli.CodexCliHostTests.test_stderr_over_budget_and_grandchild_pipe_return_are_bounded) ... ok\ntest_thread_stream_conflict_or_bad_utf8_is_execution_unknown (test_handoff_codex_cli.CodexCliHostTests.test_thread_stream_conflict_or_bad_utf8_is_execution_unknown) ... ok\ntest_timeout_observes_only_this_direct_fixture_process (test_handoff_codex_cli.CodexCliHostTests.test_timeout_observes_only_this_direct_fixture_process) ... ok\ntest_trusted_config_rejects_nul_and_unknown_toml_policy_values (test_handoff_codex_cli.CodexCliHostTests.test_trusted_config_rejects_nul_and_unknown_toml_policy_values) ... ok\ntest_workspace_replacement_after_reservation_blocks_launch (test_handoff_codex_cli.CodexCliHostTests.test_workspace_replacement_after_reservation_blocks_launch) ... ok\ntest_capabilities_are_schema_declared_and_detached (test_handoff_codex_native.CodexNativeBoundaryTests.test_capabilities_are_schema_declared_and_detached) ... ok\ntest_invalid_or_untrusted_operation_is_rejected_without_execution (test_handoff_codex_native.CodexNativeBoundaryTests.test_invalid_or_untrusted_operation_is_rejected_without_execution) ... ok\ntest_known_control_operations_are_unknown_and_never_granted (test_handoff_codex_native.CodexNativeBoundaryTests.test_known_control_operations_are_unknown_and_never_granted) ... ok\ntest_capabilities_report_unavailable_native_path_and_are_detached (test_handoff_claude_native.ClaudeNativeBoundaryTests.test_capabilities_report_unavailable_native_path_and_are_detached) ... ok\ntest_control_operations_are_unsupported_without_borrowing_cli_evidence (test_handoff_claude_native.ClaudeNativeBoundaryTests.test_control_operations_are_unsupported_without_borrowing_cli_evidence) ... ok\ntest_invalid_operation_is_rejected_without_execution (test_handoff_claude_native.ClaudeNativeBoundaryTests.test_invalid_operation_is_rejected_without_execution) ... ok\n\n----------------------------------------------------------------------\nRan 55 tests in 13.666s\n\nOK\n"
+    },
+    {
+      "label": "lite-targeted-tests",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "-W",
+        "always::ResourceWarning",
+        "-m",
+        "unittest",
+        "test_context_lite_handoff",
+        "-v"
+      ],
+      "cwd": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-acceptance-l71c64kg",
+      "exit_code": 0,
+      "seconds": 4.548217,
+      "stdout": "",
+      "stderr": "test_cold_check_extracts_the_unique_first_action_and_all_next_items (test_context_lite_handoff.ContextLiteHandoffTests.test_cold_check_extracts_the_unique_first_action_and_all_next_items) ... ok\ntest_cold_check_keeps_crlf_bytes_as_the_handoff_version (test_context_lite_handoff.ContextLiteHandoffTests.test_cold_check_keeps_crlf_bytes_as_the_handoff_version) ... ok\ntest_cold_check_preserves_resume_hard_stops (test_context_lite_handoff.ContextLiteHandoffTests.test_cold_check_preserves_resume_hard_stops) ... ok\ntest_cold_check_refuses_a_now_change_after_identity_and_first_read (test_context_lite_handoff.ContextLiteHandoffTests.test_cold_check_refuses_a_now_change_after_identity_and_first_read) ... ok\ntest_cold_check_refuses_bad_or_changed_handoff_hash_without_material (test_context_lite_handoff.ContextLiteHandoffTests.test_cold_check_refuses_bad_or_changed_handoff_hash_without_material) ... ok\ntest_cold_check_refuses_real_disk_goal_change_between_its_two_reads (test_context_lite_handoff.ContextLiteHandoffTests.test_cold_check_refuses_real_disk_goal_change_between_its_two_reads) ... ok\ntest_cold_check_returns_material_only_after_identity_bound_resume (test_context_lite_handoff.ContextLiteHandoffTests.test_cold_check_returns_material_only_after_identity_bound_resume) ... ok\ntest_cold_checks_are_repeatable_read_only_and_never_execute_refresh_refs (test_context_lite_handoff.ContextLiteHandoffTests.test_cold_checks_are_repeatable_read_only_and_never_execute_refresh_refs) ... ok\ntest_flush_digest_uses_the_written_bytes_without_a_post_write_read (test_context_lite_handoff.ContextLiteHandoffTests.test_flush_digest_uses_the_written_bytes_without_a_post_write_read) ... ok\ntest_flush_matches_atomic_write_and_is_idempotent (test_context_lite_handoff.ContextLiteHandoffTests.test_flush_matches_atomic_write_and_is_idempotent) ... ok\ntest_flush_preserves_old_now_for_validation_goal_and_atomic_write_failures (test_context_lite_handoff.ContextLiteHandoffTests.test_flush_preserves_old_now_for_validation_goal_and_atomic_write_failures) ... ok\ntest_short_workflow_reference_keeps_semantics_pending (test_context_lite_handoff.ContextLiteHandoffTests.test_short_workflow_reference_keeps_semantics_pending) ... ok\ntest_unchanged_flush_hashes_existing_crlf_bytes (test_context_lite_handoff.ContextLiteHandoffTests.test_unchanged_flush_hashes_existing_crlf_bytes) ... ok\ntest_unchanged_flush_refuses_real_disk_replacement_between_source_and_digest_reads (test_context_lite_handoff.ContextLiteHandoffTests.test_unchanged_flush_refuses_real_disk_replacement_between_source_and_digest_reads) ... ok\n\n----------------------------------------------------------------------\nRan 14 tests in 4.478s\n\nOK\n"
+    }
+  ],
+  "contract_sha256": "c0fbc8f8f3f456bff66c8b0db46d26c1ab95c3787079f2705acb304a0ef2d2cf",
+  "identities": {
+    "strict": "cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3",
+    "lite": "f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c"
+  },
+  "status": "pass"
+}

@@ -1,0 +1,12 @@
+{
+  "contract_sha256": "7d68663f23c62b3041f760d7f886cd0c8c1027dc1d3137bdaf220b00a8a26d4d",
+  "runs": [
+    {"command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_writes test_handoff_concurrency test_handoff_protocol -v", "exit_code": 0, "tests": 44, "executor_tests": 16, "seconds": 0.837},
+    {"command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e1_02_controller_probes.py -q", "exit_code": 0, "tests": 18, "seconds": 0.330},
+    {"command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e1_01_controller_probes.py -q", "exit_code": 0, "tests": 10, "seconds": 0.052},
+    {"command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_truth_sources.LegacyTruthSourceFastPathTests.test_matching_never_enabled_snapshot_keeps_brief_and_greater_publish_fast -q", "exit_code": 0, "tests": 1, "seconds": 0.008},
+    {"command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 -m unittest discover -s tests -q", "exit_code": 1, "tests": 438, "passed": 437, "failed": 1, "seconds": 32.612, "scope": "before final AC7 narrow fix; current full regression intentionally delegated to controller"},
+    {"command": "git diff --check", "exit_code": 0}
+  ],
+  "known_full_regression_failure": "test_distribution_matches_maintained_sources; E2 source/distribution synchronization boundary"
+}

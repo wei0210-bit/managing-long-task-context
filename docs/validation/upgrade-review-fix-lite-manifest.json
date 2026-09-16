@@ -1,0 +1,134 @@
+{
+  "capabilities": {
+    "atomic-checkpoint/v1": {
+      "python_exports": []
+    },
+    "checked-resume/v1": {
+      "python_exports": []
+    },
+    "cold-check-material/v1": {
+      "python_exports": []
+    },
+    "context-doctor/v1": {
+      "python_exports": []
+    },
+    "context-pressure-advisory/v1": {
+      "python_exports": []
+    },
+    "experience-candidates/v1": {
+      "python_exports": []
+    },
+    "lite-flush/v1": {
+      "python_exports": []
+    },
+    "local-usage-accounting/v1": {
+      "python_exports": []
+    },
+    "markdown-recovery/v1": {
+      "python_exports": []
+    },
+    "now-validation/v1": {
+      "python_exports": []
+    },
+    "runtime-identity/v1": {
+      "python_exports": []
+    },
+    "workspace-binding/v1": {
+      "python_exports": []
+    }
+  },
+  "files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "2529a8ce1a1fbf9c1b5e1083615f7e2d30deb4c542ed199c36aea066f5383584",
+      "size": 10027
+    },
+    {
+      "path": "assets/NOW.template.md",
+      "sha256": "917133e3c0ebc46b6c760645edf27a1f7a9e2e173156f953c7767cbf5b81c880",
+      "size": 758
+    },
+    {
+      "path": "assets/experience-candidate.schema.json",
+      "sha256": "28b516d03404cfd9e83c4644d0a3707447b7f236748b2e3a0139f622905f430f",
+      "size": 1644
+    },
+    {
+      "path": "examples/experience_candidates.py",
+      "sha256": "5a9aed482a4d576499d0a3725df7eca236405359811657244a47e0ca045d72b7",
+      "size": 2042
+    },
+    {
+      "path": "references/context-usage.md",
+      "sha256": "c8186a486d3703bfef558d604f55fa8d091466c9e5f136d3efaa1bf3f97eae60",
+      "size": 4756
+    },
+    {
+      "path": "references/short-session.md",
+      "sha256": "535004da8359c03c7e9e4ffff14765d2b03599a6dc3fa23c770043403c48b30e",
+      "size": 1321
+    },
+    {
+      "path": "scripts/context_doctor.py",
+      "sha256": "6ba0ed6bec8be5e19f4f7fe12295c960c352efa87ca12ac67f534da01e4b16e7",
+      "size": 13840
+    },
+    {
+      "path": "scripts/context_experience.py",
+      "sha256": "952958e1cc900db8abb4b62a0c31fa3a3fe162cef89ffc6544a5d5301a3265f7",
+      "size": 34111
+    },
+    {
+      "path": "scripts/context_identity_core.py",
+      "sha256": "a818997be4d198f4f83156922aba496f706a8867ceaaaf3fb5380b96aabf3ca1",
+      "size": 21880
+    },
+    {
+      "path": "scripts/context_lite.py",
+      "sha256": "bb762754d90d818027e5304b30337f4ee1f1c9f6fb4ceb8b6129ee3f048e0954",
+      "size": 30928
+    },
+    {
+      "path": "scripts/context_usage.py",
+      "sha256": "4c0b9eb4d0d77266dd96700655c961c0658faf06dad80ecd6f7f20fefb9afa45",
+      "size": 22443
+    },
+    {
+      "path": "scripts/skill_package.py",
+      "sha256": "5ec03c89d5149231d2981055136caba942dd43b64d68acdd176f4005ea8dae7e",
+      "size": 20694
+    },
+    {
+      "path": "skill-package.json",
+      "sha256": "74acaabc62e0f76c4f08cf885d736733d747e9b163032bbf94a7e042a735e748",
+      "size": 1493
+    },
+    {
+      "path": "tests/test_context_experience_cli.py",
+      "sha256": "240fe0b910d13c842816ae98d54885a417c78b9abaa96998bb7bccc6957b4638",
+      "size": 25118
+    },
+    {
+      "path": "tests/test_context_lite_handoff.py",
+      "sha256": "fc5206450ac49179545bc643172d198c9419e522666b7848bcdd84640509d46d",
+      "size": 20210
+    },
+    {
+      "path": "tests/test_context_lite_validator.py",
+      "sha256": "477339f63d0ce6b3484fe3cbfa07036863883801e3a6b7f81f4bd44a1fb5d251",
+      "size": 7975
+    },
+    {
+      "path": "tests/test_context_usage.py",
+      "sha256": "2d234b853bd39d7b4746913c7bc55c3700a82858dfa26fd1b28790f723887cc3",
+      "size": 21705
+    }
+  ],
+  "manifest_schema": 1,
+  "package_name": null,
+  "package_version": null,
+  "skill_name": "context-lite",
+  "skill_version": "1.4.0",
+  "source_revision": "candidate:dirty-worktree-1.4.0-review-fix",
+  "source_tree_sha256": "2538a1d5b8692a3fe859723b8ad88584b71db90fa8a84405befbaded68b4d58e"
+}

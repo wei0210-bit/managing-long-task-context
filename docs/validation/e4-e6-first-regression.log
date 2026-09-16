@@ -1,0 +1,17 @@
+======================================================================
+FAIL: test_lite_package_runs_candidate_cli_test_and_example_outside_repository (test_experience_distribution.ExperienceDistributionTests.test_lite_package_runs_candidate_cli_test_and_example_outside_repository)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/.worktrees/short-session-remaining/tests/test_experience_distribution.py", line 40, in test_lite_package_runs_candidate_cli_test_and_example_outside_repository
+    self.assertEqual(json.loads(built.stdout)["skill_version"], "1.3.0")
+AssertionError: '1.4.0' != '1.3.0'
+- 1.4.0
+?   ^
++ 1.3.0
+?   ^
+
+
+----------------------------------------------------------------------
+Ran 542 tests in 86.679s
+
+FAILED (failures=1)

@@ -1,0 +1,230 @@
+{
+  "base": "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i",
+  "contract_sha256": "bcae89b34f804fb3ab95259c3f37f56378a5eae5782b451445a22ddf30beb782",
+  "inputs": {
+    "lite/ENTRY.json": "71555a9892d560406c5e26ab4ca3da73ee2d16f10e6143512422b350b06351c3",
+    "strict/ENTRY.json": "4d1d7b540a9200e8201ec1dac1b57e9cfec142906b1561fd64d84422ea7844cf",
+    "lite/R43/workspace/baseline.json": "e7ae3ab86d0b0b2bf9b60928302eed3057728e98ce5413d5e57dea550c78f348",
+    "lite/R43/.context-lite/R43/context-binding.json": "5c2ce450a40423893c4ea277943e4cda2631fd0e9974b28373940d5c06259cd0",
+    "lite/R43/.context-lite/R43/NOW.md": "61c0220548fbbd7c1d9c6cb8955b996e6b7f9093d49affdfd16678eede31aabe",
+    "lite/R17/workspace/baseline.json": "e7ae3ab86d0b0b2bf9b60928302eed3057728e98ce5413d5e57dea550c78f348",
+    "lite/R17/.context-lite/R17/context-binding.json": "41eb30c05208c9a87996426dc012d2cd3ca03961ad07b65ff7eac8fbd880d0ca",
+    "lite/R17/.context-lite/R17/NOW.md": "617336821c16f3e3168c5345d29e0573cd3c9f782694574bc1717358ce6fccec",
+    "lite/R29/workspace/baseline.json": "c1111563480d1a99e30ad0db4232782d37368e95595ad22d5533aa555e4bb4a4",
+    "lite/R29/.context-lite/R29/context-binding.json": "e29a7580d9688f654453c3bc306f7dc7b2513ab08ad3cf2ec2d2cd7a3aea31fe",
+    "lite/R29/.context-lite/R29/NOW.md": "217a2824b93da6f36dcec9a61360200e64a45036857135319a251a9db2e96648",
+    "lite/R61/workspace/baseline.json": "e7ae3ab86d0b0b2bf9b60928302eed3057728e98ce5413d5e57dea550c78f348",
+    "lite/R61/.context-lite/R61/context-binding.json": "0bc8901f6ee026c903d17966fdbdb413ade634794359745e278b7ed396855980",
+    "lite/R61/.context-lite/R61/NOW.md": "530750e971e21773e389f54af40baf46a8cf29061049fde394de8927ef6482a9",
+    "strict/R43/workspace/baseline.json": "e7ae3ab86d0b0b2bf9b60928302eed3057728e98ce5413d5e57dea550c78f348",
+    "strict/R43/context/R43/.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "strict/R43/context/R43/snapshot.json": "0cd0826520aac9e81c833fa9c25deca3f403efd618a32a5d534e54337fe43bd4",
+    "strict/R43/context/R43/events.jsonl": "b958992cf58e3711156214bf5af066b95a317276ed638d4877c061a35ef848e3",
+    "strict/R43/context/R43/context-binding.json": "75d1c148e3719f5627f51f501445cb7813c74f73b6eea3e57c6945f8521a8ddb",
+    "strict/R43/context/R43/task-contract.json": "228cabe15bb3adb75ff1313cb37277e54f2e01e14e6e21741b82506884d5c811",
+    "strict/R17/workspace/baseline.json": "e7ae3ab86d0b0b2bf9b60928302eed3057728e98ce5413d5e57dea550c78f348",
+    "strict/R17/context/R17/.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "strict/R17/context/R17/snapshot.json": "8fa1a2c406d6464d410d335e51809134d3726db44a378afa5ab986f98baeeac0",
+    "strict/R17/context/R17/events.jsonl": "4f230648be9a141fb1f85ab0a90dcc652441f18bccebc8d4158de4845c51d102",
+    "strict/R17/context/R17/context-binding.json": "91985b545b120dac8b3afe4862b62e6871514ff42e55bbb0309d697130d021f6",
+    "strict/R17/context/R17/task-contract.json": "8cb20b103e11f403cfbccea38e388173712063f616953f5d8e70f14bf5dbd019",
+    "strict/R29/workspace/baseline.json": "c1111563480d1a99e30ad0db4232782d37368e95595ad22d5533aa555e4bb4a4",
+    "strict/R29/context/R29/.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "strict/R29/context/R29/snapshot.json": "da7a2b8e871dfd73d6b66a8831a82aa9ff0c298bff35cc5c78d916692a0e8081",
+    "strict/R29/context/R29/events.jsonl": "6f83a5d87321d15c0fd838179f1ca7b5a9b1a348313b951d558a4e7d6c8846d1",
+    "strict/R29/context/R29/context-binding.json": "b4a8f64c1abf456950c25be24040a3285d65cedb1511b84f4249d884fcb2f65d",
+    "strict/R29/context/R29/task-contract.json": "b78e9b59b38c1001bd3dad9043b260b50db22c4b325ebd4a02365e1048279030",
+    "strict/R61/workspace/baseline.json": "e7ae3ab86d0b0b2bf9b60928302eed3057728e98ce5413d5e57dea550c78f348",
+    "strict/R61/context/R61/.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "strict/R61/context/R61/snapshot.json": "c93d9a2b501563740aa86b5cee1c8b0f9a54104ae823fa07c56381a6452e355e",
+    "strict/R61/context/R61/events.jsonl": "6ea987e7b90999470eaa96cde76ccd3a678fbd9e32a233164cdb2f5f4bd193a5",
+    "strict/R61/context/R61/context-binding.json": "d3bd0fea1277b7ed0ce78dd5889d7fcb6ce0227829b776db923baea0c1ef46cf",
+    "strict/R61/context/R61/task-contract.json": "848305bb92361723e2d2f2200a5c6601eb73a662d889b114e062c69d7201d318"
+  },
+  "checker_receipts": [
+    {
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/skill_package.py",
+        "verify",
+        "--package",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"codes\":[],\"errors\":[],\"identity\":{\"manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"package_version\":null,\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\",\"source_revision\":\"candidate:dirty-worktree-1.4.0-review-fix\",\"source_tree_sha256\":\"2538a1d5b8692a3fe859723b8ad88584b71db90fa8a84405befbaded68b4d58e\"},\"stats\":{\"documented_paths_checked\":7,\"files_checked\":17,\"python_exports_checked\":0},\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "kind": "lite",
+      "task": "R17",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R17/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R17/workspace",
+        "--task-id",
+        "R17"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R17/.context-lite\",\"created_at\":\"2026-09-16T00:19:26.993005Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"R17\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R17/workspace\"},\"checked_at\":\"2026-09-16T00:19:27.063614Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":9996,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"},\"history_inheritance\":\"unknown\",\"material\":{\"acceptance\":[\"- Read the current original and identify the next parser check; completion requires separate test evidence.\"],\"archive_allowed\":false,\"blockers\":[\"- none\"],\"current_state\":[\"- [STATE-01] current_tag=amber-14 | mutable: true | source: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R17/workspace/baseline.json | refreshed_at: 2026-09-16T00:00:00Z | refresh_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R17/workspace/baseline.json\"],\"decisions\":[\"- Preserve the parser interface | why: compatibility | evidence: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R17/workspace/baseline.json\"],\"first_action\":\"read the current baseline and identify the next parser check\",\"goal\":\"Resume the local parser review\",\"history_inheritance\":\"unknown\",\"in_flight\":[\"- none\"],\"next\":[\"1. First: read the current baseline and identify the next parser check\"],\"now_sha256\":\"617336821c16f3e3168c5345d29e0573cd3c9f782694574bc1717358ce6fccec\",\"refresh_mappings\":{\"STATE-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R17/workspace/baseline.json\"},\"semantic_verification\":\"pending\",\"task_id\":\"R17\"},\"semantic_verification\":\"pending\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "kind": "lite",
+      "task": "R29",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R29/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R29/workspace",
+        "--task-id",
+        "R29"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R29/.context-lite\",\"created_at\":\"2026-09-16T00:19:27.134923Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"R29\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R29/workspace\"},\"checked_at\":\"2026-09-16T00:19:27.212266Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":10001,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"},\"history_inheritance\":\"unknown\",\"material\":{\"acceptance\":[\"- Read the current original and identify the next parser check; completion requires separate test evidence.\"],\"archive_allowed\":false,\"blockers\":[\"- none\"],\"current_state\":[\"- [STATE-01] current_tag=amber-14 | mutable: true | source: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R29/workspace/baseline.json | refreshed_at: 2026-09-16T00:00:00Z | refresh_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R29/workspace/baseline.json\"],\"decisions\":[\"- Preserve the parser interface | why: compatibility | evidence: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R29/workspace/baseline.json\"],\"first_action\":\"read the current baseline and identify the next parser check\",\"goal\":\"Resume the local parser review\",\"history_inheritance\":\"unknown\",\"in_flight\":[\"- none\"],\"next\":[\"1. First: read the current baseline and identify the next parser check\"],\"now_sha256\":\"217a2824b93da6f36dcec9a61360200e64a45036857135319a251a9db2e96648\",\"refresh_mappings\":{\"STATE-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R29/workspace/baseline.json\"},\"semantic_verification\":\"pending\",\"task_id\":\"R29\"},\"semantic_verification\":\"pending\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "kind": "lite",
+      "task": "R43",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace",
+        "--task-id",
+        "R43"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/.context-lite\",\"created_at\":\"2026-09-16T00:19:27.285443Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"R43\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace\"},\"checked_at\":\"2026-09-16T00:19:27.356974Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":10007,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"},\"history_inheritance\":\"unknown\",\"material\":{\"acceptance\":[\"- Read the current original and identify the next parser check; completion requires separate test evidence.\"],\"archive_allowed\":false,\"blockers\":[\"- RUN-7 attempt_id=attempt-local-7 outcome=unknown; receipt=/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace/attempt-local-7.json\"],\"current_state\":[\"- [STATE-01] current_tag=amber-14 | mutable: true | source: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace/baseline.json | refreshed_at: 2026-09-16T00:00:00Z | refresh_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace/baseline.json\"],\"decisions\":[\"- Preserve the parser interface | why: compatibility | evidence: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace/baseline.json\"],\"first_action\":\"read the current baseline and identify the next parser check\",\"goal\":\"Resume the local parser review\",\"history_inheritance\":\"unknown\",\"in_flight\":[\"- [RUN-7] parser check | owner: fixture | status: unknown | started_at: 2026-09-16T00:00:00Z | correlation_ref: tool:attempt-local-7 | recovery_ref: read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace/attempt-local-7.json\"],\"next\":[\"1. First: read the current baseline and identify the next parser check\"],\"now_sha256\":\"61c0220548fbbd7c1d9c6cb8955b996e6b7f9093d49affdfd16678eede31aabe\",\"refresh_mappings\":{\"RUN-7\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace/attempt-local-7.json\",\"STATE-01\":\"read:/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R43/workspace/baseline.json\"},\"semantic_verification\":\"pending\",\"task_id\":\"R43\"},\"semantic_verification\":\"pending\",\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "kind": "lite",
+      "task": "R61",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py",
+        "cold-check",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-lite",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R61/.context-lite",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R61/requested-workspace",
+        "--task-id",
+        "R61"
+      ],
+      "exit_code": 1,
+      "stdout": "{\"archive_allowed\":false,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R61/.context-lite\",\"created_at\":\"2026-09-16T00:19:27.427955Z\",\"expected_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"schema\":1,\"skill_name\":\"context-lite\",\"task_id\":\"R61\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/lite/R61/workspace\"},\"checked_at\":\"2026-09-16T00:19:27.496969Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":\"WORKSPACE_MISMATCH\",\"message\":\"binding workspace_root differs\",\"name\":\"workspace\",\"status\":\"fail\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[\"WORKSPACE_MISMATCH\"],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":null,\"loaded_manifest_sha256\":\"f953804bb28b01856060088a0b9822d7da88fe8a8331583e35d9564bb32bcb3c\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite\",\"process_id\":10011,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-lite/scripts/context_lite.py\",\"skill_name\":\"context-lite\",\"skill_version\":\"1.4.0\"},\"mode\":\"identity\",\"next_action\":\"Correct the reported mismatch; do not resume until identity passes.\",\"schema\":1,\"scope\":\"task\",\"status\":\"fail\"},\"history_inheritance\":\"unknown\",\"material\":null,\"semantic_verification\":\"pending\",\"status\":\"fail\"}\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/skill_package.py",
+        "verify",
+        "--package",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"codes\":[],\"errors\":[],\"identity\":{\"manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"package_version\":\"0.8.0\",\"skill_name\":\"context-strict\",\"skill_version\":\"0.8.0\",\"source_revision\":\"candidate:dirty-worktree-0.8.0-review-fix\",\"source_tree_sha256\":\"2194a3cde30d223bb17a535ff63fdcbd72b515aa9686f6a6c818f3da2b7b27db\"},\"stats\":{\"documented_paths_checked\":11,\"files_checked\":67,\"python_exports_checked\":21},\"status\":\"pass\"}\n",
+      "stderr": ""
+    },
+    {
+      "kind": "strict",
+      "task": "R17",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/context_doctor.py",
+        "resume",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R17/context",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R17/workspace",
+        "--task-id",
+        "R17"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"context\":{\"acceptance_criteria\":[{\"criterion\":\"Read the current original and identify the next parser check\",\"id\":\"AC-1\",\"required_evidence\":[\"test-report\"]}],\"actor_roles\":{},\"assumptions\":[],\"conflicts\":[],\"constraints\":[\"Preserve the parser interface\",\"read-only recovery; completion needs separate test evidence\"],\"context_version\":3,\"contract_integrity_digest\":\"sha256:a5a4dd77be851ada198d10b0b0a9a3bffa95da0d10a62266ce905a4787b318bd\",\"contract_version\":1,\"decisions\":[],\"facts\":[],\"latest_checkpoint\":{\"actor\":\"fixture\",\"based_on_context_version\":2,\"blockers\":[],\"completed\":[\"Persisted the previous baseline observation\"],\"created_at\":\"2026-09-16T00:19:27.616090+00:00\",\"evidence_added\":[],\"id\":\"CP-4926a5bfb3\",\"next_action\":\"read the current baseline and identify the next parser check\",\"phase\":\"review\",\"related_item_ids\":[]},\"objective\":\"Resume the local parser review\",\"observations\":[{\"actor\":\"fixture\",\"conflict_reason\":null,\"conflicts_with\":[],\"created_at\":\"2026-09-16T00:19:27.615114+00:00\",\"evidence\":[],\"id\":\"C-def6c61e71\",\"metadata\":{},\"mutable\":false,\"scope\":{},\"source\":{\"kind\":\"file\",\"ref\":\"/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R17/workspace/baseline.json\"},\"statement\":\"Last observed current_tag=amber-14. Original: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R17/workspace/baseline.json\",\"status\":\"active\",\"superseded_by\":null,\"supersedes\":null,\"ttl_hours\":null,\"type\":\"observation\",\"updated_at\":\"2026-09-16T00:19:27.615114+00:00\",\"verification_method\":null,\"verified_at\":null}],\"out_of_scope\":[\"business actions\"],\"phase\":\"review\",\"prompt\":\"# Controlled Task Brief: R17\\nContract version: 1\\nObjective: Resume the local parser review\\n\\n## Rules\\nUse only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently.\\nDo not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes.\\n\\n## Scope\\n- local parser review\\n\\n## Out of Scope\\n- business actions\\n\\n## Constraints\\n- Preserve the parser interface\\n- read-only recovery; completion needs separate test evidence\\n\\n## Acceptance Criteria\\n- AC-1: Read the current original and identify the next parser check | required_evidence=[\\\"test-report\\\"]\\n\\n## Verified Facts\\n- None\\n\\n## Observations\\n- C-def6c61e71: Last observed current_tag=amber-14. Original: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R17/workspace/baseline.json | status=active | source={\\\"kind\\\":\\\"file\\\",\\\"ref\\\":\\\"/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R17/workspace/baseline.json\\\"} | evidence=[] | scope={} | verified_at=None | updated_at=2026-09-16T00:19:27.615114+00:00\\n\\n## Assumptions\\n- None\\n\\n## Decisions\\n- None\\n\\n## Open Questions\\n- None\\n\\n## Conflicts\\n- None\\n\\n## Latest Checkpoint\\n- Phase: review\\n- Next action: read the current baseline and identify the next parser check\",\"questions\":[],\"scope\":[\"local parser review\"],\"stale_items\":[],\"task_id\":\"R17\"},\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R17/context\",\"created_at\":\"2026-09-16T00:19:27.680412Z\",\"expected_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"schema\":1,\"skill_name\":\"context-strict\",\"task_id\":\"R17\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R17/workspace\"},\"checked_at\":\"2026-09-16T00:19:27.864312Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"short-session-handoff/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"loaded_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict\",\"process_id\":10017,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict/src/managing_long_task_context/__init__.py\",\"skill_name\":\"context-strict\",\"skill_version\":\"0.8.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"}}\n",
+      "stderr": ""
+    },
+    {
+      "kind": "strict",
+      "task": "R29",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/context_doctor.py",
+        "resume",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R29/context",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R29/workspace",
+        "--task-id",
+        "R29"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"context\":{\"acceptance_criteria\":[{\"criterion\":\"Read the current original and identify the next parser check\",\"id\":\"AC-1\",\"required_evidence\":[\"test-report\"]}],\"actor_roles\":{},\"assumptions\":[],\"conflicts\":[],\"constraints\":[\"Preserve the parser interface\",\"read-only recovery; completion needs separate test evidence\"],\"context_version\":3,\"contract_integrity_digest\":\"sha256:06caeb665773821068e0d42d87ee87d56aa6f4aefcdd6bb19ce51dd8165fd6c6\",\"contract_version\":1,\"decisions\":[],\"facts\":[],\"latest_checkpoint\":{\"actor\":\"fixture\",\"based_on_context_version\":2,\"blockers\":[],\"completed\":[\"Persisted the previous baseline observation\"],\"created_at\":\"2026-09-16T00:19:27.879788+00:00\",\"evidence_added\":[],\"id\":\"CP-485c770e0c\",\"next_action\":\"read the current baseline and identify the next parser check\",\"phase\":\"review\",\"related_item_ids\":[]},\"objective\":\"Resume the local parser review\",\"observations\":[{\"actor\":\"fixture\",\"conflict_reason\":null,\"conflicts_with\":[],\"created_at\":\"2026-09-16T00:19:27.878700+00:00\",\"evidence\":[],\"id\":\"C-7529f1c08b\",\"metadata\":{},\"mutable\":false,\"scope\":{},\"source\":{\"kind\":\"file\",\"ref\":\"/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R29/workspace/baseline.json\"},\"statement\":\"Last observed current_tag=amber-14. Original: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R29/workspace/baseline.json\",\"status\":\"active\",\"superseded_by\":null,\"supersedes\":null,\"ttl_hours\":null,\"type\":\"observation\",\"updated_at\":\"2026-09-16T00:19:27.878700+00:00\",\"verification_method\":null,\"verified_at\":null}],\"out_of_scope\":[\"business actions\"],\"phase\":\"review\",\"prompt\":\"# Controlled Task Brief: R29\\nContract version: 1\\nObjective: Resume the local parser review\\n\\n## Rules\\nUse only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently.\\nDo not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes.\\n\\n## Scope\\n- local parser review\\n\\n## Out of Scope\\n- business actions\\n\\n## Constraints\\n- Preserve the parser interface\\n- read-only recovery; completion needs separate test evidence\\n\\n## Acceptance Criteria\\n- AC-1: Read the current original and identify the next parser check | required_evidence=[\\\"test-report\\\"]\\n\\n## Verified Facts\\n- None\\n\\n## Observations\\n- C-7529f1c08b: Last observed current_tag=amber-14. Original: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R29/workspace/baseline.json | status=active | source={\\\"kind\\\":\\\"file\\\",\\\"ref\\\":\\\"/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R29/workspace/baseline.json\\\"} | evidence=[] | scope={} | verified_at=None | updated_at=2026-09-16T00:19:27.878700+00:00\\n\\n## Assumptions\\n- None\\n\\n## Decisions\\n- None\\n\\n## Open Questions\\n- None\\n\\n## Conflicts\\n- None\\n\\n## Latest Checkpoint\\n- Phase: review\\n- Next action: read the current baseline and identify the next parser check\",\"questions\":[],\"scope\":[\"local parser review\"],\"stale_items\":[],\"task_id\":\"R29\"},\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R29/context\",\"created_at\":\"2026-09-16T00:19:27.941405Z\",\"expected_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"schema\":1,\"skill_name\":\"context-strict\",\"task_id\":\"R29\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R29/workspace\"},\"checked_at\":\"2026-09-16T00:19:28.112966Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"short-session-handoff/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"loaded_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict\",\"process_id\":10028,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict/src/managing_long_task_context/__init__.py\",\"skill_name\":\"context-strict\",\"skill_version\":\"0.8.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"}}\n",
+      "stderr": ""
+    },
+    {
+      "kind": "strict",
+      "task": "R43",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/context_doctor.py",
+        "resume",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/context",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/workspace",
+        "--task-id",
+        "R43"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"context\":{\"acceptance_criteria\":[{\"criterion\":\"Read the current original and identify the next parser check\",\"id\":\"AC-1\",\"required_evidence\":[\"test-report\"]}],\"actor_roles\":{},\"assumptions\":[],\"conflicts\":[],\"constraints\":[\"Preserve the parser interface\",\"read-only recovery; completion needs separate test evidence\"],\"context_version\":3,\"contract_integrity_digest\":\"sha256:5d35155b68500a53d6ae889c70fd2ba873ca3eb5a14f596ea9617520b9d74aa4\",\"contract_version\":1,\"decisions\":[],\"facts\":[],\"latest_checkpoint\":{\"actor\":\"fixture\",\"based_on_context_version\":2,\"blockers\":[\"RUN-7 attempt_id=attempt-local-7 outcome=unknown; receipt=/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/workspace/attempt-local-7.json\"],\"completed\":[\"Persisted the previous baseline observation\"],\"created_at\":\"2026-09-16T00:19:28.128134+00:00\",\"evidence_added\":[],\"id\":\"CP-45391d4f13\",\"next_action\":\"read the current baseline and identify the next parser check\",\"phase\":\"review\",\"related_item_ids\":[]},\"objective\":\"Resume the local parser review\",\"observations\":[{\"actor\":\"fixture\",\"conflict_reason\":null,\"conflicts_with\":[],\"created_at\":\"2026-09-16T00:19:28.127060+00:00\",\"evidence\":[],\"id\":\"C-4b001b7a83\",\"metadata\":{},\"mutable\":false,\"scope\":{},\"source\":{\"kind\":\"file\",\"ref\":\"/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/workspace/baseline.json\"},\"statement\":\"Last observed current_tag=amber-14. Original: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/workspace/baseline.json\",\"status\":\"active\",\"superseded_by\":null,\"supersedes\":null,\"ttl_hours\":null,\"type\":\"observation\",\"updated_at\":\"2026-09-16T00:19:28.127060+00:00\",\"verification_method\":null,\"verified_at\":null}],\"out_of_scope\":[\"business actions\"],\"phase\":\"review\",\"prompt\":\"# Controlled Task Brief: R43\\nContract version: 1\\nObjective: Resume the local parser review\\n\\n## Rules\\nUse only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently.\\nDo not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes.\\n\\n## Scope\\n- local parser review\\n\\n## Out of Scope\\n- business actions\\n\\n## Constraints\\n- Preserve the parser interface\\n- read-only recovery; completion needs separate test evidence\\n\\n## Acceptance Criteria\\n- AC-1: Read the current original and identify the next parser check | required_evidence=[\\\"test-report\\\"]\\n\\n## Verified Facts\\n- None\\n\\n## Observations\\n- C-4b001b7a83: Last observed current_tag=amber-14. Original: /var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/workspace/baseline.json | status=active | source={\\\"kind\\\":\\\"file\\\",\\\"ref\\\":\\\"/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/workspace/baseline.json\\\"} | evidence=[] | scope={} | verified_at=None | updated_at=2026-09-16T00:19:28.127060+00:00\\n\\n## Assumptions\\n- None\\n\\n## Decisions\\n- None\\n\\n## Open Questions\\n- None\\n\\n## Conflicts\\n- None\\n\\n## Latest Checkpoint\\n- Phase: review\\n- Next action: read the current baseline and identify the next parser check\\n- Blockers: ['RUN-7 attempt_id=attempt-local-7 outcome=unknown; receipt=/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/workspace/attempt-local-7.json']\",\"questions\":[],\"scope\":[\"local parser review\"],\"stale_items\":[],\"task_id\":\"R43\"},\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/context\",\"created_at\":\"2026-09-16T00:19:28.189878Z\",\"expected_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"schema\":1,\"skill_name\":\"context-strict\",\"task_id\":\"R43\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R43/workspace\"},\"checked_at\":\"2026-09-16T00:19:28.363980Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":null,\"message\":\"binding matches supplied task and workspace\",\"name\":\"binding\",\"status\":\"pass\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"capabilities\":[\"checked-resume/v1\",\"runtime-identity/v1\",\"short-session-handoff/v1\",\"workspace-binding/v1\"],\"expected_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"loaded_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict\",\"process_id\":10035,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict/src/managing_long_task_context/__init__.py\",\"skill_name\":\"context-strict\",\"skill_version\":\"0.8.0\"},\"mode\":\"identity\",\"next_action\":null,\"schema\":1,\"scope\":\"task\",\"status\":\"pass\"}}\n",
+      "stderr": ""
+    },
+    {
+      "kind": "strict",
+      "task": "R61",
+      "argv": [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/context_doctor.py",
+        "resume",
+        "--package-root",
+        "/private/tmp/mltc-review-fix.x5qKWs/context-strict",
+        "--context-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R61/context",
+        "--workspace-root",
+        "/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R61/requested-workspace",
+        "--task-id",
+        "R61"
+      ],
+      "exit_code": 1,
+      "stdout": "{\"context\":null,\"diagnostic\":{\"binding\":{\"context_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R61/context\",\"created_at\":\"2026-09-16T00:19:28.441266Z\",\"expected_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"schema\":1,\"skill_name\":\"context-strict\",\"task_id\":\"R61\",\"workspace_root\":\"/private/var/folders/71/c6qxyfgs7_7637gwxq34m7th0000gn/T/mltc-agent-pilot-1g4_jd0i/strict/R61/workspace\"},\"checked_at\":\"2026-09-16T00:19:28.598837Z\",\"checks\":[{\"code\":null,\"message\":\"package manifest was read\",\"name\":\"package_manifest\",\"status\":\"pass\"},{\"code\":null,\"message\":\"loaded manifest matches current package manifest\",\"name\":\"runtime_baseline\",\"status\":\"pass\"},{\"code\":\"WORKSPACE_MISMATCH\",\"message\":\"binding workspace_root differs\",\"name\":\"workspace\",\"status\":\"fail\"},{\"code\":null,\"message\":\"identity mode does not scan package files\",\"name\":\"full_verification\",\"status\":\"not_run\"},{\"code\":null,\"message\":\"identity mode does not run smoke tests\",\"name\":\"smoke\",\"status\":\"not_run\"}],\"codes\":[\"WORKSPACE_MISMATCH\"],\"full_verification\":\"not_run\",\"identity\":{\"actual_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"capabilities\":[\"context-doctor/v1\"],\"expected_manifest_sha256\":null,\"loaded_manifest_sha256\":\"cbd3499c536c1f6800b45b26c73fb19a7848e1ae7a11fa897fbeb5d22d3550d3\",\"observation_source\":\"current_process\",\"package_root\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict\",\"process_id\":10043,\"runtime_path\":\"/private/tmp/mltc-review-fix.x5qKWs/context-strict/scripts/context_doctor.py\",\"skill_name\":\"context-strict\",\"skill_version\":\"0.8.0\"},\"mode\":\"identity\",\"next_action\":\"Correct the reported mismatch; do not resume until identity passes.\",\"schema\":1,\"scope\":\"task\",\"status\":\"fail\"}}\n",
+      "stderr": ""
+    }
+  ]
+}

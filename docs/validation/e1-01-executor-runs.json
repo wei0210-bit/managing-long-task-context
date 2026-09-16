@@ -1,0 +1,65 @@
+{
+  "contract_sha256": "39b770f90ae67a16b7fbeddc2e98269217c284e405aa010cf0800d921407fc45",
+  "runs": [
+    {
+      "phase": "red",
+      "test": "test_valid_complete_prepared_record_passes_without_writing_or_granting_control",
+      "exit_code": 1,
+      "observed": "check_status was unknown; expected pass"
+    },
+    {
+      "phase": "green",
+      "test": "test_valid_complete_prepared_record_passes_without_writing_or_granting_control",
+      "exit_code": 0,
+      "observed": "1 test passed"
+    },
+    {
+      "phase": "red",
+      "test": "test_verifier_reference_with_matching_id_but_wrong_digest_cannot_pass",
+      "exit_code": 1,
+      "observed": "tampered reference digest incorrectly passed"
+    },
+    {
+      "phase": "green",
+      "test": "test_verifier_reference_with_matching_id_but_wrong_digest_cannot_pass",
+      "exit_code": 0,
+      "observed": "1 test passed"
+    },
+    {
+      "phase": "red",
+      "test": "test_duplicate_record_key_is_unverifiable_even_when_last_value_looks_valid",
+      "exit_code": 1,
+      "observed": "duplicate JSON key incorrectly passed"
+    },
+    {
+      "phase": "green",
+      "test": "test_duplicate_record_key_is_unverifiable_even_when_last_value_looks_valid",
+      "exit_code": 0,
+      "observed": "1 test passed"
+    },
+    {
+      "phase": "red",
+      "test": "test_changed_host_evidence_requires_a_second_runtime_verification",
+      "exit_code": 1,
+      "observed": "only one host verification ran"
+    },
+    {
+      "phase": "green",
+      "test": "test_changed_host_evidence_requires_a_second_runtime_verification",
+      "exit_code": 0,
+      "observed": "second host verification ran and stale evidence did not pass"
+    },
+    {
+      "phase": "red",
+      "test": "test_foreign_task_event_in_this_authoritative_log_cannot_be_ignored",
+      "exit_code": 1,
+      "observed": "foreign-task event incorrectly passed"
+    },
+    {
+      "phase": "green",
+      "test": "test_foreign_task_event_in_this_authoritative_log_cannot_be_ignored",
+      "exit_code": 0,
+      "observed": "foreign-task event made the read unknown"
+    }
+  ]
+}

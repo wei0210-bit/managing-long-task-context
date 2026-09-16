@@ -26,13 +26,22 @@ COPIED_FILES = (
     Path("examples/rule_execution.py"),
     Path("examples/experience_rule_gate.py"),
     Path("examples/independent_validation.py"),
+    Path("examples/short_session_handoff.py"),
     Path("references/production-failure-patterns.md"),
     Path("references/independent-validation.md"),
     Path("references/runtime-identity.md"),
+    Path("references/handoff.md"),
+    Path("references/host-codex-cli.md"),
+    Path("references/host-native.md"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
     Path("src/managing_long_task_context/runtime_identity.py"),
+    Path("src/managing_long_task_context/handoff.py"),
+    Path("src/managing_long_task_context/host_codex_cli.py"),
+    Path("src/managing_long_task_context/host_records.py"),
+    Path("src/managing_long_task_context/host_codex_native.py"),
+    Path("src/managing_long_task_context/host_claude_native.py"),
     Path("src/managing_long_task_context/_identity_core.py"),
     Path("src/managing_long_task_context/_experience_store.py"),
     Path("src/managing_long_task_context/experience.py"),
@@ -44,13 +53,29 @@ COPIED_FILES = (
     Path("tests/test_production_feedback.py"),
     Path("tests/test_truth_sources.py"),
     Path("tests/test_runtime_identity.py"),
-    Path("tests/test_context_doctor.py"),
     Path("tests/test_context_experience_cli.py"),
     Path("tests/test_experience_review.py"),
     Path("tests/test_rule_execution.py"),
     Path("tests/test_experience_rule_gate.py"),
     Path("tests/test_independent_validation.py"),
+    Path("tests/test_handoff_activation.py"),
+    Path("tests/test_handoff_protocol.py"),
+    Path("tests/handoff_test_authority.py"),
+    Path("tests/test_handoff_codex_cli.py"),
+    Path("tests/handoff_codex_fixture.py"),
+    Path("tests/test_handoff_host_records.py"),
+    Path("tests/handoff_host_records_fixture.py"),
+    Path("tests/handoff_gate_fixtures.py"),
+    Path("tests/test_handoff_codex_native.py"),
+    Path("tests/test_handoff_claude_native.py"),
     Path("tests/fixtures/truth_source_pilot.md"),
+)
+
+# Root-only integration tests depend on sibling skill source trees and must not
+# remain in the self-contained Strict package after a source-list change.
+REMOVED_FILES = (
+    Path("tests/test_context_doctor.py"),
+    Path("tests/test_experience_distribution.py"),
 )
 
 
@@ -86,6 +111,11 @@ def sync() -> None:
             raise FileNotFoundError(source)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+
+    for relative_path in REMOVED_FILES:
+        stale = DESTINATION / relative_path
+        if stale.exists() or stale.is_symlink():
+            stale.unlink()
 
     print(f"Synchronized Context Strict to {DESTINATION}")
 

@@ -1,0 +1,22 @@
+{
+  "recorded_at": "2026-09-15T10:00:30Z",
+  "scope": "local temporary synthetic host only",
+  "historical_append_counterexample": {
+    "phase": "before_event_fsync",
+    "fd_identity": "events.jsonl dev/ino via os.fstat",
+    "injection": "OSError before real fsync",
+    "child": {"exit_code": 0, "check_status": "pass", "commit_status": "confirmed_committed", "controller_generation": 1},
+    "fresh_status": {"check_status": "unknown", "commit_status": "confirmed_committed", "controller_generation": 1},
+    "disposition": "preserved historical failure; superseded by v1.3 canonical publication boundary"
+  },
+  "runs": [
+    {"command": "python -m unittest test_handoff_process_recovery -v", "exit_code": 0, "tests": 9, "elapsed_seconds": 14.122, "note": "initial v1.3 run before cleanup-path review"},
+    {"command": "python -m unittest test_handoff_process_recovery -v", "exit_code": 0, "tests": 10, "elapsed_seconds": 8.272, "note": "after immediate spawn cleanup and explicit FIFO-blocked child reaping test"},
+    {"command": "python -m unittest test_handoff_process_recovery -v", "exit_code": 0, "tests": 11, "elapsed_seconds": 5.819, "note": "after distinct request-id competition for one legal synthetic target"},
+    {"command": "python -m unittest test_handoff_activation test_handoff_process_recovery test_handoff_writes test_handoff_concurrency test_handoff_protocol -v", "exit_code": 0, "tests": 56, "elapsed_seconds": 13.216},
+    {"command": "python tests/handoff_spec.py tests/fixtures/handoff --expected-manifest-sha256 435e407c064b32a7d5012e0161c9b2e7bddc38c8d70ce42e12659102e7f52a7b", "exit_code": 0, "elapsed_seconds": 0.044231},
+    {"command": "git diff --check", "exit_code": 0}
+  ],
+  "unknown_or_not_run": ["machine power-loss durability", "directory-entry power-loss recovery", "real host identity", "natural usage", "model stability", "token cost"],
+  "business_actions": 0
+}

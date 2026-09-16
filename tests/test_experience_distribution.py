@@ -37,7 +37,7 @@ class ExperienceDistributionTests(unittest.TestCase):
                 cwd=outside, capture_output=True, text=True, check=False, timeout=30,
             )
             self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
-            self.assertEqual(json.loads(built.stdout)["skill_version"], "1.3.0")
+            self.assertEqual(json.loads(built.stdout)["skill_version"], "1.4.0")
             test_path = package / "tests" / "test_context_experience_cli.py"
             example_path = package / "examples" / "experience_candidates.py"
             self.assertTrue(test_path.is_file(), test_path)

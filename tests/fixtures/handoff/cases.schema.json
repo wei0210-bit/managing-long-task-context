@@ -1,0 +1,429 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "handoff-e0-cases/v1"
+    },
+    "fixture_version": {
+      "const": 2
+    },
+    "status": {
+      "const": "frozen_inputs_not_product_results"
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "pattern": "^E0-[0-9]{3}$"
+          },
+          "catalog_ids": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "H01",
+                "H02",
+                "H03",
+                "H04",
+                "H05",
+                "H06",
+                "H07",
+                "H08",
+                "H09",
+                "H10",
+                "H11",
+                "H12",
+                "H13",
+                "H14",
+                "H15",
+                "H16",
+                "H17",
+                "C01",
+                "C02",
+                "C03",
+                "C04",
+                "C05",
+                "C06",
+                "L01",
+                "L02",
+                "L03",
+                "M01",
+                "M02",
+                "M03",
+                "H01-a",
+                "H02-a",
+                "C04-a",
+                "C06-a",
+                "M02-a",
+                "M03-a",
+                "H04-a",
+                "H04-b",
+                "H04-c",
+                "H12-a",
+                "H13-a",
+                "H14-a",
+                "C03-a",
+                "C03-b",
+                "C03-c",
+                "C03-d",
+                "C03-e",
+                "C03-f",
+                "C03-g",
+                "C03-h"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 256,
+            "uniqueItems": true
+          },
+          "variant": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "source_kind": {
+            "enum": [
+              "synthetic",
+              "redacted-history"
+            ]
+          },
+          "source_ref": {
+            "const": "catalog.json"
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "baseline_revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "baseline_package_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "initial_state": {
+            "type": "object",
+            "properties": {
+              "fixture": {
+                "const": "ready-state.json"
+              },
+              "task_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "controller_generation": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "handoff_phase": {
+                "enum": [
+                  "active",
+                  "prepared",
+                  "activated"
+                ]
+              },
+              "controller_identity": {
+                "enum": [
+                  "host:controller-old",
+                  "host:controller-new"
+                ]
+              }
+            },
+            "required": [
+              "fixture",
+              "task_id",
+              "controller_generation",
+              "handoff_phase",
+              "controller_identity"
+            ],
+            "additionalProperties": false
+          },
+          "operation": {
+            "type": "object",
+            "properties": {
+              "entry_point": {
+                "enum": [
+                  "activate_handoff",
+                  "prepare_handoff",
+                  "dispatch",
+                  "cancel_handoff",
+                  "handoff_status",
+                  "validate_handoff",
+                  "legacy_record",
+                  "complete",
+                  "archive",
+                  "reconcile_children",
+                  "resume_child",
+                  "reconcile_results",
+                  "choose_worker",
+                  "verify_host",
+                  "lite_validate",
+                  "lite_resume",
+                  "lite_route",
+                  "compare_cost",
+                  "parse_usage",
+                  "report_results",
+                  "observe_context",
+                  "auto_rollover",
+                  "cold_start",
+                  "migrate_task"
+                ]
+              },
+              "request_fixture": {
+                "enum": [
+                  null,
+                  "prepare_handoff",
+                  "validate_handoff",
+                  "activate_handoff",
+                  "cancel_handoff",
+                  "handoff_status"
+                ]
+              }
+            },
+            "required": [
+              "entry_point",
+              "request_fixture"
+            ],
+            "additionalProperties": false
+          },
+          "injection_point": {
+            "enum": [
+              "none",
+              "before_check",
+              "before_write",
+              "during_write",
+              "before_publish",
+              "concurrent",
+              "after_transfer",
+              "after_prepare",
+              "after_fsync",
+              "after_check",
+              "during_check",
+              "during_read",
+              "before_dispatch",
+              "safe_point"
+            ]
+          },
+          "stimulus": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "none",
+                  "basis_status",
+                  "replace_binding",
+                  "io_error",
+                  "mandatory_bytes",
+                  "artifact_content",
+                  "remove_field",
+                  "same_packet",
+                  "reference_status",
+                  "business_gate",
+                  "authorization_status",
+                  "candidate_requests",
+                  "request_generation",
+                  "dispatch_prepare_order",
+                  "new_attempt",
+                  "durable_commit",
+                  "interrupt",
+                  "event",
+                  "changed_dependency",
+                  "child_append",
+                  "activation_failure",
+                  "log_bytes",
+                  "repeat_request",
+                  "request_same_id_new_content",
+                  "truth_sources_enabled",
+                  "required_capabilities",
+                  "completion_evidence",
+                  "archive_status",
+                  "validation_status",
+                  "child_state",
+                  "host_response",
+                  "notification_repetitions",
+                  "notification_target",
+                  "result_contents",
+                  "old_result",
+                  "result_status",
+                  "processing_commit",
+                  "business_receipt",
+                  "work_unit",
+                  "host_capability",
+                  "valid",
+                  "missing_heading",
+                  "duplicate_first_action",
+                  "line_overflow",
+                  "char_overflow",
+                  "state_fault",
+                  "task_kind",
+                  "measurement",
+                  "usage_missing",
+                  "usage_cache_inclusive",
+                  "usage_mixed_cumulative_delta",
+                  "usage_overwritten_log",
+                  "proof_level",
+                  "occupancy",
+                  "trigger",
+                  "rollover_block",
+                  "occupancy_by_instance",
+                  "sample",
+                  "role",
+                  "feature_combination",
+                  "legacy_migration",
+                  "log_read_bytes"
+                ]
+              },
+              "value": {}
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "expected_check": {
+            "enum": [
+              null,
+              "pass",
+              "fail",
+              "unknown"
+            ]
+          },
+          "expected_commit": {
+            "enum": [
+              null,
+              "confirmed_committed",
+              "confirmed_not_committed",
+              "unknown",
+              "not_attempted"
+            ]
+          },
+          "expected_generation_delta": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "forbidden_writes": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "production",
+                "global_install",
+                "business_action",
+                "legacy_contract"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 256,
+            "uniqueItems": true
+          },
+          "fake_action_count": {
+            "const": 0
+          },
+          "required_test_level": {
+            "enum": [
+              "mechanism",
+              "process",
+              "host",
+              "lite",
+              "measurement",
+              "model"
+            ]
+          },
+          "test_method": {
+            "enum": [
+              "protocol_fixture",
+              "isolated_process_fault",
+              "host_adapter_then_live",
+              "existing_lite_public_cli",
+              "fixed_usage_fixture",
+              "budgeted_fresh_model"
+            ]
+          },
+          "assertions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]+$"
+                },
+                "op": {
+                  "const": "eq"
+                },
+                "value": {}
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 256,
+            "uniqueItems": true
+          },
+          "run_status": {
+            "const": "NOT_RUN"
+          },
+          "setup_actions": {
+            "type": "array",
+            "maxItems": 4,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "activate_once",
+                "activate_until_injection",
+                "process_result_until_injection"
+              ]
+            }
+          }
+        },
+        "required": [
+          "case_id",
+          "catalog_ids",
+          "variant",
+          "source_kind",
+          "source_ref",
+          "source_sha256",
+          "baseline_revision",
+          "baseline_package_hash",
+          "initial_state",
+          "operation",
+          "injection_point",
+          "stimulus",
+          "expected_check",
+          "expected_commit",
+          "expected_generation_delta",
+          "forbidden_writes",
+          "fake_action_count",
+          "required_test_level",
+          "test_method",
+          "assertions",
+          "run_status",
+          "setup_actions"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 512
+    }
+  },
+  "required": [
+    "schema",
+    "fixture_version",
+    "status",
+    "cases"
+  ],
+  "additionalProperties": false
+}

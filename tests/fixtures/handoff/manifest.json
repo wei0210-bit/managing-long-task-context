@@ -1,0 +1,40 @@
+{
+  "schema": "handoff-e0-manifest/v1",
+  "fixture_version": 2,
+  "baseline_revision": "0f5898e19b4951c661edce1f7db80f95cc1b2ecc",
+  "baseline_package_manifest_sha256": "3d3e4f44b454adaa358d69c4e75eec4bbaa2ecedcb5d84abfdc6b34e33e50cc7",
+  "files": {
+    "README.md": {
+      "sha256": "9fd6d60f08c31d57984163c964c0e05e33691cfd310f0a53a3c0ab4f479423ff",
+      "bytes": 2502
+    },
+    "protocol.md": {
+      "sha256": "522bac5fd27db1a29db24a38dcd70f809307106ed873296bd727f728e98ba538",
+      "bytes": 6303
+    },
+    "cases.json": {
+      "sha256": "87c7fac347d430476dd1fb0f3e73ad976670b2885da0ce44dffc82b5fc19ba4c",
+      "bytes": 302267
+    },
+    "cases.schema.json": {
+      "sha256": "4cf6e27b27c63caf29404cd7e9a994db479ef116346ef5f0025371b01b212f58",
+      "bytes": 11724
+    },
+    "catalog.json": {
+      "sha256": "5367e1a9f43a99e049a6e5d4dbba6858cba208f579037ed19c159041193d15ad",
+      "bytes": 11427
+    },
+    "budget-profile.json": {
+      "sha256": "e6898986c182eedd411cb856f09ac51b0a42340f731babd70cd01680dd0166cb",
+      "bytes": 1800
+    },
+    "ready-state.json": {
+      "sha256": "7ab9734664ac869ce3862701ef8cb9afe4747fa9d42ba74113e4cb58b79a4c41",
+      "bytes": 8299
+    },
+    "interface.schema.json": {
+      "sha256": "5e44c148cec267ca8b2dca053095741548f06a6af9bdf8c55d0fd31b21830233",
+      "bytes": 16853
+    }
+  }
+}

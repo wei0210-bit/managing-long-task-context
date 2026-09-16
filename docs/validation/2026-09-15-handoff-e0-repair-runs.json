@@ -1,0 +1,110 @@
+{
+  "scope": "E0 fixture-specification validation only; not product execution",
+  "baseline_revision": "0f5898e19b4951c661edce1f7db80f95cc1b2ecc",
+  "previous_manifest_sha256": "6ad1c9b350180ac73155779d047541b22abae257f411dc8da48a846c9c318710",
+  "current_manifest_sha256": "435e407c064b32a7d5012e0161c9b2e7bddc38c8d70ce42e12659102e7f52a7b",
+  "runs": [
+    {
+      "finding": "R1",
+      "red": {
+        "chunk_id": "451d33",
+        "wall_time_seconds": 0.000003625,
+        "exit_code": 1,
+        "original_token_count": 232,
+        "output": "test_durable_process_exit_cannot_expect_unknown_commit (test_handoff_spec.HandoffSpecTests.test_durable_process_exit_cannot_expect_unknown_commit) ... FAIL\n\n======================================================================\nFAIL: test_durable_process_exit_cannot_expect_unknown_commit (test_handoff_spec.HandoffSpecTests.test_durable_process_exit_cannot_expect_unknown_commit)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/tests/test_handoff_spec.py\", line 37, in test_durable_process_exit_cannot_expect_unknown_commit\n    self.assertIn(\"E0_EXPECTATION\", [i[\"code\"] for i in self.mutated(\"cases.json\", change)])\nAssertionError: 'E0_EXPECTATION' not found in ['E0_HASH']\n\n----------------------------------------------------------------------\nRan 1 test in 0.030s\n\nFAILED (failures=1)\n"
+      },
+      "green": {
+        "chunk_id": "0e485a",
+        "wall_time_seconds": 0.000003708,
+        "exit_code": 0,
+        "original_token_count": 63,
+        "output": "test_durable_process_exit_cannot_expect_unknown_commit (test_handoff_spec.HandoffSpecTests.test_durable_process_exit_cannot_expect_unknown_commit) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.029s\n\nOK\n"
+      }
+    },
+    {
+      "finding": "R2-combinations",
+      "red": {
+        "chunk_id": "543113",
+        "wall_time_seconds": 0.000003083,
+        "exit_code": 1,
+        "original_token_count": 236,
+        "output": "test_each_feature_combination_has_all_three_scenarios (test_handoff_spec.HandoffSpecTests.test_each_feature_combination_has_all_three_scenarios) ... FAIL\n\n======================================================================\nFAIL: test_each_feature_combination_has_all_three_scenarios (test_handoff_spec.HandoffSpecTests.test_each_feature_combination_has_all_three_scenarios)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/tests/test_handoff_spec.py\", line 42, in test_each_feature_combination_has_all_three_scenarios\n    self.assertIn(\"E0_COVERAGE\", [i[\"code\"] for i in self.mutated(\"cases.json\", change)])\nAssertionError: 'E0_COVERAGE' not found in ['E0_MANIFEST', 'E0_HASH', 'E0_HASH']\n\n----------------------------------------------------------------------\nRan 1 test in 0.025s\n\nFAILED (failures=1)\n"
+      },
+      "green": {
+        "chunk_id": "7ddf72",
+        "wall_time_seconds": 0.008082791,
+        "exit_code": 0,
+        "original_token_count": 63,
+        "output": "test_each_feature_combination_has_all_three_scenarios (test_handoff_spec.HandoffSpecTests.test_each_feature_combination_has_all_three_scenarios) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nOK\n"
+      }
+    },
+    {
+      "finding": "R2-migration",
+      "red": {
+        "chunk_id": "bd6e13",
+        "wall_time_seconds": 0.000002791,
+        "exit_code": 1,
+        "original_token_count": 231,
+        "output": "test_old_package_migration_requires_all_six_paths (test_handoff_spec.HandoffSpecTests.test_old_package_migration_requires_all_six_paths) ... FAIL\n\n======================================================================\nFAIL: test_old_package_migration_requires_all_six_paths (test_handoff_spec.HandoffSpecTests.test_old_package_migration_requires_all_six_paths)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/tests/test_handoff_spec.py\", line 47, in test_old_package_migration_requires_all_six_paths\n    self.assertIn(\"E0_COVERAGE\", [i[\"code\"] for i in self.mutated(\"cases.json\", change)])\nAssertionError: 'E0_COVERAGE' not found in ['E0_MANIFEST', 'E0_HASH', 'E0_HASH']\n\n----------------------------------------------------------------------\nRan 1 test in 0.029s\n\nFAILED (failures=1)\n"
+      },
+      "green": {
+        "chunk_id": "2e5045",
+        "wall_time_seconds": 0.000003833,
+        "exit_code": 0,
+        "original_token_count": 61,
+        "output": "test_old_package_migration_requires_all_six_paths (test_handoff_spec.HandoffSpecTests.test_old_package_migration_requires_all_six_paths) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.029s\n\nOK\n"
+      }
+    },
+    {
+      "finding": "R3",
+      "red": {
+        "chunk_id": "0ac47f",
+        "wall_time_seconds": 0.000002625,
+        "exit_code": 1,
+        "original_token_count": 236,
+        "output": "test_flush_overflow_cannot_borrow_the_event_log_budget (test_handoff_spec.HandoffSpecTests.test_flush_overflow_cannot_borrow_the_event_log_budget) ... FAIL\n\n======================================================================\nFAIL: test_flush_overflow_cannot_borrow_the_event_log_budget (test_handoff_spec.HandoffSpecTests.test_flush_overflow_cannot_borrow_the_event_log_budget)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/tests/test_handoff_spec.py\", line 53, in test_flush_overflow_cannot_borrow_the_event_log_budget\n    self.assertIn(\"E0_BUDGET\", [i[\"code\"] for i in self.mutated(\"cases.json\", change)])\nAssertionError: 'E0_BUDGET' not found in ['E0_MANIFEST', 'E0_HASH', 'E0_HASH']\n\n----------------------------------------------------------------------\nRan 1 test in 0.029s\n\nFAILED (failures=1)\n"
+      },
+      "green": {
+        "chunk_id": "00f835",
+        "wall_time_seconds": 0.000009375,
+        "exit_code": 0,
+        "original_token_count": 63,
+        "output": "test_flush_overflow_cannot_borrow_the_event_log_budget (test_handoff_spec.HandoffSpecTests.test_flush_overflow_cannot_borrow_the_event_log_budget) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.031s\n\nOK\n"
+      }
+    },
+    {
+      "finding": "R4-empty",
+      "red": {
+        "chunk_id": "a315fe",
+        "wall_time_seconds": 0.000002667,
+        "exit_code": 1,
+        "original_token_count": 249,
+        "output": "test_contract_version_cannot_be_empty_independent_of_manifest (test_handoff_spec.HandoffSpecTests.test_contract_version_cannot_be_empty_independent_of_manifest) ... FAIL\n\n======================================================================\nFAIL: test_contract_version_cannot_be_empty_independent_of_manifest (test_handoff_spec.HandoffSpecTests.test_contract_version_cannot_be_empty_independent_of_manifest)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/tests/test_handoff_spec.py\", line 59, in test_contract_version_cannot_be_empty_independent_of_manifest\n    self.assertIn(\"E0_SCHEMA\", [i[\"code\"] for i in self.mutated(\"ready-state.json\", change)])\nAssertionError: 'E0_SCHEMA' not found in ['E0_MANIFEST', 'E0_HASH', 'E0_HASH', 'E0_HASH']\n\n----------------------------------------------------------------------\nRan 1 test in 0.029s\n\nFAILED (failures=1)\n"
+      },
+      "green": {
+        "chunk_id": "ff08c5",
+        "wall_time_seconds": 0.0000045,
+        "exit_code": 0,
+        "original_token_count": 67,
+        "output": "test_contract_version_cannot_be_empty_independent_of_manifest (test_handoff_spec.HandoffSpecTests.test_contract_version_cannot_be_empty_independent_of_manifest) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nOK\n"
+      }
+    },
+    {
+      "finding": "R4-whitespace",
+      "red": {
+        "chunk_id": "001f1c",
+        "wall_time_seconds": 0.00000325,
+        "exit_code": 1,
+        "original_token_count": 241,
+        "output": "test_contract_version_cannot_contain_only_whitespace (test_handoff_spec.HandoffSpecTests.test_contract_version_cannot_contain_only_whitespace) ... FAIL\n\n======================================================================\nFAIL: test_contract_version_cannot_contain_only_whitespace (test_handoff_spec.HandoffSpecTests.test_contract_version_cannot_contain_only_whitespace)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/tests/test_handoff_spec.py\", line 65, in test_contract_version_cannot_contain_only_whitespace\n    self.assertIn(\"E0_SCHEMA\", [i[\"code\"] for i in self.mutated(\"ready-state.json\", change)])\nAssertionError: 'E0_SCHEMA' not found in ['E0_MANIFEST', 'E0_HASH', 'E0_HASH', 'E0_HASH', 'E0_HASH']\n\n----------------------------------------------------------------------\nRan 1 test in 0.027s\n\nFAILED (failures=1)\n"
+      },
+      "green": {
+        "chunk_id": "02feb7",
+        "wall_time_seconds": 0.000003417,
+        "exit_code": 0,
+        "original_token_count": 62,
+        "output": "test_contract_version_cannot_contain_only_whitespace (test_handoff_spec.HandoffSpecTests.test_contract_version_cannot_contain_only_whitespace) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.027s\n\nOK\n"
+      }
+    }
+  ]
+}

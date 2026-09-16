@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -37,6 +38,30 @@ _LOADED_MANIFEST_SHA256: str | None = None
 _BASELINE_FINALIZED = False
 
 
+def _runtime_payload_matches_manifest(
+    manifest_path: Path | None, module_paths: Iterable[Path]
+) -> bool:
+    if manifest_path is None:
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entries = manifest["files"]
+        expected = {
+            str(item["path"]): str(item["sha256"])
+            for item in entries
+            if isinstance(item, dict)
+        }
+        package_root = manifest_path.parent.resolve(strict=True)
+        for path in module_paths:
+            resolved = path.resolve(strict=True)
+            relative = resolved.relative_to(package_root).as_posix()
+            if expected.get(relative) != _digest(resolved):
+                return False
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    return True
+
+
 def _capture_baseline(
     module_paths: Iterable[str | Path], *, initial_manifest_path: Path | None = None,
     initial_manifest_sha256: str | None = None,
@@ -52,7 +77,12 @@ def _capture_baseline(
     # replaced with this module's later observation.
     before_manifest = initial_manifest_path
     before_digest = initial_manifest_sha256
-    if before_manifest is not None and after_manifest == before_manifest and before_digest == after_digest:
+    if (
+        before_manifest is not None
+        and after_manifest == before_manifest
+        and before_digest == after_digest
+        and _runtime_payload_matches_manifest(after_manifest, paths)
+    ):
         _LOADED_MANIFEST_SHA256 = before_digest
     else:
         _LOADED_MANIFEST_SHA256 = None
@@ -65,7 +95,7 @@ def runtime_identity(*, package_root: str | Path) -> dict[str, object]:
         package_root=package_root,
         runtime_paths=_BASELINE_PATHS,
         loaded_manifest_sha256=_LOADED_MANIFEST_SHA256 if _BASELINE_FINALIZED else None,
-        capabilities=("runtime-identity/v1", "workspace-binding/v1", "checked-resume/v1"),
+        capabilities=("runtime-identity/v1", "workspace-binding/v1", "checked-resume/v1", "short-session-handoff/v1"),
     )
 
 
@@ -77,7 +107,7 @@ def checked_resume(
         package_root=package_root,
         runtime_paths=_BASELINE_PATHS,
         loaded_manifest_sha256=_LOADED_MANIFEST_SHA256 if _BASELINE_FINALIZED else None,
-        capabilities=("runtime-identity/v1", "workspace-binding/v1", "checked-resume/v1"),
+        capabilities=("runtime-identity/v1", "workspace-binding/v1", "checked-resume/v1", "short-session-handoff/v1"),
         binding_context_root=base_dir,
         workspace_root=workspace_root,
         task_id=task_id,

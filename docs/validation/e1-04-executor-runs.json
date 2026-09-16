@@ -1,0 +1,72 @@
+{
+  "schema": "e1-04-executor-runs/v1",
+  "contract_sha256": "4f33bb0f711e877d370b76faeae9ffa57d11fa661c0bf70f093602e5555e7624",
+  "scope": "AC1/AC2/AC3 only: original gate combination matrix",
+  "frozen_matrix_source": {
+    "path": "tests/fixtures/handoff/cases.json",
+    "sha256": "87c7fac347d430476dd1fb0f3e73ad976670b2885da0ce44dffc82b5fc19ba4c",
+    "consumption": "test loads each E0-148--171 stimulus and expected check/commit/generation_delta directly"
+  },
+  "environment": {
+    "host": "synthetic local filesystem fixture",
+    "python": "/opt/homebrew/bin/python3.12",
+    "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_gate_combinations -v",
+    "model_verdict": "UNKNOWN",
+    "token_usage": "UNKNOWN",
+    "real_host_or_business_action": "NOT_RUN"
+  },
+  "generation_equivalence": {
+    "frozen_initial_generation": 7,
+    "synthetic_fixture_initial_generation": 0,
+    "assertion": "actual controller_generation minus synthetic initial_generation equals frozen expected_generation_delta; raw synthetic generations are not claimed to be frozen inputs"
+  },
+  "red_run": {
+    "status": "failed_as_expected",
+    "failure": "new fixture returned subject_session_ref for prepare although the existing protocol forbids it before an active controller exists",
+    "resolution": "fixture-only exact-authorizer-shape correction; no product source changed"
+  },
+  "matrix": [
+    {"id":"E0-148","switches":{"truth_sources":false,"rule_execution":false,"independent_validation":false},"scenario":"valid","actual_input":"current basis.txt read by host verifier and completion file verifier","expected":"activate and completion pass","actual":{"activate":"pass/confirmed_committed","generation_delta":1,"completion":true,"activation_events":1}},
+    {"id":"E0-149","switches":{"truth_sources":false,"rule_execution":false,"independent_validation":false},"scenario":"invalid_basis","actual_input":"basis.txt removed after prepare","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-150","switches":{"truth_sources":false,"rule_execution":false,"independent_validation":false},"scenario":"changed_after_check","actual_input":"activate verifier read basis.txt then changed that same file before commit","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-151","switches":{"truth_sources":false,"rule_execution":false,"independent_validation":true},"scenario":"valid","actual_input":"real basis file plus distinct validator receipt bound to current digest/workspace","expected":"activate and completion pass","actual":{"activate":"pass/confirmed_committed","generation_delta":1,"completion":true,"activation_events":1}},
+    {"id":"E0-152","switches":{"truth_sources":false,"rule_execution":false,"independent_validation":true},"scenario":"invalid_basis","actual_input":"basis.txt removed after prepare","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-153","switches":{"truth_sources":false,"rule_execution":false,"independent_validation":true},"scenario":"changed_after_check","actual_input":"verifier reads then changes receipt-bearing basis before activation commit","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-154","switches":{"truth_sources":false,"rule_execution":true,"independent_validation":false},"scenario":"valid","actual_input":"rule observer/checker semantically reads basis.txt","expected":"activate and completion pass","actual":{"activate":"pass/confirmed_committed","generation_delta":1,"completion":true,"activation_events":1}},
+    {"id":"E0-155","switches":{"truth_sources":false,"rule_execution":true,"independent_validation":false},"scenario":"invalid_basis","actual_input":"basis.txt removed after prepare","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-156","switches":{"truth_sources":false,"rule_execution":true,"independent_validation":false},"scenario":"changed_after_check","actual_input":"verifier reads then changes rule source before activation commit","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-157","switches":{"truth_sources":false,"rule_execution":true,"independent_validation":true},"scenario":"valid","actual_input":"semantic rule reader plus distinct current receipt","expected":"activate and completion pass","actual":{"activate":"pass/confirmed_committed","generation_delta":1,"completion":true,"activation_events":1}},
+    {"id":"E0-158","switches":{"truth_sources":false,"rule_execution":true,"independent_validation":true},"scenario":"invalid_basis","actual_input":"basis.txt removed after prepare","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-159","switches":{"truth_sources":false,"rule_execution":true,"independent_validation":true},"scenario":"changed_after_check","actual_input":"verifier reads then changes rule/receipt source before activation commit","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-160","switches":{"truth_sources":true,"rule_execution":false,"independent_validation":false},"scenario":"valid","actual_input":"observed current TS-BASIS plus real basis.txt","expected":"activate and completion pass","actual":{"activate":"pass/confirmed_committed","generation_delta":1,"completion":true,"activation_events":1}},
+    {"id":"E0-161","switches":{"truth_sources":true,"rule_execution":false,"independent_validation":false},"scenario":"invalid_basis","actual_input":"observed TS-BASIS then basis.txt removed","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-162","switches":{"truth_sources":true,"rule_execution":false,"independent_validation":false},"scenario":"changed_after_check","actual_input":"verifier reads then changes TS-BASIS file before activation commit","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-163","switches":{"truth_sources":true,"rule_execution":false,"independent_validation":true},"scenario":"valid","actual_input":"TS-BASIS plus distinct current receipt","expected":"activate and completion pass","actual":{"activate":"pass/confirmed_committed","generation_delta":1,"completion":true,"activation_events":1}},
+    {"id":"E0-164","switches":{"truth_sources":true,"rule_execution":false,"independent_validation":true},"scenario":"invalid_basis","actual_input":"basis.txt removed after prepare","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-165","switches":{"truth_sources":true,"rule_execution":false,"independent_validation":true},"scenario":"changed_after_check","actual_input":"verifier reads then changes TS/receipt source before activation commit","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-166","switches":{"truth_sources":true,"rule_execution":true,"independent_validation":false},"scenario":"valid","actual_input":"TS-BASIS and rule checker both read current basis.txt","expected":"activate and completion pass","actual":{"activate":"pass/confirmed_committed","generation_delta":1,"completion":true,"activation_events":1}},
+    {"id":"E0-167","switches":{"truth_sources":true,"rule_execution":true,"independent_validation":false},"scenario":"invalid_basis","actual_input":"basis.txt removed after prepare","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-168","switches":{"truth_sources":true,"rule_execution":true,"independent_validation":false},"scenario":"changed_after_check","actual_input":"verifier reads then changes shared TS/rule source before activation commit","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-169","switches":{"truth_sources":true,"rule_execution":true,"independent_validation":true},"scenario":"valid","actual_input":"TS-BASIS, semantic rule checker, and distinct current receipt all read basis.txt","expected":"activate and completion pass","actual":{"activate":"pass/confirmed_committed","generation_delta":1,"completion":true,"activation_events":1}},
+    {"id":"E0-170","switches":{"truth_sources":true,"rule_execution":true,"independent_validation":true},"scenario":"invalid_basis","actual_input":"basis.txt removed after prepare","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}},
+    {"id":"E0-171","switches":{"truth_sources":true,"rule_execution":true,"independent_validation":true},"scenario":"changed_after_check","actual_input":"verifier reads then changes the shared bearing file before activation commit","expected":"activation and completion reject","actual":{"activate":"unknown/not_attempted","generation_delta":0,"completion":false,"activation_events":0}}
+  ],
+  "valid_case_evidence_removal": [
+    {"id":"E0-148","completion_without_business_evidence":false},
+    {"id":"E0-151","completion_without_business_evidence":false},
+    {"id":"E0-154","completion_without_business_evidence":false},
+    {"id":"E0-157","completion_without_business_evidence":false},
+    {"id":"E0-160","completion_without_business_evidence":false},
+    {"id":"E0-163","completion_without_business_evidence":false},
+    {"id":"E0-166","completion_without_business_evidence":false},
+    {"id":"E0-169","completion_without_business_evidence":false}
+  ],
+  "matrix_totals": {"executed":24,"valid_pass":8,"valid_business_evidence_removed_and_blocked":8,"invalid_basis_blocked":8,"changed_after_check_blocked":8,"skipped":0,"false_allow":0,"false_block":0,"duration_seconds":0.346},
+  "additional_ac2_ac3": {
+    "business_blocker": "complete synthetic basis activated at generation 1, while a persisted blocking context item kept completion false",
+    "independence_negatives": ["model self-report", "malformed forged checker result", "same validator/executor principal", "expired receipt"],
+    "result": "all rejected by completion gate"
+  },
+  "public_regression": {"command":"PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_truth_sources test_independent_validation test_rule_execution test_handoff_activation -v","passed":138,"failed":0,"duration_seconds":4.800},
+  "not_run": ["E0-172--177 real Codex/Claude host-level migration", "real old-package migration process cases owned by another agent", "production business action", "model token or natural-use measurement", "root full regression"]
+}

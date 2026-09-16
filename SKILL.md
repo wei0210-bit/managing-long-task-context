@@ -25,6 +25,13 @@ context. Missing/mismatched identity stops recovery without silently rebinding. 
 diagnosis is not a per-turn step. See `references/runtime-identity.md` when configuring
 binding or diagnosing an error; legacy direct APIs remain outside this identity check.
 
+For an explicitly enabled `short-session-handoff/v1` contract, use only the
+on-demand handoff calls and read `references/handoff.md`. They do not provide
+verified native takeover, automatic switching, or a resident scheduler. Native
+limits are in `references/host-native.md`. For host-supplied window/usage signals,
+use `scripts/context_usage.py` per `references/context-usage.md`; recommendations
+never grant control. Do not scan chats or call a model to produce these signals.
+
 ### 1. Bind storage, publish, then release
 
 Prefer one absolute store so process `cwd` cannot select a different task:
@@ -178,6 +185,7 @@ red?** Do not load that reference for routine execution.
 | `brief(...)` / `brief_diagnostics(...)` | Produce or preflight the controlled handoff packet |
 | `audit(...)` / `gate(...)` | Run integrity, state, truth, and acceptance checks |
 | `bind_experience(workspace_root, store_root)` | Bind Strict-only experience review and approval |
+| `prepare_handoff(...)` / `validate_handoff(...)` / `activate_handoff(...)` / `cancel_handoff(...)` / `handoff_status(...)` | Explicit host-verified short-session handoff; only when the capability is sealed in the contract |
 
 ## Verified experience and rule execution
 

@@ -1,0 +1,61 @@
+{
+  "schema": "e1-01-repair2-runs/v1",
+  "contract_sha256": "39b770f90ae67a16b7fbeddc2e98269217c284e405aa010cf0800d921407fc45",
+  "runs": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 /opt/homebrew/bin/python3.12 tests/handoff_spec.py tests/fixtures/handoff --expected-manifest-sha256 435e407c064b32a7d5012e0161c9b2e7bddc38c8d70ce42e12659102e7f52a7b",
+      "exit_code": 0,
+      "output": {"fixture_validation": "pass", "product_execution": "NOT_RUN", "model_execution": "NOT_RUN", "natural_usage": "NOT_RUN", "token_cost": null, "elapsed_seconds": 0.026228000002447516}
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_protocol -v",
+      "exit_code": 0,
+      "tests_run": 28,
+      "failures": 0,
+      "skipped": 0,
+      "elapsed_seconds": 0.481
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 docs/validation/e1_01_controller_probes.py -v",
+      "exit_code": 0,
+      "tests_run": 10,
+      "failures": 0,
+      "skipped": 0,
+      "elapsed_seconds": 0.042
+    },
+    {
+      "command": "fresh Python process: unittest test_complete_logs_observe_the_8mib_minus_one_equal_and_plus_one_boundaries; resource.getrusage(RUSAGE_SELF)",
+      "exit_code": 0,
+      "tests_run": 1,
+      "failures": 0,
+      "elapsed_seconds": 0.168,
+      "platform": "Darwin",
+      "ru_maxrss": 67977216,
+      "ru_maxrss_unit": "bytes",
+      "budget_bytes": 134217728
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_context.ContextSkillTests.test_completion_gate_rejects_criterion_owner_unknown test_context.ContextSkillTests.test_completion_keeps_conflicted_items_blocking -v",
+      "exit_code": 0,
+      "tests_run": 2,
+      "failures": 0,
+      "skipped": 0,
+      "elapsed_seconds": 0.009
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /opt/homebrew/bin/python3.12 -m unittest discover -s tests -q",
+      "exit_code": null,
+      "tests_run": null,
+      "failures": null,
+      "skipped": null,
+      "elapsed_seconds": 30.2,
+      "status": "NO_TERMINAL_OUTPUT_IN_INTERACTIVE_WINDOW",
+      "note": "尝试两次；未将其报告为通过。历史已知E2分发同步依赖未改。"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "output": ""
+    }
+  ]
+}
