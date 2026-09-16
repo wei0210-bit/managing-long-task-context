@@ -12,6 +12,7 @@ TOOLS = (
     "context_experience.py",
     "context_identity_core.py",
     "skill_package.py",
+    "context_usage.py",
 )
 
 
@@ -36,6 +37,11 @@ def sync() -> None:
     _copy(ROOT / "assets" / "experience-candidate.schema.json", lite / "assets" / "experience-candidate.schema.json")
     _copy(ROOT / "examples" / "experience_candidates.py", lite / "examples" / "experience_candidates.py")
     _copy(ROOT / "tests" / "test_context_experience_cli.py", lite / "tests" / "test_context_experience_cli.py")
+    _copy(ROOT / "tests" / "test_context_lite_handoff.py", lite / "tests" / "test_context_lite_handoff.py")
+    _copy(ROOT / "tests" / "test_context_lite_validator.py", lite / "tests" / "test_context_lite_validator.py")
+    for package in (lite, strict):
+        _copy(ROOT / "tests/test_context_usage.py", package / "tests/test_context_usage.py")
+        _copy(ROOT / "references/context-usage.md", package / "references/context-usage.md")
 
 
 if __name__ == "__main__":

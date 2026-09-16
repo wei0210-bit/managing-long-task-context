@@ -25,13 +25,22 @@ COPIED_FILES = (
     Path("examples/rule_execution.py"),
     Path("examples/experience_rule_gate.py"),
     Path("examples/independent_validation.py"),
+    Path("examples/short_session_handoff.py"),
     Path("references/production-failure-patterns.md"),
     Path("references/independent-validation.md"),
     Path("references/runtime-identity.md"),
+    Path("references/handoff.md"),
+    Path("references/host-codex-cli.md"),
+    Path("references/host-native.md"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
     Path("src/managing_long_task_context/runtime_identity.py"),
+    Path("src/managing_long_task_context/handoff.py"),
+    Path("src/managing_long_task_context/host_codex_cli.py"),
+    Path("src/managing_long_task_context/host_records.py"),
+    Path("src/managing_long_task_context/host_codex_native.py"),
+    Path("src/managing_long_task_context/host_claude_native.py"),
     Path("src/managing_long_task_context/_identity_core.py"),
     Path("src/managing_long_task_context/_experience_store.py"),
     Path("src/managing_long_task_context/experience.py"),
@@ -43,23 +52,42 @@ COPIED_FILES = (
     Path("tests/test_production_feedback.py"),
     Path("tests/test_truth_sources.py"),
     Path("tests/test_runtime_identity.py"),
-    Path("tests/test_context_doctor.py"),
     Path("tests/test_context_experience_cli.py"),
     Path("tests/test_experience_review.py"),
     Path("tests/test_rule_execution.py"),
     Path("tests/test_experience_rule_gate.py"),
     Path("tests/test_independent_validation.py"),
+    Path("tests/test_handoff_activation.py"),
+    Path("tests/test_handoff_protocol.py"),
+    Path("tests/handoff_test_authority.py"),
+    Path("tests/test_handoff_codex_cli.py"),
+    Path("tests/handoff_codex_fixture.py"),
+    Path("tests/test_handoff_host_records.py"),
+    Path("tests/handoff_host_records_fixture.py"),
+    Path("tests/handoff_gate_fixtures.py"),
+    Path("tests/test_handoff_codex_native.py"),
+    Path("tests/test_handoff_claude_native.py"),
     Path("tests/fixtures/truth_source_pilot.md"),
 )
 
 
 class ContextStrictDistributionTests(unittest.TestCase):
     def test_generated_diagnostic_tools_match_single_sources(self) -> None:
+        self.assertEqual(
+            (ROOT / "tests/test_context_lite_handoff.py").read_bytes(),
+            (ROOT / "skills/context-lite/tests/test_context_lite_handoff.py").read_bytes(),
+        )
+        self.assertEqual(
+            (ROOT / "tests/test_context_lite_validator.py").read_bytes(),
+            (ROOT / "skills/context-lite/tests/test_context_lite_validator.py").read_bytes(),
+        )
         for package in (STRICT, ROOT / "skills/context-lite"):
-            for filename in ("context_doctor.py", "context_experience.py", "context_identity_core.py", "skill_package.py"):
+            for filename in ("context_doctor.py", "context_experience.py", "context_identity_core.py", "skill_package.py", "context_usage.py"):
                 with self.subTest(package=package.name, file=filename):
                     self.assertEqual((package / "scripts" / filename).read_bytes(),
                                      (ROOT / "scripts" / filename).read_bytes())
+            for relative in ("tests/test_context_usage.py", "references/context-usage.md"):
+                self.assertEqual((package / relative).read_bytes(), (ROOT / relative).read_bytes())
         self.assertEqual((ROOT / "scripts/context_identity_core.py").read_bytes(),
                          (ROOT / "src/managing_long_task_context/_identity_core.py").read_bytes())
         self.assertEqual((ROOT / "scripts/context_experience.py").read_bytes(),
@@ -85,6 +113,11 @@ class ContextStrictDistributionTests(unittest.TestCase):
                     (STRICT / relative_path).read_bytes(),
                     (ROOT / relative_path).read_bytes(),
                 )
+        for root_only_test in (
+            "test_context_doctor.py",
+            "test_experience_distribution.py",
+        ):
+            self.assertFalse((STRICT / "tests" / root_only_test).exists())
 
     def test_distributed_example_executes_from_skill_root(self) -> None:
         result = subprocess.run(

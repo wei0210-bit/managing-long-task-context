@@ -1,0 +1,474 @@
+{
+  "capabilities": {
+    "append-only-context/v1": {
+      "python_exports": [
+        "record",
+        "update_item",
+        "checkpoint"
+      ]
+    },
+    "bound-context/v1": {
+      "python_exports": [
+        "bind"
+      ]
+    },
+    "brief-overflow-hard-stop/v1": {
+      "python_exports": [
+        "brief",
+        "brief_diagnostics",
+        "gate"
+      ]
+    },
+    "checked-resume/v1": {
+      "python_exports": [
+        "checked_resume"
+      ]
+    },
+    "context-doctor/v1": {
+      "python_exports": []
+    },
+    "context-externalization/v1": {
+      "python_exports": [
+        "externalize_item",
+        "restore_externalization_controls"
+      ]
+    },
+    "context-pressure-advisory/v1": {
+      "python_exports": []
+    },
+    "contract-file-protection/v1": {
+      "python_exports": [
+        "publish_contract",
+        "audit",
+        "gate"
+      ]
+    },
+    "evidence-handlers/v1": {
+      "python_exports": [
+        "publish_contract",
+        "gate"
+      ]
+    },
+    "experience-review/v1": {
+      "python_exports": [
+        "bind_experience"
+      ]
+    },
+    "experience-store/v1": {
+      "python_exports": [
+        "bind_experience"
+      ]
+    },
+    "handoff-brief/v1": {
+      "python_exports": [
+        "brief",
+        "brief_diagnostics"
+      ]
+    },
+    "independent-validation/v1": {
+      "python_exports": [
+        "bind",
+        "publish_contract",
+        "gate"
+      ]
+    },
+    "local-usage-accounting/v1": {
+      "python_exports": []
+    },
+    "native-host-capability-report/v1": {
+      "python_exports": []
+    },
+    "ordered-hops/v1": {
+      "python_exports": [
+        "publish_contract",
+        "gate"
+      ]
+    },
+    "quality-gates/v2": {
+      "python_exports": [
+        "gate",
+        "audit"
+      ]
+    },
+    "rule-execution/v1": {
+      "python_exports": [
+        "publish_contract",
+        "gate"
+      ]
+    },
+    "runtime-identity/v1": {
+      "python_exports": [
+        "runtime_identity"
+      ]
+    },
+    "short-session-handoff/v1": {
+      "python_exports": [
+        "prepare_handoff",
+        "validate_handoff",
+        "activate_handoff",
+        "cancel_handoff",
+        "handoff_status"
+      ]
+    },
+    "task-contract/v1": {
+      "python_exports": [
+        "publish_contract"
+      ]
+    },
+    "truth-sources/v1": {
+      "python_exports": [
+        "mark_truth_sources_dirty",
+        "observe_truth_source"
+      ]
+    },
+    "workspace-binding/v1": {
+      "python_exports": [
+        "bind"
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "5389904b972a8840c1da08da2c603fab8a318554598a19febe58f0c2242e4d9e",
+      "size": 11053
+    },
+    {
+      "path": "assets/experience-candidate.schema.json",
+      "sha256": "28b516d03404cfd9e83c4644d0a3707447b7f236748b2e3a0139f622905f430f",
+      "size": 1644
+    },
+    {
+      "path": "assets/experience-validation.schema.json",
+      "sha256": "a81a9f8a8161273d5c4b9998fe9deae860addd5e896d061f07f02ebdd8f5c779",
+      "size": 2626
+    },
+    {
+      "path": "assets/rule-execution.schema.json",
+      "sha256": "d661d8bf5e68048ed3374792426b23a5e91932e44c2b686fd3548063154aacde",
+      "size": 1535
+    },
+    {
+      "path": "assets/task-contract.example.json",
+      "sha256": "403e5e4eeb7010c38be4bc61533edb53d61185d5c71bac0a04882148fda9d6e1",
+      "size": 1648
+    },
+    {
+      "path": "assets/truth-source-contract.example.json",
+      "sha256": "541cbce30cab9ec7bf58044b0d7ef8465452e22480867cb7f3658e5c4193ca5d",
+      "size": 1097
+    },
+    {
+      "path": "examples/experience_candidates.py",
+      "sha256": "5a9aed482a4d576499d0a3725df7eca236405359811657244a47e0ca045d72b7",
+      "size": 2042
+    },
+    {
+      "path": "examples/experience_review.py",
+      "sha256": "f4e767a5e7da76ce49923b96e2e780a4e94ed97fe9eb8e1575b05df3b8da980d",
+      "size": 4396
+    },
+    {
+      "path": "examples/experience_rule_gate.py",
+      "sha256": "11f34596639389ffb04fadb988d9550111eb51060f1ba5e5b9e6357c16ae4008",
+      "size": 7690
+    },
+    {
+      "path": "examples/independent_validation.py",
+      "sha256": "36e335857107cd3dff4cfe2bac9f76adc5c13e0321b281386313f9c025803e4b",
+      "size": 6259
+    },
+    {
+      "path": "examples/rule_execution.py",
+      "sha256": "6db017414004454679abc5f7bbc455b421bfae8fcfaf1be392fa4378aa81e484",
+      "size": 3156
+    },
+    {
+      "path": "examples/short_session_handoff.py",
+      "sha256": "4e036f4a2fbac8112d155af412bb5a04d877e43febe3d8511fc10603fce1cabe",
+      "size": 12598
+    },
+    {
+      "path": "examples/strict_completion.py",
+      "sha256": "f0a03196e208ac3c7ec7eb521cc62d063cdd89782338419f193ccf48a03db7e9",
+      "size": 5995
+    },
+    {
+      "path": "examples/truth_source_contract.py",
+      "sha256": "ce6579cd61f017ee138a02a2d22b3a347324931ade5965810514977680ffa09c",
+      "size": 9862
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "c947d5c19b50311d5b30540704b9820ca9e0f18deaff27828f650d4fd3393039",
+      "size": 398
+    },
+    {
+      "path": "references/context-usage.md",
+      "sha256": "c8186a486d3703bfef558d604f55fa8d091466c9e5f136d3efaa1bf3f97eae60",
+      "size": 4756
+    },
+    {
+      "path": "references/handoff.md",
+      "sha256": "3062eb1e619404c8583c18ac4417d6875be78fe92abc9564554f0647f66f4fe6",
+      "size": 2387
+    },
+    {
+      "path": "references/host-codex-cli.md",
+      "sha256": "3e04b9c3a8a8a57343fa1641370e64f9799a35fe98766161c98f9fc6df33605d",
+      "size": 2339
+    },
+    {
+      "path": "references/host-native.md",
+      "sha256": "bda14e49fc899570f8ed781f24e192c18dc5c934bdbc613504e27819c8d27967",
+      "size": 1436
+    },
+    {
+      "path": "references/independent-validation.md",
+      "sha256": "a53cbdec981cdd2b79ada470c8cd4262c20407829dd3cad9a8e8f7a68a23a6f5",
+      "size": 1984
+    },
+    {
+      "path": "references/production-failure-patterns.md",
+      "sha256": "55f339d8fdc33f6c111820460f829bb8249009aa7012e648653e01729847302e",
+      "size": 5098
+    },
+    {
+      "path": "references/runtime-identity.md",
+      "sha256": "f9f1839bf3fbaf4c3634fd9102f072cd18f47e21330ee6d26919fc391b5f0cd7",
+      "size": 5925
+    },
+    {
+      "path": "scripts/context_doctor.py",
+      "sha256": "6ba0ed6bec8be5e19f4f7fe12295c960c352efa87ca12ac67f534da01e4b16e7",
+      "size": 13840
+    },
+    {
+      "path": "scripts/context_experience.py",
+      "sha256": "952958e1cc900db8abb4b62a0c31fa3a3fe162cef89ffc6544a5d5301a3265f7",
+      "size": 34111
+    },
+    {
+      "path": "scripts/context_identity_core.py",
+      "sha256": "a818997be4d198f4f83156922aba496f706a8867ceaaaf3fb5380b96aabf3ca1",
+      "size": 21880
+    },
+    {
+      "path": "scripts/context_usage.py",
+      "sha256": "fffdfd4617f682de89e430714c2c339d3412b21be300892c4edefe58972f8de4",
+      "size": 22457
+    },
+    {
+      "path": "scripts/skill_package.py",
+      "sha256": "5ec03c89d5149231d2981055136caba942dd43b64d68acdd176f4005ea8dae7e",
+      "size": 20694
+    },
+    {
+      "path": "skill-package.json",
+      "sha256": "832347d0d638f8821ce28f3ee02edfb5b5eb223ad0272371d80fa2ee022526fc",
+      "size": 5585
+    },
+    {
+      "path": "src/managing_long_task_context/__init__.py",
+      "sha256": "223ce75645572a7099aabec039c336d111d4385540634c3a6fb313ea32467900",
+      "size": 255504
+    },
+    {
+      "path": "src/managing_long_task_context/_experience_store.py",
+      "sha256": "952958e1cc900db8abb4b62a0c31fa3a3fe162cef89ffc6544a5d5301a3265f7",
+      "size": 34111
+    },
+    {
+      "path": "src/managing_long_task_context/_identity_core.py",
+      "sha256": "a818997be4d198f4f83156922aba496f706a8867ceaaaf3fb5380b96aabf3ca1",
+      "size": 21880
+    },
+    {
+      "path": "src/managing_long_task_context/evidence.py",
+      "sha256": "3bb38ba86227822345ae9782408dce4d65db93cefb91911b60193fd2759c683e",
+      "size": 35425
+    },
+    {
+      "path": "src/managing_long_task_context/experience.py",
+      "sha256": "51c3a2eafce2259491a7b3b8ebbb5b8e63635df5ad8ca937663862e63107a1f0",
+      "size": 10430
+    },
+    {
+      "path": "src/managing_long_task_context/handoff.py",
+      "sha256": "911cc68d6059777649534756b1145affe411fd79d434a75b507f0120645aeb8f",
+      "size": 74337
+    },
+    {
+      "path": "src/managing_long_task_context/host_claude_native.py",
+      "sha256": "9f522cfac994acc68bf7b334c40dc66efbe81b59f4d9ca75e3c0296032859204",
+      "size": 2888
+    },
+    {
+      "path": "src/managing_long_task_context/host_codex_cli.py",
+      "sha256": "3831ce1c7ee21f7f466edccce59e10cf843d00c7456b0e0f67b9fd654435e5eb",
+      "size": 26204
+    },
+    {
+      "path": "src/managing_long_task_context/host_codex_native.py",
+      "sha256": "de6ce5980f4827c68b628a0c6604180325472c01ab5000fa6ba04578ebfee3ec",
+      "size": 3116
+    },
+    {
+      "path": "src/managing_long_task_context/host_records.py",
+      "sha256": "31cbf86fcde2fda4d40dbe3b0e327e16fa97510472079b6854dd7356c12465e8",
+      "size": 70300
+    },
+    {
+      "path": "src/managing_long_task_context/rule_execution.py",
+      "sha256": "5af0cff5d07d0a61024b099a1781f74889704de643aac533d317112c31c687e3",
+      "size": 19709
+    },
+    {
+      "path": "src/managing_long_task_context/runtime_identity.py",
+      "sha256": "ff621e96deaec3371d75d3b7e260b3921c279a36f693c2ed5ca2b9db362fd00e",
+      "size": 3626
+    },
+    {
+      "path": "src/managing_long_task_context/truth_sources.py",
+      "sha256": "39e3376a4ce1efc482785c9ed53c59e6a2a0524697f7528522acd363c07985cb",
+      "size": 29653
+    },
+    {
+      "path": "tests/fixtures/truth_source_pilot.md",
+      "sha256": "dd6672e61b8af322db6acc2245e54127b9c562a3466ba91744bda6f11cce3947",
+      "size": 132
+    },
+    {
+      "path": "tests/handoff_codex_fixture.py",
+      "sha256": "948be1c787af6d7d25879cc4a74e7b4b43b937d5dfcdc908aad065abdc2fb8b1",
+      "size": 2559
+    },
+    {
+      "path": "tests/handoff_gate_fixtures.py",
+      "sha256": "b65522157b8ea2ca006f55736a96f9526c68203cdcc8c44c503ebb1b75b65b9e",
+      "size": 18459
+    },
+    {
+      "path": "tests/handoff_host_records_fixture.py",
+      "sha256": "054ee2beb6bf45ea85b344953406ea9867cbd9ff70bef0b61a93d8af98f1687a",
+      "size": 7535
+    },
+    {
+      "path": "tests/handoff_test_authority.py",
+      "sha256": "78d2c9ed4f769fdbec65b5ed080598f95a2cb0fbc4097321566888ed17306775",
+      "size": 3811
+    },
+    {
+      "path": "tests/test_completion_upgrade.py",
+      "sha256": "8e7d0408e7124b23dd000fe24fabb1f2317ca28ec142292ef8a2a97ef58ea46d",
+      "size": 10174
+    },
+    {
+      "path": "tests/test_context.py",
+      "sha256": "0fb269e99f0d36bedfc4aabe9e54c59ab7c4464d0ba03cb2fdcca31a97bbbd13",
+      "size": 104206
+    },
+    {
+      "path": "tests/test_context_doctor.py",
+      "sha256": "0a33ac6814f09bdd036f94ad17aaef8afb8e97896b38ede77c248e52115bf48d",
+      "size": 14040
+    },
+    {
+      "path": "tests/test_context_experience_cli.py",
+      "sha256": "240fe0b910d13c842816ae98d54885a417c78b9abaa96998bb7bccc6957b4638",
+      "size": 25118
+    },
+    {
+      "path": "tests/test_context_usage.py",
+      "sha256": "c674be3885f9fb6bb194b4d25b616fddb5958143dcc8643695a84c22345efc10",
+      "size": 19028
+    },
+    {
+      "path": "tests/test_dynamic_context_scenario.py",
+      "sha256": "a06b4ab69d552b3b23fc384eebcb916923766a4d739325a6890b40882c6ec490",
+      "size": 8078
+    },
+    {
+      "path": "tests/test_evidence.py",
+      "sha256": "7644e4cb66d663a71808c6caf0e7d3fd56e55fc4a5bae49ebdd00afcede00f51",
+      "size": 34766
+    },
+    {
+      "path": "tests/test_experience_distribution.py",
+      "sha256": "dbc6ec593c7b35836337bfec1c9a761787fd13a110dfadf60d48983b84c486cb",
+      "size": 10246
+    },
+    {
+      "path": "tests/test_experience_review.py",
+      "sha256": "683a26f1fb77a0f313806742b7986da33ef45284a170b7969db99a3b323cb203",
+      "size": 16844
+    },
+    {
+      "path": "tests/test_experience_rule_gate.py",
+      "sha256": "0bf0726ad7507eb017af9b9851630ec529c921a45c9c8b23f939e3bb85482a76",
+      "size": 23179
+    },
+    {
+      "path": "tests/test_handoff_activation.py",
+      "sha256": "f0c831ce6dca0139aaf26be03ae96fbba3ac61f157749bd1f49d2c48e9c3b49f",
+      "size": 24154
+    },
+    {
+      "path": "tests/test_handoff_claude_native.py",
+      "sha256": "b164f62650d1ed58665fb7d3efa4f0cb16726f24d1801463c6c686f30805368a",
+      "size": 2450
+    },
+    {
+      "path": "tests/test_handoff_codex_cli.py",
+      "sha256": "5b4d00427e8029090f1ba96f07b47e5f0bd1f92405f649b105cd3165a27c3c86",
+      "size": 25409
+    },
+    {
+      "path": "tests/test_handoff_codex_native.py",
+      "sha256": "482d71f844c61294186bd7209ee843c185846cb438a9a68fe2b7bda46ef2a5b5",
+      "size": 2555
+    },
+    {
+      "path": "tests/test_handoff_host_records.py",
+      "sha256": "6991f1c5e81768c7bba215581e5bf0d811812cc022f86f9bbda7e2ff3b5769ca",
+      "size": 37296
+    },
+    {
+      "path": "tests/test_handoff_protocol.py",
+      "sha256": "ea8c640546c30f455e0c9d07874b6b2d58c869d65b4c7acde7c2fb962c0891e2",
+      "size": 43726
+    },
+    {
+      "path": "tests/test_independent_validation.py",
+      "sha256": "3c8c5d9f36aa0a3f8b201109e903416685186ffab8b8f8f7a4b6ef30dd855f99",
+      "size": 42035
+    },
+    {
+      "path": "tests/test_production_feedback.py",
+      "sha256": "801ab4930b0eab1776aa73c6ed45ff688c2fe6bdb0f6219e22aebe6b612cdcad",
+      "size": 27223
+    },
+    {
+      "path": "tests/test_rule_execution.py",
+      "sha256": "d5b1f1ca2efa4057da61ed8ea45807405d583faabe04fa552281a42bf1fa175c",
+      "size": 24880
+    },
+    {
+      "path": "tests/test_runtime_identity.py",
+      "sha256": "c3bc4cf9bf765b0b243da389f75f23273ed9413c579a67fef6c6593950b4fcf0",
+      "size": 26069
+    },
+    {
+      "path": "tests/test_truth_sources.py",
+      "sha256": "45e616ff513250e605341f8225519ffca30aceddd91bcf990239730e613909b9",
+      "size": 137589
+    }
+  ],
+  "manifest_schema": 1,
+  "package_name": "managing-long-task-context",
+  "package_version": "0.8.0",
+  "skill_name": "context-strict",
+  "skill_version": "0.8.0",
+  "source_revision": "candidate:dirty-worktree-0.8.0-E4-E6-final",
+  "source_tree_sha256": "ae8fff77bb64eea4f7e278212f86701dc54b43f1e140a638b40bb5f9b90e5f62"
+}

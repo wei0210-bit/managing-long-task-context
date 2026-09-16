@@ -20,6 +20,22 @@ python3 scripts/context_lite.py validate --file <candidate> --task-id <task-id>
 python3 scripts/context_lite.py write --candidate <candidate> --base-dir <workspace> --task-id <task-id>
 ```
 
+## Short-session handoff
+
+For an already validated Lite record, `flush` is the `write` path with a printed
+`now_sha256`; it creates no second record. A fresh process may use `cold-check` only
+with the same explicit identity-bound resume inputs, and may pin the handed-off NOW
+version with `--expected-now-sha256`. It returns inert reading material, never executes
+`refresh_ref` or `recovery_ref`, and keeps `history_inheritance: unknown`,
+`semantic_verification: pending`, and `archive_allowed: false`. Follow the compact
+procedure in [references/short-session.md](references/short-session.md); independently
+observe and restate every claim before accepting work. Do not use `finish` as rollover:
+keep the old task record until the task actually ends.
+
+For host-supplied window/usage signals, use `scripts/context_usage.py` as described
+in [references/context-usage.md](references/context-usage.md). It only advises;
+missing usage is unknown. Never scan chats or call a model to generate signals.
+
 ## Use When
 
 After installing/updating a complete package, run `scripts/context_doctor.py check

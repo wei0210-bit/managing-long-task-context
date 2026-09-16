@@ -1,0 +1,240 @@
+{
+  "schema": "structural-sample/v1",
+  "sampled_at": "2026-09-15T05:40:18.587Z",
+  "scope": [
+    {
+      "name": "8D",
+      "root": "/Users/zhaowei/Desktop/David/project.nosync/.prime/context",
+      "prefix": "8D"
+    },
+    {
+      "name": "MLTC",
+      "root": "/Users/zhaowei/Desktop/David/project.nosync/managing-long-task-context/.prime/context",
+      "prefix": ""
+    },
+    {
+      "name": "SEO-GEO",
+      "root": "/Users/zhaowei/Desktop/David/project.nosync/n8n/SEO GEO/.prime/context",
+      "prefix": ""
+    }
+  ],
+  "limits": {
+    "max_file_bytes": 16777216,
+    "max_total_bytes": 67108864
+  },
+  "tasks": [
+    {
+      "project": "8D",
+      "task": "8D-FEEDBACK-ROUND-20260914-R5",
+      "files": {
+        "task-contract.json": {
+          "bytes": 13557,
+          "sha256": "c2d555e8d2a4f8b57d46f434631bdc69e8ed4ada7b23a47543f2bdf216dc8311"
+        },
+        "events.jsonl": {
+          "bytes": 35417,
+          "sha256": "292f84f7a4550a5fd6f40e024242f4031dcb860d48621e9f1fff6e7c7444f9ff"
+        },
+        "snapshot.json": {
+          "bytes": 18873,
+          "sha256": "4348b52c4711526f8703f0d1cfbf4c28163419cbb98063d95479771858709af6"
+        }
+      },
+      "events": 40,
+      "event_types": {
+        "contract-published": 6,
+        "item-recorded": 17,
+        "checkpoint-recorded": 17
+      },
+      "max_event_bytes": 1495,
+      "snapshot_items": 17,
+      "criteria": 13,
+      "mutable_records": 0,
+      "errors": []
+    },
+    {
+      "project": "MLTC",
+      "task": "TRUTH-SOURCE-PILOT",
+      "files": {
+        "task-contract.json": {
+          "bytes": 1818,
+          "sha256": "8415bd25d13209476a9b44e930a4b822d5de93de8c74b844c77defff85384994"
+        },
+        "events.jsonl": {
+          "bytes": 4847,
+          "sha256": "141259e99ebc612d4eba8236d60253cfa5cc8c4b460a4187fc1c763cde911fe7"
+        },
+        "snapshot.json": {
+          "bytes": 1947,
+          "sha256": "047a6ffb9d94417f79ce66b508a6abe192c002bc293e1910671cab46683a3c22"
+        }
+      },
+      "events": 10,
+      "event_types": {
+        "contract-published": 1,
+        "truth-source-observed": 5,
+        "checkpoint-recorded": 1,
+        "truth-source-dirtied": 3
+      },
+      "max_event_bytes": 558,
+      "snapshot_items": 0,
+      "criteria": 1,
+      "mutable_records": 0,
+      "errors": []
+    },
+    {
+      "project": "SEO-GEO",
+      "task": "SEO-GEO-TF-SOCIAL-SEED-04",
+      "files": {
+        "task-contract.json": {
+          "bytes": 9935,
+          "sha256": "a05d5f64cd12b55608438103c3f55011c1952fd7d882c69ef2315667f405988f"
+        },
+        "events.jsonl": {
+          "bytes": 87418,
+          "sha256": "f63b59381f48bb3f8880c48a64db7259be90bffeedb49dc0915d0f685cb40607"
+        },
+        "snapshot.json": {
+          "bytes": 52574,
+          "sha256": "ce152f1b1c1c644aaed899020fd45760fb001a5d11aa10bc482fffb9e3f2f70a"
+        }
+      },
+      "events": 62,
+      "event_types": {
+        "contract-published": 1,
+        "item-recorded": 35,
+        "checkpoint-recorded": 3,
+        "item-updated": 23
+      },
+      "max_event_bytes": 1697,
+      "snapshot_items": 35,
+      "criteria": 11,
+      "mutable_records": 21,
+      "errors": []
+    }
+  ],
+  "errors": [],
+  "business_content_included": false,
+  "bytes_read_including_recheck": 4287344,
+  "whole_project_consistency": "not_proven",
+  "projects": [
+    {
+      "project": "8D",
+      "candidate_directories": 106,
+      "managed_tasks": 102,
+      "event_logs": 102,
+      "max_events": 40,
+      "max_log_bytes": 36677,
+      "max_event_bytes": 2581,
+      "max_snapshot_items": 17,
+      "max_snapshot_bytes": 20684,
+      "max_contract_bytes": 18105,
+      "max_criteria": 15,
+      "error_count": 12
+    },
+    {
+      "project": "MLTC",
+      "candidate_directories": 10,
+      "managed_tasks": 10,
+      "event_logs": 10,
+      "max_events": 10,
+      "max_log_bytes": 7395,
+      "max_event_bytes": 1660,
+      "max_snapshot_items": 3,
+      "max_snapshot_bytes": 4241,
+      "max_contract_bytes": 4942,
+      "max_criteria": 13,
+      "error_count": 0
+    },
+    {
+      "project": "SEO-GEO",
+      "candidate_directories": 2,
+      "managed_tasks": 2,
+      "event_logs": 2,
+      "max_events": 62,
+      "max_log_bytes": 87418,
+      "max_event_bytes": 2297,
+      "max_snapshot_items": 35,
+      "max_snapshot_bytes": 52574,
+      "max_contract_bytes": 11482,
+      "max_criteria": 11,
+      "error_count": 0
+    }
+  ],
+  "source_manifest_sha256": "871a8e99a48f05705e64d35c15ce3625a74df3f373b5ecaca43d18a667256f38",
+  "sampled_files": 342,
+  "task_errors": [
+    {
+      "project": "8D",
+      "task": "8D-T27b-a11y",
+      "errors": [
+        {
+          "file": "task-contract.json",
+          "code": "MISSING"
+        },
+        {
+          "file": "events.jsonl",
+          "code": "MISSING"
+        },
+        {
+          "file": "snapshot.json",
+          "code": "MISSING"
+        }
+      ]
+    },
+    {
+      "project": "8D",
+      "task": "8D-T27b-snapshots",
+      "errors": [
+        {
+          "file": "task-contract.json",
+          "code": "MISSING"
+        },
+        {
+          "file": "events.jsonl",
+          "code": "MISSING"
+        },
+        {
+          "file": "snapshot.json",
+          "code": "MISSING"
+        }
+      ]
+    },
+    {
+      "project": "8D",
+      "task": "8D-T27b-snapshots-chat",
+      "errors": [
+        {
+          "file": "task-contract.json",
+          "code": "MISSING"
+        },
+        {
+          "file": "events.jsonl",
+          "code": "MISSING"
+        },
+        {
+          "file": "snapshot.json",
+          "code": "MISSING"
+        }
+      ]
+    },
+    {
+      "project": "8D",
+      "task": "8D-T27b-uichecks",
+      "errors": [
+        {
+          "file": "task-contract.json",
+          "code": "MISSING"
+        },
+        {
+          "file": "events.jsonl",
+          "code": "MISSING"
+        },
+        {
+          "file": "snapshot.json",
+          "code": "MISSING"
+        }
+      ]
+    }
+  ]
+}

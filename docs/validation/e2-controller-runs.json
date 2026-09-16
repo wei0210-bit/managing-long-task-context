@@ -1,0 +1,31 @@
+{
+  "schema": "e2-controller-runs/v1",
+  "status": "local_e2_accepted",
+  "contract_sha256": "0f4237d22db440b61c596a37c3fda3242ab7324f3263f696f9dcf53ba5295827",
+  "observed_head": "0f5898e19b4951c661edce1f7db80f95cc1b2ecc",
+  "strict_candidate": {
+    "path": "/private/tmp/mltc-e2-controller.rGw7ow/context-strict",
+    "version": "0.8.0",
+    "files": 51,
+    "source_revision": "candidate:dirty-worktree-0.8.0",
+    "manifest_sha256": "51331cb7ea3edb2c120d1f1a5efa76dff32d79edd7644a1f0f98312ab0817165",
+    "source_tree_sha256": "5ecbef6bf1d08c7dd75e5e39d7efba3764bcd092475039c14ebb33fa32297d1a"
+  },
+  "runs": [
+    {"name": "full_regression_with_explicit_legacy_package", "tests": 473, "passed": 473, "skipped": 0, "seconds": 47.164, "exit_code": 0},
+    {"name": "targeted_e2_and_e1", "tests": 101, "passed": 101, "skipped": 0, "seconds": 16.902, "exit_code": 0},
+    {"name": "root_package_probes_final_candidate", "tests": 6, "passed": 6, "seconds": 1.171, "exit_code": 0, "false_allow": 0, "negative_denominator": 5, "false_block": 0, "positive_denominator": 1},
+    {"name": "packaged_activation_and_protocol_outside_source_tree", "tests": 36, "passed": 36, "seconds": 0.739, "exit_code": 0},
+    {"name": "root_e1_01", "tests": 10, "passed": 10, "seconds": 0.054, "exit_code": 0},
+    {"name": "root_e1_02", "tests": 18, "passed": 18, "seconds": 0.393, "exit_code": 0},
+    {"name": "root_e1_03", "tests": 17, "passed": 17, "seconds": 0.843, "exit_code": 0},
+    {"name": "root_e1_04", "tests": 4, "passed": 4, "seconds": 0.101, "exit_code": 0},
+    {"name": "actual_package_example_plain_run", "seconds": 0.259561, "exit_code": 0, "activation_events": 1, "generation_after_duplicate": 1, "duplicate_log_unchanged": true},
+    {"name": "local_ci_step_nonzero_tests", "tests": 5, "passed": 5, "seconds": 2.231, "exit_code": 0},
+    {"name": "rss_measurement_wrapper", "exit_code": 1, "rss_bytes": null, "reason": "sandbox denied time sysctl kern.clockrate; plain example rerun passed separately"}
+  ],
+  "lite": {"content_changed": false, "version": "1.3.0", "files": 11, "check_source": "pass", "build": "pass", "verify": "pass", "full_doctor": "pass"},
+  "cost": {"root_skill_added_lines": 6, "root_skill_added_bytes": 473, "reference_bytes": 2182, "token_input": null, "token_cached_input": null, "token_output": null, "rss_bytes": null, "paid_cost": null},
+  "not_run": ["remote_ci", "linux_runtime", "real_codex_host", "real_claude_host", "model_stability", "natural_project_usage", "global_install", "commit", "merge", "push", "deployment"],
+  "notes": ["timings are not exclusive performance measurements", "program repeats are not real model stability evidence", "52-file first candidate withdrawn; not an approved package", "no behavior-red-before-green claim for initial assembly failures"]
+}

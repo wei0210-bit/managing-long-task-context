@@ -1,0 +1,28 @@
+{
+  "schema": "e1-04-migration-runs/v1",
+  "scope": "local mechanism analogy only",
+  "old_package": {
+    "path": "/private/tmp/mltc-review-baseline.GYDdVc/context-strict",
+    "manifest_sha256": "3d3e4f44b454adaa358d69c4e75eec4bbaa2ecedcb5d84abfdc6b34e33e50cc7",
+    "package_version": "0.7.0",
+    "source_revision": "git:0f5898e19b4951c661edce1f7db80f95cc1b2ecc",
+    "verify_status": "pass"
+  },
+  "command": "MLTC_LEGACY_PACKAGE=/private/tmp/mltc-review-baseline.GYDdVc/context-strict PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_migration -v",
+  "runs": [
+    {"kind": "initial_fixture_red", "tests": 6, "passed": 5, "failed": 1, "reason": "fixture incorrectly used a launcher-sealed identity for the independent-old-process bypass risk; no source change"},
+    {"kind": "green_after_callback_and_full_package_verifier", "tests": 6, "passed": 6, "failed": 0, "duration_seconds": 1.068, "exit_code": 0, "verified_files": 45},
+    {"kind": "repeat_green", "tests": 6, "passed": 6, "failed": 0, "duration_seconds": 1.049, "exit_code": 0, "verified_files": 45},
+    {"kind": "without_external_old_package", "tests": 0, "passed": 0, "failed": 0, "skipped": 1, "meaning": "not migration evidence"}
+  ],
+  "cases": [
+    {"e0_id": "E0-172", "scenario": "writer_active", "host_observation": "PID live at authorization callback", "host_status": "fail", "core_check": "unknown", "prepared_events": 0, "generation": 0, "run_status": "NOT_RUN", "local_result": "pass"},
+    {"e0_id": "E0-173", "scenario": "exit_unknown", "host_observation": "PID exited 0 but no trusted exit or restart block", "host_status": "unknown", "core_check": "unknown", "prepared_events": 0, "generation": 0, "run_status": "NOT_RUN", "local_result": "pass"},
+    {"e0_id": "E0-174", "scenario": "writer_restarted", "host_observation": "PID-A exited; same identity PID-B live", "host_status": "fail", "core_check": "unknown", "prepared_events": 0, "generation": 0, "run_status": "NOT_RUN", "local_result": "pass"},
+    {"e0_id": "E0-175", "scenario": "direct_api_invalid_identity", "host_observation": "exit 0 and launcher refusal observed, unregistered runtime identity", "host_status": "fail", "core_check": "unknown", "prepared_events": 0, "generation": 0, "run_status": "NOT_RUN", "local_result": "pass"},
+    {"e0_id": "E0-176", "scenario": "verified_safe_migration", "host_observation": "exit 0 then same identity launcher refusal", "host_status": "pass", "core_check": "pass", "core_commit": "confirmed_committed", "prepared_events": 1, "generation": 0, "run_status": "NOT_RUN", "local_result": "pass"},
+    {"e0_id": "E0-177", "scenario": "duplicate_migration", "host_observation": "same prior verified condition and request", "host_status": "pass", "core_check": "pass", "core_commit": "confirmed_committed", "prepared_events": 1, "generation": 0, "run_status": "NOT_RUN", "local_result": "pass"}
+  ],
+  "residual_risk": {"real_old_record_after_current_prepare": "pass", "item_recorded_event_observed": true, "meaning": "old package does not know the current fence"},
+  "unknowns": ["real Codex host", "real Claude host", "production restart prevention", "token usage", "natural usage"]
+}

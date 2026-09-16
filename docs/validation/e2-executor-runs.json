@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "stage": "E2",
+  "contract": {
+    "version": "1.1",
+    "sha256": "0f4237d22db440b61c596a37c3fda3242ab7324f3263f696f9dcf53ba5295827",
+    "previous_v1_sha256": "f510980b08a35575c6c758421ea2d7b17fba6951aae8a44d86f9d79d88111983"
+  },
+  "runs": [
+    {
+      "kind": "assembly_red",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_distribution.HandoffDistributionTests.test_built_package_bound_handoff_never_guesses_missing_identity_paths -v",
+      "exit_code": 1,
+      "duration_seconds": 0.263,
+      "evidence": "built package raised AttributeError: prepare_handoff",
+      "classification": "entry assembly failure; not counted as behavior TDD red"
+    },
+    {
+      "kind": "assembly_red",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_distribution.HandoffDistributionTests.test_complete_package_runs_self_contained_host_and_basis_rejection_cases -v",
+      "exit_code": 1,
+      "duration_seconds": 0.16,
+      "evidence": "distributed package lacked test_handoff_protocol",
+      "classification": "distribution closure failure; not counted as behavior TDD red"
+    },
+    {
+      "kind": "green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_distribution -v",
+      "exit_code": 0,
+      "duration_seconds": 2.264,
+      "evidence": "5 tests passed: capability opt-in, bound calls, package example, identity/full-doctor negatives, package-contained host/basis negatives"
+    },
+    {
+      "kind": "green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_distribution test_runtime_identity test_handoff_distribution -v",
+      "exit_code": 0,
+      "duration_seconds": 6.998,
+      "evidence": "29 tests passed; Lite generated-tree diff check was also exit 0"
+    },
+    {
+      "kind": "green",
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_process_recovery -v",
+      "exit_code": 0,
+      "duration_seconds": 6.051,
+      "evidence": "11/11 after the v1.1 sys.executable-only compatibility change"
+    },
+    {
+      "kind": "green",
+      "command": "MLTC_LEGACY_PACKAGE=/private/tmp/mltc-review-baseline.GYDdVc/context-strict PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest test_handoff_migration -v",
+      "exit_code": 0,
+      "duration_seconds": 1.065,
+      "evidence": "frozen 0.7.0 package verified, 6/6 run without skips"
+    },
+    {
+      "kind": "version_comparison",
+      "command": "old 0.7.0 package publish_contract with short-session-handoff/v1; current candidate package same contract",
+      "exit_code": 0,
+      "duration_seconds": 7.6,
+      "evidence": "old rejected unsupported capability; candidate accepted and sealed",
+      "classification": "retrospective baseline comparison, not a temporal red-before-green claim"
+    }
+  ],
+  "intermediate_withdrawn_package": {
+    "path": "/private/tmp/mltc-e2-candidate.fBNwjX/context-strict",
+    "manifest_sha256": "d34feec15f01eb905148a56645de08f5f705dac70900b08b790ab524887c223e",
+    "reason": "included erroneous generated tests/test_handoff_distribution.py; do not use for final acceptance"
+  },
+  "final_controller_candidate": {
+    "path": "/private/tmp/mltc-e2-controller.rGw7ow/context-strict",
+    "manifest_sha256": "51331cb7ea3edb2c120d1f1a5efa76dff32d79edd7644a1f0f98312ab0817165",
+    "source_tree_sha256": "5ecbef6bf1d08c7dd75e5e39d7efba3764bcd092475039c14ebb33fa32297d1a",
+    "source_revision": "candidate:dirty-worktree-0.8.0",
+    "files": 51
+  },
+  "not_run": ["remote CI", "real Codex/Claude host adapter", "model judgment", "token/cost benefit", "production business action"]
+}

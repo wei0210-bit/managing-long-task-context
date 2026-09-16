@@ -12,8 +12,10 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from copy import deepcopy
@@ -21,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import threading
 from typing import Any, Iterable, Mapping, Sequence
+from urllib.parse import unquote, urlsplit
 
 
 def _identity_import_manifest() -> tuple[Path | None, str | None]:
@@ -72,6 +75,11 @@ from .rule_execution import (
     validate_rule_execution_contract,
 )
 from . import runtime_identity as _runtime_identity_module
+from . import handoff as _handoff_module
+from . import host_codex_cli as _host_codex_cli_module
+from . import host_records as _host_records_module
+from . import host_codex_native as _host_codex_native_module
+from . import host_claude_native as _host_claude_native_module
 from .runtime_identity import _capture_baseline, checked_resume, runtime_identity
 
 try:  # Prime Agent targets macOS/Linux; keep a safe fallback for other runtimes.
@@ -201,6 +209,7 @@ def _paths(task_id: str, base_dir: str | Path | None = None) -> dict[str, Path]:
         "events": root / "events.jsonl",
         "snapshot": root / "snapshot.json",
         "lock": root / ".lock",
+        "handoff_root": root / "handoff",
     }
 
 
@@ -962,6 +971,9 @@ _EVENT_TYPES = frozenset({
     "contract-published", "item-recorded", "item-updated", "item-externalized",
     "checkpoint-recorded",
     "truth-source-dirtied", "truth-source-observed",
+    "handoff_prepared", "handoff_activated", "handoff_cancelled",
+    "host-attempt-reserved", "host-attempt-observed", "host-result-published",
+    "host-result-processed", "host-business-action-observed",
 })
 _CONTRACT_PUBLISH_FIELDS = frozenset({
     "task_id", "version", "integrity_digest", "confirmed_by", "confirmed_at",
@@ -1046,6 +1058,16 @@ def _apply_event(snapshot: dict[str, Any], event: Mapping[str, Any]) -> dict[str
             }
     elif event_type in {"truth-source-dirtied", "truth-source-observed"}:
         result = _apply_truth_control_event(result, event)
+    elif event_type in {"handoff_prepared", "handoff_activated", "handoff_cancelled"}:
+        handoff_error = _handoff_module.validate_protocol_event(payload, task_id=task_id)
+        if handoff_error is not None:
+            raise ContextError(handoff_error)
+        result["handoff_control_seen"] = True
+    elif event_type in _host_records_module.EVENT_TYPES:
+        host_error = _host_records_module.validate_host_event(payload, task_id=task_id)
+        if host_error is not None:
+            raise ContextError(host_error)
+        result = _host_records_module.apply_host_event(result, event)
     elif event_type in {"item-recorded", "item-updated", "item-externalized"}:
         item = payload.get("item")
         if isinstance(item, dict) and isinstance(item.get("id"), str):
@@ -1080,6 +1102,67 @@ def _append_event_locked(paths: Mapping[str, Path], snapshot: dict[str, Any], ev
         handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
+    updated = _apply_event(snapshot, event)
+    _atomic_write_json(paths["snapshot"], updated)
+    return updated
+
+
+def _publish_handoff_event_locked(
+    task_id: str, paths: Mapping[str, Path], snapshot: dict[str, Any], event: dict[str, Any],
+) -> dict[str, Any]:
+    """Publish one control fact atomically; ordinary event append remains unchanged."""
+    if event.get("event_type") not in {"handoff_prepared", "handoff_activated", "handoff_cancelled", *_host_records_module.EVENT_TYPES}:
+        raise ContextError("atomic handoff publisher received a non-control event")
+    event_path = paths["events"]
+    try:
+        info = event_path.lstat()
+    except OSError as exc:
+        raise ContextError("handoff event log is unavailable for atomic publication") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise ContextError("handoff event log is unsafe for atomic publication")
+    # Validate the old canonical log and the final bounded size before creating
+    # a replacement.  This is the same strict reader used by handoff replay.
+    old_events, old_digest = _read_handoff_events_bounded(event_path, task_id=task_id)
+    line = json.dumps(event, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
+    if len(line) > _handoff_module.MAX_EVENT_BYTES:
+        raise ContextError("handoff control event exceeds byte limit")
+    if len(old_events) >= _handoff_module.MAX_EVENTS:
+        raise ContextError("handoff event log exceeds event limit")
+    try:
+        with event_path.open("rb") as handle:
+            old_bytes = handle.read(_handoff_module.MAX_LOG_BYTES + 1)
+    except OSError as exc:
+        raise ContextError("handoff event log is unreadable for atomic publication") from exc
+    if len(old_bytes) > _handoff_module.MAX_LOG_BYTES:
+        raise ContextError("handoff event log exceeds byte limit")
+    if hashlib.sha256(old_bytes).hexdigest() != old_digest:
+        raise ContextError("handoff event log changed before atomic publication")
+    if len(old_bytes) + len(line) > _handoff_module.MAX_LOG_BYTES:
+        raise ContextError("handoff event log exceeds byte limit")
+    fd: int | None = None
+    temporary: Path | None = None
+    try:
+        fd, temporary_name = tempfile.mkstemp(prefix=".handoff-events-", dir=event_path.parent)
+        temporary = Path(temporary_name)
+        os.fchmod(fd, stat.S_IMODE(info.st_mode))
+        with os.fdopen(fd, "wb", closefd=True) as handle:
+            fd = None
+            handle.write(old_bytes)
+            handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, event_path)
+        temporary = None
+    except OSError as exc:
+        raise ContextError("handoff control event atomic publication failed") from exc
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
     updated = _apply_event(snapshot, event)
     _atomic_write_json(paths["snapshot"], updated)
     return updated
@@ -1260,6 +1343,75 @@ def _new_event(task_id: str, event_type: str, actor: str, payload: Mapping[str, 
     }
 
 
+def _require_handoff_write_authorization(
+    task_id: str, *, base_dir: str | Path | None, operation: str,
+    arguments: Mapping[str, Any], runtime_identity: Any, write_authorizer: Any,
+) -> dict[str, Any] | None:
+    """Run the runtime-only handoff fence before a public writer mutates files."""
+    return _handoff_module.authorize_direct_write(
+        task_id, base_dir=base_dir, operation=operation, arguments=arguments,
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+    )
+
+
+def _recheck_handoff_write_authorization_locked(
+    task_id: str, *, base_dir: str | Path | None, fence: Mapping[str, Any] | None,
+) -> None:
+    """Recheck an out-of-lock runtime observation immediately before mutation."""
+    resolved_base, _ = _resolve_base_dir(base_dir)
+    if fence is None:
+        paths = _paths(task_id, resolved_base)
+        if not paths["handoff_root"].exists():
+            return
+        view = _handoff_strict_task_view_locked(task_id, paths)
+        controls, error = _handoff_module._control_events(view["events"], task_id=task_id)
+        if error is not None or controls:
+            raise ContextError("HANDOFF_WRITE_FENCED: handoff became enabled before write")
+        raise ContextError("HANDOFF_WRITE_FENCED: handoff authority directory is unavailable")
+    view = _handoff_strict_task_view_locked(task_id, _paths(task_id, resolved_base))
+    capture = fence.get("capture")
+    record = fence.get("record")
+    authorization = fence.get("authorization")
+    phase = fence.get("phase")
+    if not isinstance(capture, Mapping) or not isinstance(record, Mapping) or not isinstance(authorization, Mapping):
+        raise ContextError("HANDOFF_WRITE_FENCED: write observation is malformed")
+    if (
+        phase == "activated" and authorization.get("role") == "controller"
+        and authorization.get("subject_session_ref") != record.get("target_session_ref")
+    ):
+        raise ContextError("HANDOFF_WRITE_FENCED: activated controller identity changed before write")
+    if (
+        phase == "cancelled" and authorization.get("role") == "controller"
+        and authorization.get("subject_session_ref") != record.get("source_session_ref")
+    ):
+        raise ContextError("HANDOFF_WRITE_FENCED: cancelled controller identity changed before write")
+    handoff_id = record.get("handoff_id")
+    if not isinstance(handoff_id, str):
+        raise ContextError("HANDOFF_WRITE_FENCED: handoff record identity is invalid")
+    stored_record, stored_digest = _read_handoff_json(
+        _paths(task_id, resolved_base)["handoff_root"] / f"{handoff_id}.json",
+    )
+    if (
+        stored_record != dict(record)
+        or stored_digest != _handoff_module._canonical_sha256(record)
+    ):
+        raise ContextError("HANDOFF_WRITE_FENCED: handoff record changed before write")
+    if (
+        view.get("events_digest") != capture.get("event_fingerprint")
+        or view.get("contract_version") != capture.get("contract_version")
+        or view.get("contract_digest") != capture.get("contract_digest")
+    ):
+        raise ContextError("HANDOFF_WRITE_FENCED: authority inputs changed before write")
+    expires_at = _handoff_module._as_utc(authorization.get("expires_at"))
+    if expires_at is None or expires_at < _trusted_utc_now():
+        raise ContextError("HANDOFF_WRITE_FENCED: runtime write authorization expired")
+    fingerprints = _handoff_reference_fingerprints(
+        record, workspace=Path(str(record.get("workspace_root", ""))),
+    )
+    if fingerprints != fence.get("reference_fingerprints"):
+        raise ContextError("HANDOFF_WRITE_FENCED: authority references changed before write")
+
+
 def _normalize_source(source: str | Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(source, str):
         if not source.strip():
@@ -1363,11 +1515,20 @@ def publish_contract(
     protect_contract: bool = True,
     independent_validation_required: bool | None = None,
     validation_resolver: Any = None,
+    runtime_identity: Any = None,
+    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Validate, seal, and publish a publisher-authored task contract.
 
     Updating an existing contract requires a greater version and a fresh seal.
     """
+
+    if isinstance(contract, Mapping) and isinstance(contract.get("task_id"), str):
+        handoff_fence = _require_handoff_write_authorization(
+            str(contract["task_id"]), base_dir=base_dir, operation="publish_contract",
+            arguments={"contract": dict(contract), "confirmed_by": confirmed_by},
+            runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+        )
 
     if not isinstance(protect_contract, bool):
         raise TypeError("protect_contract must be a boolean")
@@ -1396,6 +1557,7 @@ def publish_contract(
     task_id = str(value["task_id"])
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         existing_truth_history = False
         existing_events: list[dict[str, Any]] | None = None
         if paths["contract"].exists():
@@ -1492,8 +1654,16 @@ def mark_truth_sources_dirty(
     actor: str,
     reason: str,
     base_dir: str | Path | None = None,
+    runtime_identity: Any = None,
+    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Record one declared change that invalidates matching truth sources."""
+
+    handoff_fence = _require_handoff_write_authorization(
+        task_id, base_dir=base_dir, operation="mark_truth_sources_dirty",
+        arguments={"change_kind": change_kind, "actor": actor, "reason": reason},
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+    )
 
     if not _truth_single_line(actor):
         raise ContextError("TRUTH_SOURCE_ACTOR_INVALID")
@@ -1503,6 +1673,7 @@ def mark_truth_sources_dirty(
         raise ContextError("TRUTH_SOURCE_REASON_INVALID")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         view = _load_committed_task_view_locked(task_id, paths)
         truth = view["contract"].get("truth_sources")
         items = truth.get("items") if isinstance(truth, Mapping) else None
@@ -1542,8 +1713,16 @@ def observe_truth_source(
     actor: str,
     verification_refs: Sequence[str],
     base_dir: str | Path | None = None,
+    runtime_identity: Any = None,
+    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Bind one owner readback to the current sealed source generation."""
+
+    handoff_fence = _require_handoff_write_authorization(
+        task_id, base_dir=base_dir, operation="observe_truth_source",
+        arguments={"source_id": source_id, "actor": actor, "verification_refs": list(verification_refs)},
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+    )
 
     if not isinstance(source_id, str) or not source_id:
         raise ContextError("TRUTH_SOURCE_NOT_DECLARED")
@@ -1560,6 +1739,7 @@ def observe_truth_source(
     refs = list(verification_refs)
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         view = _load_committed_task_view_locked(task_id, paths)
         truth = view["contract"].get("truth_sources")
         items = truth.get("items") if isinstance(truth, Mapping) else None
@@ -1637,8 +1817,20 @@ def record(
     supersedes: str | None = None,
     metadata: Mapping[str, Any] | None = None,
     base_dir: str | Path | None = None,
+    runtime_identity: Any = None,
+    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Append one context item without overwriting prior history."""
+
+    handoff_fence = _require_handoff_write_authorization(
+        task_id, base_dir=base_dir, operation="record",
+        arguments={"statement": statement, "item_type": item_type, "actor": actor,
+                   "source": source, "evidence": evidence, "scope": scope,
+                   "verification_method": verification_method, "mutable": mutable,
+                   "ttl_hours": ttl_hours, "item_id": item_id, "supersedes": supersedes,
+                   "metadata": dict(metadata) if isinstance(metadata, Mapping) else metadata},
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+    )
 
     if item_type not in ITEM_TYPES:
         raise ValueError(f"item_type must be one of {sorted(ITEM_TYPES)}")
@@ -1648,6 +1840,7 @@ def record(
         raise ValueError("actor must be a non-empty string")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         contract = _read_json(paths["contract"])
         contract_errors = _validate_sealed_contract(contract)
         if contract_errors:
@@ -1718,8 +1911,21 @@ def update_item(
     superseded_by: str | None = None,
     metadata: Mapping[str, Any] | None = None,
     base_dir: str | Path | None = None,
+    runtime_identity: Any = None,
+    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Validate and append a state transition for an existing item."""
+
+    handoff_fence = _require_handoff_write_authorization(
+        task_id, base_dir=base_dir, operation="update_item",
+        arguments={"item_id": item_id, "actor": actor, "promote_to": promote_to,
+                   "status": status, "evidence": evidence, "source": source,
+                   "verification_method": verification_method, "scope": scope,
+                   "conflicts_with": list(conflicts_with) if conflicts_with is not None else None,
+                   "conflict_reason": conflict_reason, "superseded_by": superseded_by,
+                   "metadata": dict(metadata) if isinstance(metadata, Mapping) else metadata},
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+    )
 
     if promote_to is not None and promote_to not in ITEM_TYPES:
         raise ValueError(f"promote_to must be one of {sorted(ITEM_TYPES)}")
@@ -1727,6 +1933,7 @@ def update_item(
         raise ValueError(f"status must be one of {sorted(ITEM_STATUSES)}")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         contract = _read_json(paths["contract"])
         contract_errors = _validate_sealed_contract(contract)
         if contract_errors:
@@ -1787,8 +1994,16 @@ def externalize_item(
     external_ref: str,
     actor: str,
     base_dir: str | Path | None = None,
+    runtime_identity: Any = None,
+    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Replace bulky wording with a pointer without changing fact identity or controls."""
+
+    handoff_fence = _require_handoff_write_authorization(
+        task_id, base_dir=base_dir, operation="externalize_item",
+        arguments={"item_id": item_id, "summary": summary, "external_ref": external_ref, "actor": actor},
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+    )
 
     if not _truth_single_line(summary):
         raise ValueError("summary must be a non-empty single line")
@@ -1798,6 +2013,7 @@ def externalize_item(
         raise ValueError("actor must be a non-empty single line")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         view = _load_committed_task_view_locked(task_id, paths)
         current = view["snapshot"].get("items", {}).get(item_id)
         if not isinstance(current, dict):
@@ -1904,8 +2120,16 @@ def restore_externalization_controls(
     actor: str,
     reason: str,
     base_dir: str | Path | None = None,
+    runtime_identity: Any = None,
+    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Repair required/severity lost by a legacy supersede-based externalization."""
+
+    handoff_fence = _require_handoff_write_authorization(
+        task_id, base_dir=base_dir, operation="restore_externalization_controls",
+        arguments={"item_id": item_id, "from_item_id": from_item_id, "actor": actor, "reason": reason},
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+    )
 
     if not _truth_single_line(actor):
         raise ValueError("actor must be a non-empty single line")
@@ -1913,6 +2137,7 @@ def restore_externalization_controls(
         raise ValueError("reason must be a non-empty single line")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         view = _load_committed_task_view_locked(task_id, paths)
         items = view["snapshot"].get("items", {})
         target = items.get(item_id) if isinstance(items, Mapping) else None
@@ -1977,13 +2202,25 @@ def checkpoint(
     blockers: Sequence[str] | None = None,
     related_item_ids: Sequence[str] | None = None,
     base_dir: str | Path | None = None,
+    runtime_identity: Any = None,
+    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Record a concise delta checkpoint; do not rewrite the task history."""
+
+    handoff_fence = _require_handoff_write_authorization(
+        task_id, base_dir=base_dir, operation="checkpoint",
+        arguments={"phase": phase, "completed": list(completed), "evidence_added": list(evidence_added),
+                   "next_action": next_action, "actor": actor,
+                   "blockers": list(blockers) if blockers is not None else None,
+                   "related_item_ids": list(related_item_ids) if related_item_ids is not None else None},
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+    )
 
     if not phase.strip() or not next_action.strip():
         raise ValueError("phase and next_action must be non-empty")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
+        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         contract = _read_json(paths["contract"])
         contract_errors = _validate_sealed_contract(contract)
         if contract_errors:
@@ -4574,6 +4811,663 @@ def workspace_observation(path: str | Path = ".") -> dict[str, Any]:
     return result
 
 
+def _strict_handoff_json_load(raw: bytes) -> Any:
+    """Decode protocol JSON without lossy duplicate-key or constant coercion."""
+    def no_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON key: {key}")
+            value[key] = item
+        return value
+
+    try:
+        return json.loads(
+            raw.decode("utf-8"), object_pairs_hook=no_duplicate_pairs,
+            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+        )
+    except RecursionError as exc:
+        raise ValueError("JSON nesting exceeds the protocol limit") from exc
+
+
+def _read_handoff_json(path: Path) -> tuple[dict[str, Any], str]:
+    """Read one protocol record without accepting symlinks or unbounded data."""
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise ContextError(f"handoff record is not a regular file: {path}")
+        if path.stat().st_size > 1024 * 1024:
+            raise ContextError(f"handoff record exceeds byte limit: {path}")
+        with path.open("rb") as stream:
+            data = stream.read(1024 * 1024 + 1)
+    except OSError as exc:
+        raise ContextError(f"cannot read handoff record {path}: {exc}") from exc
+    if len(data) > 1024 * 1024:
+        raise ContextError(f"handoff record exceeds byte limit: {path}")
+    try:
+        value = _strict_handoff_json_load(data)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ContextError(f"handoff record is not valid UTF-8 JSON: {path}") from exc
+    if not isinstance(value, dict):
+        raise ContextError(f"handoff record is not an object: {path}")
+    canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return value, hashlib.sha256(canonical).hexdigest()
+
+
+def _read_handoff_events_bounded(path: Path, *, task_id: str) -> tuple[list[dict[str, Any]], str]:
+    """Read the authoritative log under E0 limits; absent/torn logs are unknown."""
+    started = time.monotonic()
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise ContextError(f"handoff event log is missing or not regular: {path}")
+        if path.stat().st_size > _handoff_module.MAX_LOG_BYTES:
+            raise ContextError(f"handoff event log exceeds byte limit: {path}")
+        handle = path.open("rb")
+    except OSError as exc:
+        raise ContextError(f"cannot read handoff event log {path}: {exc}") from exc
+    events: list[dict[str, Any]] = []
+    digest = hashlib.sha256()
+    total = 0
+    with handle:
+        while True:
+            if time.monotonic() - started > _handoff_module.READ_PARSE_REBUILD_SECONDS:
+                raise ContextError("handoff event read exceeded time budget")
+            try:
+                raw = handle.readline(_handoff_module.MAX_EVENT_BYTES + 1)
+            except OSError as exc:
+                raise ContextError(f"cannot read handoff event log {path}: {exc}") from exc
+            if not raw:
+                break
+            total += len(raw)
+            digest.update(raw)
+            if total > _handoff_module.MAX_LOG_BYTES:
+                raise ContextError("handoff event log exceeded byte limit during read")
+            if len(raw) > _handoff_module.MAX_EVENT_BYTES:
+                raise ContextError("handoff event exceeds byte limit")
+            if not raw.endswith(b"\n"):
+                raise ContextError("handoff event log has an unterminated final record")
+            if not raw.strip():
+                raise ContextError("handoff event log contains a blank record")
+            if len(events) >= _handoff_module.MAX_EVENTS:
+                raise ContextError("handoff event log exceeds event limit")
+            try:
+                event = _strict_handoff_json_load(raw)
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                raise ContextError("handoff event log contains invalid UTF-8 JSON") from exc
+            if not isinstance(event, dict):
+                raise ContextError("handoff event log contains a non-object event")
+            _validate_event_envelope(task_id, event)
+            events.append(event)
+    if not events:
+        raise ContextError("handoff event log has no authoritative events")
+    return events, digest.hexdigest()
+
+
+def _handoff_reference_fingerprints(record: Mapping[str, Any], *, workspace: Path) -> tuple[tuple[str, str], ...]:
+    """Re-read every local bearing reference; an unverifiable URI is unknown."""
+    references = [record["source_session_ref"], record["target_session_ref"], record["authorization_ref"], *record["basis_refs"], record["artifact_manifest_ref"]]
+    observed: list[tuple[str, str]] = []
+    for reference in references:
+        assert isinstance(reference, Mapping)
+        uri = reference.get("uri")
+        if not isinstance(uri, str):
+            raise ContextError("handoff reference lacks a locally recheckable file URI")
+        try:
+            parsed = urlsplit(uri)
+            decoded_path = unquote(parsed.path, encoding="utf-8", errors="strict")
+        except (TypeError, UnicodeDecodeError, ValueError) as exc:
+            raise ContextError("handoff reference URI is invalid") from exc
+        if (
+            parsed.scheme != "file"
+            or parsed.netloc not in {"", "localhost"}
+            or parsed.query
+            or parsed.fragment
+            or not decoded_path.startswith("/")
+        ):
+            raise ContextError("handoff reference lacks a locally recheckable file URI")
+        path = Path(decoded_path)
+        try:
+            if path.is_symlink() or not path.is_file() or not path.resolve(strict=True).is_relative_to(workspace):
+                raise ContextError("handoff reference is unsafe or outside workspace")
+            if path.stat().st_size > _handoff_module.MAX_LOG_BYTES:
+                raise ContextError("handoff reference exceeds byte limit")
+            digest = hashlib.sha256()
+            total = 0
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(64 * 1024), b""):
+                    total += len(chunk)
+                    if total > _handoff_module.MAX_LOG_BYTES:
+                        raise ContextError("handoff reference exceeded byte limit during read")
+                    digest.update(chunk)
+        except OSError as exc:
+            raise ContextError("handoff reference is unreadable") from exc
+        if digest.hexdigest() != reference.get("sha256"):
+            raise ContextError("handoff reference fingerprint differs from record")
+        observed.append((str(reference["ref_id"]), digest.hexdigest()))
+    return tuple(observed)
+
+
+def _validate_handoff_replay_event(event: Mapping[str, Any]) -> None:
+    """Reject payloads the permissive legacy projection would silently skip."""
+    event_type = event.get("event_type")
+    payload = event.get("payload")
+    if event_type in _host_records_module.EVENT_TYPES:
+        error = _host_records_module.validate_host_event(payload, task_id=str(event.get("task_id")))
+        if error is not None:
+            raise ContextError(error)
+    if event_type in {"item-recorded", "item-updated", "item-externalized"}:
+        if not isinstance(payload, Mapping) or set(payload) != {"item"}:
+            raise ContextError("handoff item event payload is incomplete")
+        item = payload.get("item")
+        if not isinstance(item, Mapping) or not isinstance(item.get("id"), str) or not item["id"].strip():
+            raise ContextError("handoff item event has an invalid item")
+        errors, _ = _item_errors(item)
+        if errors:
+            raise ContextError("handoff item event is invalid: " + "; ".join(errors))
+    if event_type == "checkpoint-recorded":
+        checkpoint_fields = {
+            "id", "phase", "completed", "evidence_added", "blockers",
+            "related_item_ids", "next_action", "based_on_context_version",
+            "actor", "created_at",
+        }
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != {"checkpoint"}
+            or not isinstance(payload.get("checkpoint"), Mapping)
+            or set(payload["checkpoint"]) != checkpoint_fields
+        ):
+            raise ContextError("handoff checkpoint event payload is incomplete")
+
+
+def _replay_handoff_event(snapshot: dict[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
+    """Apply the high-volume read-only item projection without legacy copies."""
+    event_type = event.get("event_type")
+    payload = event.get("payload")
+    if event_type in {"handoff_prepared", "handoff_activated", "handoff_cancelled"}:
+        error = _handoff_module.validate_protocol_event(payload, task_id=str(snapshot["task_id"]))
+        if error is not None:
+            raise ContextError(error)
+        if not isinstance(payload, Mapping) or payload.get("type") != event_type:
+            raise ContextError("handoff event envelope type differs from payload type")
+    elif event_type in {"item-recorded", "item-updated", "item-externalized"}:
+        assert isinstance(payload, Mapping)
+        item = payload["item"]
+        assert isinstance(item, Mapping)
+        items = snapshot.get("items")
+        if not isinstance(items, dict):
+            raise ContextError("handoff replay items projection is invalid")
+        items[item["id"]] = deepcopy(dict(item))
+    elif event_type == "checkpoint-recorded":
+        assert isinstance(payload, Mapping)
+        checkpoint_value = payload.get("checkpoint")
+        if isinstance(checkpoint_value, Mapping):
+            snapshot["latest_checkpoint"] = deepcopy(dict(checkpoint_value))
+    else:
+        return _apply_event(snapshot, event)
+    snapshot["event_count"] = int(snapshot.get("event_count", 0)) + 1
+    snapshot["updated_at"] = event.get("created_at")
+    return snapshot
+
+
+def _handoff_strict_task_view_locked(task_id: str, paths: Mapping[str, Path]) -> dict[str, Any]:
+    """Read the authority-bearing task files through the #16 bounded replay path.
+
+    The caller owns the task lock.  This is deliberately shared by the read
+    seam and the E1 write preflight so a prepared write cannot fall back to the
+    permissive legacy event reader.
+    """
+    started = time.monotonic()
+    contract, _ = _read_handoff_json(paths["contract"])
+    errors = _validate_sealed_contract(contract)
+    if errors:
+        raise ContextError("handoff contract is invalid: " + "; ".join(errors))
+    events, events_digest = _read_handoff_events_bounded(paths["events"], task_id=task_id)
+    host_history_error = _host_records_module.validate_host_event_history(events, task_id=task_id)
+    if host_history_error is not None:
+        raise ContextError(host_history_error)
+    rebuilt = _empty_snapshot(task_id)
+    for event in events:
+        if time.monotonic() - started > _handoff_module.READ_PARSE_REBUILD_SECONDS:
+            raise ContextError("handoff replay exceeded time budget")
+        _validate_handoff_replay_event(event)
+        rebuilt = _replay_handoff_event(rebuilt, event)
+        items = rebuilt.get("items")
+        if not isinstance(items, Mapping) or len(items) > _handoff_module.MAX_SNAPSHOT_ITEMS:
+            raise ContextError("handoff replay exceeds snapshot item limit")
+    if truth_sources_enabled(contract):
+        committed = _committed_contract_errors(contract, events, rebuilt)
+        if committed:
+            raise ContextError("handoff contract event is not committed: " + "; ".join(committed))
+    else:
+        matching = _matching_contract_publish_events(contract, events)
+        published = [event for event in events if event.get("event_type") == "contract-published"]
+        if len(matching) != 1 or not published or matching[0] != published[-1]:
+            raise ContextError("handoff contract event is not committed: CONTRACT_COMMIT_MISMATCH")
+    return {
+        "contract": contract,
+        "events": events,
+        "events_digest": events_digest,
+        "event_ids": [event.get("event_id") for event in events],
+        "snapshot": rebuilt,
+        "contract_version": contract.get("version"),
+        "contract_digest": _contract_digest(contract).removeprefix("sha256:"),
+    }
+
+
+def _handoff_capture_locked(
+    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
+    package_root: str | Path, handoff_id: str,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    if not isinstance(task_id, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", task_id) is None:
+        raise ContextError("task_id is invalid")
+    if not isinstance(base_dir, (str, Path)) or not Path(base_dir).expanduser().is_absolute():
+        raise ContextError("base_dir must be absolute")
+    if not isinstance(handoff_id, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", handoff_id) is None:
+        raise ContextError("handoff_id is invalid")
+    workspace = Path(workspace_root).expanduser()
+    package = Path(package_root).expanduser()
+    if not workspace.is_absolute() or not package.is_absolute():
+        raise ContextError("workspace_root and package_root must be absolute")
+    try:
+        workspace = workspace.resolve(strict=True)
+        package = package.resolve(strict=True)
+    except OSError as exc:
+        raise ContextError("workspace_root or package_root is unavailable") from exc
+    if not workspace.is_dir() or not package.is_dir():
+        raise ContextError("workspace_root or package_root is not a directory")
+    manifest = package / "skill-manifest.json"
+    try:
+        if manifest.is_symlink() or not manifest.is_file() or manifest.stat().st_size > _handoff_module.MAX_LOG_BYTES:
+            raise ContextError("package manifest is missing or not regular")
+        digest = hashlib.sha256()
+        with manifest.open("rb") as stream:
+            total = 0
+            for chunk in iter(lambda: stream.read(64 * 1024), b""):
+                total += len(chunk)
+                if total > _handoff_module.MAX_LOG_BYTES:
+                    raise ContextError("package manifest exceeds byte limit")
+                digest.update(chunk)
+        manifest_digest = digest.hexdigest()
+    except OSError as exc:
+        raise ContextError("package manifest is unreadable") from exc
+    paths = _paths(task_id, base_dir)
+    with _shared_locked_existing(paths["root"]):
+        contract, _ = _read_handoff_json(paths["contract"])
+        errors = _validate_sealed_contract(contract)
+        if errors:
+            raise ContextError("handoff contract is invalid: " + "; ".join(errors))
+        handoff_root = paths["handoff_root"]
+        if handoff_root.is_symlink() or not handoff_root.is_dir():
+            raise ContextError("handoff record directory is missing or unsafe")
+        record_path = handoff_root / f"{handoff_id}.json"
+        record, record_digest = _read_handoff_json(record_path)
+        events, events_digest = _read_handoff_events_bounded(paths["events"], task_id=task_id)
+        rebuilt = _empty_snapshot(task_id)
+        for event in events:
+            if time.monotonic() - started > _handoff_module.READ_PARSE_REBUILD_SECONDS:
+                raise ContextError("handoff replay exceeded time budget")
+            _validate_handoff_replay_event(event)
+            rebuilt = _replay_handoff_event(rebuilt, event)
+            items_during_replay = rebuilt.get("items")
+            if not isinstance(items_during_replay, Mapping) or len(items_during_replay) > _handoff_module.MAX_SNAPSHOT_ITEMS:
+                raise ContextError("handoff replay exceeds snapshot item limit")
+        if truth_sources_enabled(contract):
+            committed = _committed_contract_errors(contract, events, rebuilt)
+            if committed:
+                raise ContextError("handoff contract event is not committed: " + "; ".join(committed))
+        else:
+            matching = _matching_contract_publish_events(contract, events)
+            published = [event for event in events if event.get("event_type") == "contract-published"]
+            if len(matching) != 1 or not published or matching[0] != published[-1]:
+                raise ContextError("handoff contract event is not committed: CONTRACT_COMMIT_MISMATCH")
+        validated_record, record_error = _handoff_module.validate_record(record)
+        if validated_record is None:
+            raise ContextError("handoff record is invalid: " + str(record_error))
+        seal = contract.get("seal")
+        if (
+            validated_record["task_id"] != task_id
+            or validated_record["handoff_id"] != handoff_id
+            or type(validated_record["contract_version"]) is not type(contract.get("version"))
+            or validated_record["contract_version"] != contract.get("version")
+            or not isinstance(seal, Mapping)
+            or validated_record["contract_digest"] != str(seal.get("integrity_digest", "")).removeprefix("sha256:")
+            or validated_record["workspace_root"] != str(workspace)
+            or validated_record["package_manifest_sha256"] != manifest_digest
+        ):
+            raise ContextError("handoff record binding is invalid")
+        projection, projection_error = _handoff_module._control_projection(events, task_id=task_id)
+        if projection_error is not None:
+            raise ContextError(projection_error)
+        prepared = next(
+            (
+                event for event in projection["controls"]
+                if event.get("type") == "handoff_prepared" and event.get("handoff_id") == handoff_id
+            ),
+            None,
+        )
+        event_ids = [event.get("event_id") for event in events]
+        prepared_index = next((index for index, event in enumerate(events) if event.get("payload") is prepared), -1)
+        if (
+            prepared is None or prepared.get("record_sha256") != record_digest
+            or prepared.get("expected_controller_generation") != validated_record["controller_generation"]
+            or prepared.get("controller_generation") != validated_record["controller_generation"]
+            or prepared.get("request_id") != validated_record["request_id"]
+            or validated_record["event_cursor"] not in event_ids[:prepared_index]
+        ):
+            raise ContextError("handoff prepared event binding is invalid")
+        if time.monotonic() - started > _handoff_module.READ_PARSE_REBUILD_SECONDS:
+            raise ContextError("handoff replay exceeded time budget")
+    reference_fingerprints = _handoff_reference_fingerprints(validated_record, workspace=workspace)
+    token = (hashlib.sha256(canonical_json_bytes(contract)).hexdigest(), record_digest, events_digest, str(workspace), manifest_digest, reference_fingerprints)
+    return {
+        "task_id": task_id, "handoff_id": handoff_id, "record": record,
+        "record_sha256": record_digest, "contract": contract, "events": events,
+        "workspace_root": str(workspace), "package_manifest_sha256": manifest_digest,
+        "observation_token": token, "control_projection": projection,
+    }
+
+
+def validate_handoff(
+    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
+    package_root: str | Path, handoff_id: str, handoff_verifier: Any = None,
+) -> dict[str, Any]:
+    """Delegate the read-only handoff seam to its dedicated protocol module."""
+    return _handoff_module.validate_handoff(
+        task_id, base_dir=base_dir, workspace_root=workspace_root,
+        package_root=package_root, handoff_id=handoff_id,
+        handoff_verifier=handoff_verifier,
+    )
+
+
+def _handoff_prepare_commit(
+    task_id: str, *, base_dir: str | Path, record: Mapping[str, Any],
+    capture: Mapping[str, Any], authorization: Mapping[str, Any],
+    reference_fingerprints: object, workspace_root: str | Path, package_root: str | Path,
+) -> dict[str, Any]:
+    """The short exclusive commit for a host-checked prepared handoff."""
+    paths = _paths(task_id, base_dir)
+    with _locked(paths["root"]):
+        view = _handoff_strict_task_view_locked(task_id, paths)
+        contract = view["contract"]
+        events = view["events"]
+        current = {
+            "contract_version": contract.get("version"),
+            "contract_digest": _contract_digest(contract).removeprefix("sha256:"),
+            "event_fingerprint": view["events_digest"],
+        }
+        changed = any(
+            type(current[key]) is not type(capture.get(key)) or current[key] != capture.get(key)
+            for key in current
+        )
+        projection, control_error = _handoff_module._control_projection(events, task_id=task_id)
+        if control_error is not None:
+            raise ContextError(control_error)
+        if projection.get("pending") is not None:
+            existing = _handoff_module._existing_prepare_response(
+                projection["controls"], task_id=task_id, base_dir=Path(base_dir), record=record,
+            )
+            if existing is not None:
+                return existing
+            raise ContextError("another handoff became pending before prepared commit")
+        if changed:
+            raise ContextError("handoff inputs changed before prepared commit")
+        expires_at = _handoff_module._as_utc(authorization.get("expires_at"))
+        if expires_at is None or expires_at < _trusted_utc_now():
+            raise ContextError("runtime write authorization expired before prepared commit")
+        if authorization.get("authorization_ref") != record.get("authorization_ref"):
+            raise ContextError("runtime write authorization reference changed before prepared commit")
+        if _handoff_module._package_manifest_sha256(Path(package_root)) != record.get("package_manifest_sha256"):
+            raise ContextError("handoff package changed before prepared commit")
+        if not isinstance(reference_fingerprints, tuple):
+            raise ContextError("handoff reference observation is invalid")
+        final_fingerprints = _handoff_reference_fingerprints(
+            record, workspace=Path(workspace_root),
+        )
+        if final_fingerprints != reference_fingerprints:
+            raise ContextError("handoff references changed before prepared commit")
+        handoff_root = paths["handoff_root"]
+        if handoff_root.exists() and (handoff_root.is_symlink() or not handoff_root.is_dir()):
+            raise ContextError("handoff record directory is unsafe")
+        handoff_root.mkdir(parents=True, exist_ok=True)
+        handoff_id = record.get("handoff_id")
+        if not isinstance(handoff_id, str):
+            raise ContextError("handoff record identity is invalid")
+        record_path = handoff_root / f"{handoff_id}.json"
+        if record_path.exists():
+            raise ContextError("handoff record already exists without committed request")
+        record_digest = _handoff_module._canonical_sha256(record)
+        _atomic_write_json(record_path, dict(record))
+        payload = {
+            "type": "handoff_prepared",
+            "task_id": task_id,
+            "request_id": record["request_id"],
+            "handoff_id": handoff_id,
+            "created_at": _trusted_utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "expected_controller_generation": record["controller_generation"],
+            "controller_generation": record["controller_generation"],
+            "record_sha256": record_digest,
+            "verification_refs": _handoff_module._record_references(record),
+        }
+        event = _new_event(task_id, "handoff_prepared", str(authorization["subject_id"]), payload)
+        _publish_handoff_event_locked(task_id, paths, view["snapshot"], event)
+    return {
+        "check_status": "pass", "commit_status": "confirmed_committed",
+        "controller_generation": record["controller_generation"], "blocking_reasons": [],
+        "verification_refs": _handoff_module._record_references(record),
+        "next_readonly_action": "Read handoff_status; activation remains ungranted.",
+    }
+
+
+def prepare_handoff(
+    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
+    package_root: str | Path, request_id: str, controller_generation: int,
+    record: Mapping[str, Any], runtime_identity: Any = None,
+    write_authorizer: Any = None, handoff_verifier: Any = None,
+) -> dict[str, Any]:
+    """Delegate prepared-handoff write orchestration to the protocol module."""
+    return _handoff_module.prepare_handoff(
+        task_id, base_dir=base_dir, workspace_root=workspace_root,
+        package_root=package_root, request_id=request_id,
+        controller_generation=controller_generation, record=record,
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+        handoff_verifier=handoff_verifier,
+    )
+
+
+def _handoff_cancel_commit(
+    task_id: str, *, base_dir: str | Path, record: Mapping[str, Any],
+    capture: Mapping[str, Any], authorization: Mapping[str, Any],
+    reference_fingerprints: object, request_id: str, workspace_root: str | Path, package_root: str | Path,
+) -> dict[str, Any]:
+    """Append a cancellation fact after a fresh out-of-lock host observation."""
+    paths = _paths(task_id, base_dir)
+    with _locked(paths["root"]):
+        view = _handoff_strict_task_view_locked(task_id, paths)
+        contract = view["contract"]
+        events = view["events"]
+        current = {
+            "contract_version": contract.get("version"),
+            "contract_digest": _contract_digest(contract).removeprefix("sha256:"),
+            "event_fingerprint": view["events_digest"],
+        }
+        if any(
+            type(current[key]) is not type(capture.get(key)) or current[key] != capture.get(key)
+            for key in current
+        ):
+            raise ContextError("handoff inputs changed before cancellation commit")
+        controls, control_error = _handoff_module._control_events(events, task_id=task_id)
+        if control_error is not None:
+            raise ContextError(control_error)
+        handoff_id = record.get("handoff_id")
+        prepared = [event for event in controls if event.get("handoff_id") == handoff_id and event.get("type") == "handoff_prepared"]
+        terminal = [event for event in controls if event.get("handoff_id") == handoff_id and event.get("type") in {"handoff_activated", "handoff_cancelled"}]
+        if len(prepared) != 1 or terminal:
+            raise ContextError("handoff is no longer prepared and inactive")
+        if any(event.get("request_id") == request_id for event in controls):
+            raise ContextError("cancellation request id conflicts in authoritative events")
+        expires_at = _handoff_module._as_utc(authorization.get("expires_at"))
+        if expires_at is None or expires_at < _trusted_utc_now():
+            raise ContextError("runtime write authorization expired before cancellation commit")
+        if authorization.get("authorization_ref") != record.get("authorization_ref") or not isinstance(reference_fingerprints, tuple):
+            raise ContextError("runtime cancellation authorization changed before commit")
+        if _handoff_module._package_manifest_sha256(Path(package_root)) != record.get("package_manifest_sha256"):
+            raise ContextError("handoff package changed before cancellation commit")
+        final_fingerprints = _handoff_reference_fingerprints(
+            record, workspace=Path(workspace_root),
+        )
+        if final_fingerprints != reference_fingerprints:
+            raise ContextError("handoff references changed before cancellation commit")
+        record_digest = _handoff_module._canonical_sha256(record)
+        payload = {
+            "type": "handoff_cancelled", "task_id": task_id, "request_id": request_id,
+            "handoff_id": handoff_id,
+            "created_at": _trusted_utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "expected_controller_generation": record["controller_generation"],
+            "controller_generation": record["controller_generation"],
+            "record_sha256": record_digest,
+            "verification_refs": _handoff_module._record_references(record),
+        }
+        event = _new_event(task_id, "handoff_cancelled", str(authorization["subject_id"]), payload)
+        _publish_handoff_event_locked(task_id, paths, view["snapshot"], event)
+    return {
+        "check_status": "pass", "commit_status": "confirmed_committed",
+        "controller_generation": record["controller_generation"], "blocking_reasons": [],
+        "verification_refs": _handoff_module._record_references(record),
+        "next_readonly_action": "Read handoff_status; activation remains ungranted.",
+    }
+
+
+def cancel_handoff(
+    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
+    package_root: str | Path, request_id: str, controller_generation: int,
+    handoff_id: str, runtime_identity: Any = None, write_authorizer: Any = None,
+    handoff_verifier: Any = None,
+) -> dict[str, Any]:
+    """Delegate cancellation write orchestration to the protocol module."""
+    return _handoff_module.cancel_handoff(
+        task_id, base_dir=base_dir, workspace_root=workspace_root,
+        package_root=package_root, request_id=request_id,
+        controller_generation=controller_generation, handoff_id=handoff_id,
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+        handoff_verifier=handoff_verifier,
+    )
+
+
+def _handoff_activate_commit(
+    task_id: str, *, base_dir: str | Path, record: Mapping[str, Any],
+    capture: Mapping[str, Any], authorization: Mapping[str, Any],
+    reference_fingerprints: object, request_id: str, workspace_root: str | Path, package_root: str | Path,
+    verifier_expires_at: datetime | None, delta_expires_at: datetime | None,
+) -> dict[str, Any]:
+    """Append one durable activation under the existing task lock only."""
+    paths = _paths(task_id, base_dir)
+    with _locked(paths["root"]):
+        view = _handoff_strict_task_view_locked(task_id, paths)
+        contract = view["contract"]
+        current = {
+            "contract_version": contract.get("version"),
+            "contract_digest": _contract_digest(contract).removeprefix("sha256:"),
+            "event_fingerprint": view["events_digest"],
+        }
+        if any(
+            type(current[key]) is not type(capture.get(key)) or current[key] != capture.get(key)
+            for key in current
+        ):
+            raise ContextError("handoff inputs changed before activation commit")
+        projection, projection_error = _handoff_module._control_projection(view["events"], task_id=task_id)
+        if projection_error is not None:
+            raise ContextError(projection_error)
+        existing = [event for event in projection["controls"] if event.get("request_id") == request_id]
+        record_digest = _handoff_module._canonical_sha256(record)
+        if existing:
+            if len(existing) == 1 and existing[0].get("type") == "handoff_activated" and (
+                existing[0].get("handoff_id"), existing[0].get("expected_controller_generation"),
+                existing[0].get("record_sha256"),
+            ) == (record.get("handoff_id"), record.get("controller_generation"), record_digest):
+                return {
+                    "check_status": "pass", "commit_status": "confirmed_committed",
+                    "controller_generation": existing[0]["controller_generation"], "blocking_reasons": [],
+                    "verification_refs": _handoff_module._record_references(record),
+                    "next_readonly_action": "Read handoff_status; business completion remains unknown.",
+                }
+            raise ContextError("activation request id conflicts in authoritative events")
+        pending = projection.get("pending")
+        if (
+            not isinstance(pending, Mapping) or pending.get("handoff_id") != record.get("handoff_id")
+            or pending.get("record_sha256") != record_digest
+            or pending.get("expected_controller_generation") != record.get("controller_generation")
+        ):
+            raise ContextError("handoff is no longer prepared for activation")
+        expires_at = _handoff_module._as_utc(authorization.get("expires_at"))
+        if expires_at is None or expires_at < _trusted_utc_now():
+            raise ContextError("runtime activation authorization expired before commit")
+        if verifier_expires_at is None or verifier_expires_at < _trusted_utc_now():
+            raise ContextError("runtime activation verification expired before commit")
+        if delta_expires_at is not None and delta_expires_at < _trusted_utc_now():
+            raise ContextError("runtime activation delta verification expired before commit")
+        if (
+            authorization.get("subject_session_ref") != record.get("target_session_ref")
+            or authorization.get("authorization_ref") != record.get("authorization_ref")
+            or not isinstance(reference_fingerprints, tuple)
+        ):
+            raise ContextError("runtime activation authorization changed before commit")
+        if _handoff_module._package_manifest_sha256(Path(package_root)) != record.get("package_manifest_sha256"):
+            raise ContextError("handoff package changed before activation commit")
+        handoff_id = record.get("handoff_id")
+        if not isinstance(handoff_id, str):
+            raise ContextError("handoff activation record identity is invalid")
+        stored_record, stored_digest = _read_handoff_json(paths["handoff_root"] / f"{handoff_id}.json")
+        if stored_record != dict(record) or stored_digest != record_digest:
+            raise ContextError("handoff activation record changed before commit")
+        final_fingerprints = _handoff_reference_fingerprints(record, workspace=Path(workspace_root))
+        if final_fingerprints != reference_fingerprints:
+            raise ContextError("handoff references changed before activation commit")
+        payload = {
+            "type": "handoff_activated", "task_id": task_id, "request_id": request_id,
+            "handoff_id": record["handoff_id"],
+            "created_at": _trusted_utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "expected_controller_generation": record["controller_generation"],
+            "controller_generation": record["controller_generation"] + 1,
+            "record_sha256": record_digest,
+            "verification_refs": _handoff_module._record_references(record),
+        }
+        event = _new_event(task_id, "handoff_activated", str(authorization["subject_id"]), payload)
+        _publish_handoff_event_locked(task_id, paths, view["snapshot"], event)
+    return {
+        "check_status": "pass", "commit_status": "confirmed_committed",
+        "controller_generation": record["controller_generation"] + 1, "blocking_reasons": [],
+        "verification_refs": _handoff_module._record_references(record),
+        "next_readonly_action": "Read handoff_status; business completion remains unknown.",
+    }
+
+
+def activate_handoff(
+    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
+    package_root: str | Path, request_id: str, controller_generation: int,
+    handoff_id: str, runtime_identity: Any = None, write_authorizer: Any = None,
+    handoff_verifier: Any = None,
+) -> dict[str, Any]:
+    """Delegate activation orchestration to the dedicated protocol module."""
+    return _handoff_module.activate_handoff(
+        task_id, base_dir=base_dir, workspace_root=workspace_root, package_root=package_root,
+        request_id=request_id, controller_generation=controller_generation, handoff_id=handoff_id,
+        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
+        handoff_verifier=handoff_verifier,
+    )
+
+
+def handoff_status(
+    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
+    package_root: str | Path, handoff_id: str, handoff_verifier: Any = None,
+) -> dict[str, Any]:
+    """Delegate the read-only handoff seam to its dedicated protocol module."""
+    return _handoff_module.handoff_status(
+        task_id, base_dir=base_dir, workspace_root=workspace_root,
+        package_root=package_root, handoff_id=handoff_id,
+        handoff_verifier=handoff_verifier,
+    )
+
+
 _BOUND_ACTIONS = frozenset({
     "publish_contract",
     "mark_truth_sources_dirty",
@@ -4587,6 +5481,13 @@ _BOUND_ACTIONS = frozenset({
     "brief_diagnostics",
     "audit",
     "gate",
+})
+_BOUND_HANDOFF_ACTIONS = frozenset({
+    "prepare_handoff",
+    "validate_handoff",
+    "activate_handoff",
+    "cancel_handoff",
+    "handoff_status",
 })
 
 
@@ -4629,6 +5530,26 @@ class BoundContext:
         )
 
     def __getattr__(self, name: str) -> Any:
+        if name in _BOUND_HANDOFF_ACTIONS:
+            function = globals()[name]
+
+            def bound_handoff_call(*args: Any, **kwargs: Any) -> dict[str, Any]:
+                if "base_dir" in kwargs or "workspace_root" in kwargs or "package_root" in kwargs:
+                    return _handoff_module.unknown_response(
+                        "bound handoff calls cannot override base_dir, workspace_root, or package_root",
+                        code="HANDOFF_BOUND_PATH_OVERRIDE", ref="bound_context", commit_status="not_attempted",
+                    )
+                if self.workspace_root is None or self.package_root is None:
+                    return _handoff_module.unknown_response(
+                        "bound handoff calls require workspace_root and package_root at bind time",
+                        code="HANDOFF_BINDING_REQUIRED", ref="bound_context", commit_status="not_attempted",
+                    )
+                return function(
+                    *args, **kwargs, base_dir=self.base_dir, workspace_root=self.workspace_root,
+                    package_root=self.package_root,
+                )
+
+            return bound_handoff_call
         if name not in _BOUND_ACTIONS:
             raise AttributeError(name)
         function = globals()[name]
@@ -4694,6 +5615,11 @@ async def run(action: str, **kwargs: Any) -> Any:
         "workspace_observation": workspace_observation,
         "runtime_identity": runtime_identity,
         "checked_resume": checked_resume,
+        "prepare_handoff": prepare_handoff,
+        "cancel_handoff": cancel_handoff,
+        "validate_handoff": validate_handoff,
+        "activate_handoff": activate_handoff,
+        "handoff_status": handoff_status,
     }
     function = actions.get(action)
     if function is None:
@@ -4718,6 +5644,11 @@ __all__ = [
     "brief_diagnostics",
     "audit",
     "gate",
+    "prepare_handoff",
+    "cancel_handoff",
+    "validate_handoff",
+    "activate_handoff",
+    "handoff_status",
     "workspace_observation",
     "runtime_identity",
     "checked_resume",
@@ -4739,4 +5670,9 @@ _capture_baseline((
     Path(_experience_module.__file__).resolve(),
     Path(_experience_store_module.__file__).resolve(),
     Path(_runtime_identity_module.__file__).resolve(),
+    Path(_handoff_module.__file__).resolve(),
+    Path(_host_codex_cli_module.__file__).resolve(),
+    Path(_host_records_module.__file__).resolve(),
+    Path(_host_codex_native_module.__file__).resolve(),
+    Path(_host_claude_native_module.__file__).resolve(),
 ), initial_manifest_path=_IDENTITY_MANIFEST_BEFORE, initial_manifest_sha256=_IDENTITY_DIGEST_BEFORE)
