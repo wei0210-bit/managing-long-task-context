@@ -56,6 +56,14 @@ non-POSIX process-tree guarantees, natural-project effectiveness, and token or
 cost savings remain unverified. See the [Codex CLI boundary](references/host-codex-cli.md)
 and [native-host boundary](references/host-native.md).
 
+Those real-path claims can now collect prospective evidence without turning the
+record into a pass. Use `scripts/real_validation.py` with the
+[real-evidence templates](docs/validation/real-evidence/README.md) to start one
+observation per task and append native-control, task-outcome, provider-usage,
+and billing events. Existing event IDs are never overwritten, and status keeps
+all three claims `UNKNOWN` until a separate evaluation reviews the originals
+and comparable observations.
+
 ## Executable evidence contracts
 
 New Strict contracts should enable `evidence-handlers/v1`. The sealed

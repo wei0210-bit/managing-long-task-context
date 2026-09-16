@@ -1,0 +1,20 @@
+{
+  "schema": "real-validation-event/v1",
+  "event_id": "EV-COST-NNN",
+  "observation_id": "OBS-YYYYMMDD-NNN",
+  "task_id": "TASK-STABLE-ID",
+  "event_type": "cost",
+  "observed_at": "2026-09-16T00:00:00Z",
+  "actor": "billing-receipt-observer",
+  "source_refs": [
+    "provider-billing:stable-reference"
+  ],
+  "payload": {
+    "provider": "provider-name",
+    "currency": "USD",
+    "amount": "0.00",
+    "billing_scope": "unknown",
+    "includes_retries": null,
+    "skill_attribution": "unknown"
+  }
+}

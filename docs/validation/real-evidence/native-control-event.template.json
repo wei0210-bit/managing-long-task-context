@@ -1,0 +1,26 @@
+{
+  "schema": "real-validation-event/v1",
+  "event_id": "EV-NATIVE-NNN",
+  "observation_id": "OBS-YYYYMMDD-NNN",
+  "task_id": "TASK-STABLE-ID",
+  "event_type": "native_control",
+  "observed_at": "2026-09-16T00:00:00Z",
+  "actor": "trusted-host-observer",
+  "source_refs": [
+    "host-receipt:stable-reference"
+  ],
+  "payload": {
+    "operation": "transfer_control",
+    "outcome": "unknown",
+    "trigger_mode": "unknown",
+    "trigger_evidence_ref": null,
+    "source_session_ref": null,
+    "target_session_ref": null,
+    "identity_verified": null,
+    "write_fencing_verified": null,
+    "clean_history_verified": null,
+    "parent_survival_verified": null,
+    "cross_parent_continuation_verified": null,
+    "predecessor_retained_until_success": null
+  }
+}
