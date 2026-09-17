@@ -10,7 +10,7 @@ baseline_head: 16c06eede42544eb7a4f0271b3590728352e2426
 implementation_head: 0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af
 verified_head: 8e86db6cb058ff931790483941320228aa9ff9fb
 verified_at: 2026-09-17T03:22:23Z
-updated_at: 2026-09-17T03:23:16Z
+updated_at: 2026-09-17T03:45:07Z
 ---
 
 # 项目恢复入口
@@ -48,9 +48,9 @@ updated_at: 2026-09-17T03:23:16Z
 - NAT-01（授权的 manual fallback 冷恢复）与 EVAL-01（代理行为评估）：NOT_RUN。
 - 真实宿主迁移与可信接管、远程 CI、token/费用/自然项目收益：NOT_RUN/UNKNOWN。
 - 未授权：v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、合并、推送、部署。
-- 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）；`RUN-20260917-phase1-0f9fdd1/` 为 HISTORICAL_ONLY。当前 `verified_head` 的远程 CI：NOT_RUN。
+- 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）；`RUN-20260917-phase1-0f9fdd1/` 为 HISTORICAL_ONLY。远程 CI：run 35178996161（PR #26，测试树与 `a36d089` 相同）success。
 - 已知风险：`test_truth_sources` 中 3 个既有锁时序测试在高负载主机上曾失败一次，重跑通过，源码未改动。
-- CI 修复：三处 `printf | grep -q` 在 `pipefail` 下的 EPIPE 误报（run 35175710471 attempt 1）已改为 here-string；只有本地复现与完整重验证据，远程 CI 未运行。
+- CI 修复：三处 `printf | grep -q` 在 `pipefail` 下的 EPIPE 误报（run 35175710471 attempt 1）已改为 here-string；本地复现、完整重验与远程 CI run 35178996161 均通过；PR #26 未合并，须用合并提交方式合入。
 
 ## 下一步
 

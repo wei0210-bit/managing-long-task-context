@@ -219,11 +219,17 @@
         "C14",
         "P01",
         "P02",
-        "P03"
+        "P03",
+        "C19",
+        "C20",
+        "C21",
+        "C22",
+        "C23",
+        "C24"
       ],
       "id": "AC14",
       "local_status": "pass",
-      "note": "CI replica executed the actual ci.yml run blocks of the fix commit under bash --noprofile --norc -eo pipefail. Remote CI for the fix commit is NOT_RUN (no push authorization); the last remote receipt (run 35174817862) belongs to 0f342ad only.",
+      "note": "CI replica executed the actual ci.yml run blocks of the fix commit under bash --noprofile --norc -eo pipefail. Remote CI run 35178996161 passed on PR #26 (merge ref tree identical to a36d08960b68eec2a602318ec59d28b977a82fbb): root 665 tests with 1 legacy skip, handoff counterexamples 5, Strict package 496, Lite package 64, zero Broken pipe.",
       "tests": [
         "CLI-17",
         "DIST-04"
@@ -442,6 +448,7 @@
   ],
   "authorization": {
     "granted": "User message 2026-09-17: fix the three CI pipe checks with a reproduction first, then re-run the complete verification on the new commit and update verified_head/evidence per the plan.",
+    "granted_remote": "User message 2026-09-17: push a new branch, open a PR to main, and read back the CI receipt; merge not authorized.",
     "not_granted": [
       "push",
       "merge",
@@ -467,6 +474,7 @@
     "C10 packaged example three results": true,
     "C14 tree clean after all checks": true,
     "C15 Lite manifest has no preflight": true,
+    "C19-C24 remote CI readback: one successful run, here-string executed, zero Broken pipe, tested tree equals evidence commit": true,
     "E1 rehearsal manual recovery passes": true,
     "E2 rehearsal synthetic contract": true,
     "E3b rehearsal strict prepare passes (E3 harness attempt recorded as a deviation)": true,
@@ -531,9 +539,9 @@
       "status": "present"
     },
     {
+      "note": "single CI run 35178996161 for PR #26; added after push authorization",
       "path": "remote-ci-receipt.json",
-      "reason": "push/remote CI for the fix commit is not authorized",
-      "status": "not_run"
+      "status": "present"
     },
     {
       "path": "manual-replay.json",
@@ -654,14 +662,14 @@
     "NAT-01": "NOT_RUN",
     "archive_old_session": "not allowed in Phase 1",
     "real_host_migration_and_takeover": "NOT_RUN/UNKNOWN",
-    "remote_ci": "NOT_RUN for 8e86db6cb058ff931790483941320228aa9ff9fb (no push authorization)",
+    "remote_ci": "PASS for evidence commit a36d08960b68eec2a602318ec59d28b977a82fbb only (CI run 35178996161, PR #26 merge ref with an identical tree); see remote-ci-receipt.json",
     "token_cost_and_natural_benefit": "NOT_RUN/UNKNOWN"
   },
   "overall": {
     "code_and_tests": "complete",
     "evidence_closure": "pending_manifest_and_commit",
     "real_host_validation": "NOT_RUN",
-    "remote_ci": "NOT_RUN"
+    "remote_ci": "pass"
   },
   "packages": {
     "context-lite": {
@@ -706,8 +714,8 @@
   "revisions": {
     "baseline_head": "16c06eede42544eb7a4f0271b3590728352e2426",
     "ci_fix_head": "8e86db6cb058ff931790483941320228aa9ff9fb",
-    "documentation_and_merge_head_status": "UNKNOWN: the evidence commit has not been pushed or read back by CI",
-    "documentation_head": null,
+    "documentation_and_merge_head_status": "documentation_head read back by CI run 35178996161; merge_head UNKNOWN (PR #26 not merged when recorded)",
+    "documentation_head": "a36d08960b68eec2a602318ec59d28b977a82fbb",
     "implementation_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af",
     "merge_head": null,
     "previous_verified_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af",
