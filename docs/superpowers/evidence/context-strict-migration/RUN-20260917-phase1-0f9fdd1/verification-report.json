@@ -215,11 +215,15 @@
         "C11",
         "C12",
         "C13",
-        "C14"
+        "C14",
+        "C19",
+        "C20",
+        "C21",
+        "C22"
       ],
       "id": "AC14",
       "local_status": "pass",
-      "note": "C02 first attempt FAILED 3 pre-existing test_truth_sources lock-timing tests (2 s child-process join) under heavy host load; they pass in C03, C16 and C02b, and their sources are unchanged (C17). The fixed command without MLTC_LEGACY_PACKAGE has 1 expected skip (C02b); C03 supplies the frozen 0.7.0 package and has 0 skip. Remote CI NOT_RUN.",
+      "note": "C02 first attempt FAILED 3 pre-existing test_truth_sources lock-timing tests (2 s child-process join) under heavy host load; they pass in C03, C16 and C02b, and their sources are unchanged (C17). The fixed command without MLTC_LEGACY_PACKAGE has 1 expected skip (C02b); C03 supplies the frozen 0.7.0 package and has 0 skip. Remote CI run 35174817862 passed on 0f342ad8ad40080b526fc2d5d9c34ddaaf0601e3 (root 665 tests with 1 legacy skip, Strict package 496, Lite package 64).",
       "tests": [
         "CLI-17",
         "DIST-04"
@@ -509,6 +513,11 @@
       "status": "present"
     },
     {
+      "note": "single CI run 35174817862; added after push authorization",
+      "path": "remote-ci-receipt.json",
+      "status": "present"
+    },
+    {
       "path": "manual-replay.json",
       "reason": "NAT-01 natural manual fallback replay is not authorized",
       "status": "not_run"
@@ -642,7 +651,7 @@
     "NAT-01": "NOT_RUN",
     "archive_old_session": "not allowed in Phase 1",
     "real_host_migration_and_takeover": "NOT_RUN/UNKNOWN",
-    "remote_ci": "NOT_RUN (no push/PR authorization)",
+    "remote_ci": "PASS for evidence commit 0f342ad8ad40080b526fc2d5d9c34ddaaf0601e3 only (CI run 35174817862); see remote-ci-receipt.json",
     "token_cost_and_natural_benefit": "NOT_RUN/UNKNOWN"
   },
   "overall": {
@@ -695,8 +704,8 @@
   },
   "revisions": {
     "baseline_head": "16c06eede42544eb7a4f0271b3590728352e2426",
-    "documentation_and_merge_head_status": "UNKNOWN: no post-commit external Git/CI readback is recorded in this bundle",
-    "documentation_head": null,
+    "documentation_and_merge_head_status": "documentation_head read back by CI run 35174817862; merge_head UNKNOWN (not merged when recorded)",
+    "documentation_head": "0f342ad8ad40080b526fc2d5d9c34ddaaf0601e3",
     "implementation_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af",
     "merge_head": null,
     "v1_compatibility_baseline": "097c952e37e7f971274e70579c33c2727cc67fb0",
