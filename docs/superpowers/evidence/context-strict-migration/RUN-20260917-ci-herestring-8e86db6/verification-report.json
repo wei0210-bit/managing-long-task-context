@@ -1,0 +1,824 @@
+{
+  "acceptance_criteria": [
+    {
+      "commands": [
+        "C03",
+        "E1",
+        "E3b"
+      ],
+      "id": "AC1",
+      "local_status": "pass",
+      "tests": [
+        "CLI-08",
+        "CLI-13",
+        "SCN-02"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC2",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-14",
+        "UNIT-16",
+        "CLI-03",
+        "CLI-04",
+        "CLI-05",
+        "CLI-06",
+        "CLI-07",
+        "CLI-08",
+        "SCN-01"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC3",
+      "local_status": "pass",
+      "tests": [
+        "CLI-02",
+        "REG-11",
+        "REG-12"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "E1"
+      ],
+      "id": "AC4",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-17",
+        "INT-11",
+        "INT-12",
+        "CLI-09",
+        "CLI-11",
+        "SCN-04"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "E1"
+      ],
+      "id": "AC5",
+      "local_status": "pass",
+      "tests": [
+        "INT-10",
+        "INT-11",
+        "INT-12",
+        "REG-07",
+        "REG-12",
+        "SCN-05"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "S07"
+      ],
+      "id": "AC6",
+      "local_status": "pass",
+      "tests": [
+        "INT-02",
+        "INT-03",
+        "INT-04",
+        "INT-05",
+        "INT-06",
+        "CLI-18"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC7",
+      "local_status": "pass",
+      "tests": [
+        "INT-05",
+        "INT-06",
+        "CLI-18",
+        "REG-08",
+        "SCN-03"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "C10"
+      ],
+      "id": "AC8",
+      "local_status": "pass",
+      "tests": [
+        "INT-07",
+        "INT-08",
+        "INT-09",
+        "INT-10",
+        "CLI-01",
+        "REG-10",
+        "REG-11",
+        "REG-13"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "E1",
+        "E4"
+      ],
+      "id": "AC9",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-16",
+        "CLI-07",
+        "SCN-01",
+        "SCN-02"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "E4"
+      ],
+      "id": "AC10",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-16",
+        "CLI-04"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC11",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-25",
+        "REG-11",
+        "REG-12"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "S07"
+      ],
+      "id": "AC12",
+      "local_status": "pass",
+      "tests": [
+        "INT-07",
+        "INT-08",
+        "REG-01",
+        "REG-02",
+        "REG-03",
+        "REG-04",
+        "REG-05",
+        "REG-06",
+        "REG-08"
+      ]
+    },
+    {
+      "commands": [
+        "C04",
+        "C05",
+        "C03",
+        "C15"
+      ],
+      "id": "AC13",
+      "local_status": "pass",
+      "tests": [
+        "DIST-01",
+        "DIST-02",
+        "DIST-03",
+        "DIST-04"
+      ]
+    },
+    {
+      "commands": [
+        "C02",
+        "C03",
+        "C06",
+        "C07",
+        "S04",
+        "S05",
+        "C08a",
+        "C08b",
+        "C08c",
+        "C09a",
+        "C09b",
+        "C09c",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "C14",
+        "P01",
+        "P02",
+        "P03",
+        "C19",
+        "C20",
+        "C21",
+        "C22",
+        "C23",
+        "C24"
+      ],
+      "id": "AC14",
+      "local_status": "pass",
+      "note": "CI replica executed the actual ci.yml run blocks of the fix commit under bash --noprofile --norc -eo pipefail. Remote CI run 35178996161 passed on PR #26 (merge ref tree identical to a36d08960b68eec2a602318ec59d28b977a82fbb): root 665 tests with 1 legacy skip, handoff counterexamples 5, Strict package 496, Lite package 64, zero Broken pipe.",
+      "tests": [
+        "CLI-17",
+        "DIST-04"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC15",
+      "local_status": "pass",
+      "note": "Deterministic replays SCN-01..06 pass; NAT-01 natural manual replay NOT_RUN (not authorized).",
+      "tests": [
+        "SCN-01",
+        "SCN-02",
+        "SCN-03",
+        "SCN-04",
+        "SCN-05",
+        "SCN-06"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC16",
+      "local_status": "pass",
+      "tests": [
+        "INT-09",
+        "REG-01",
+        "REG-02",
+        "REG-07",
+        "REG-09",
+        "REG-10",
+        "SCN-06"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC17",
+      "local_status": "pass",
+      "note": "No host token/cost data: benefit remains NOT_RUN/UNKNOWN.",
+      "tests": [
+        "REG-09"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "E1",
+        "E3b"
+      ],
+      "id": "AC18",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-26",
+        "CLI-01",
+        "CLI-17"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC19",
+      "local_status": "pass",
+      "tests": [
+        "REG-09"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "E1"
+      ],
+      "id": "AC20",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-11",
+        "UNIT-13",
+        "UNIT-14",
+        "UNIT-15",
+        "CLI-05",
+        "SCN-01"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC21",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-05",
+        "UNIT-06",
+        "UNIT-07",
+        "UNIT-08",
+        "UNIT-09",
+        "UNIT-10",
+        "CLI-09",
+        "CLI-10"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "E1"
+      ],
+      "id": "AC22",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-13",
+        "UNIT-16",
+        "CLI-13"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC23",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-08",
+        "UNIT-17",
+        "UNIT-18",
+        "UNIT-19",
+        "UNIT-20",
+        "UNIT-21",
+        "UNIT-22",
+        "UNIT-23",
+        "UNIT-24"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "S07"
+      ],
+      "id": "AC24",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-01",
+        "UNIT-02",
+        "UNIT-03",
+        "UNIT-04",
+        "CLI-14",
+        "CLI-15",
+        "CLI-16"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC25",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-25",
+        "UNIT-27",
+        "UNIT-28",
+        "CLI-12"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "E3b"
+      ],
+      "id": "AC26",
+      "local_status": "pass",
+      "tests": [
+        "INT-01",
+        "INT-02",
+        "INT-03",
+        "INT-04",
+        "CLI-02"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC27",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-12",
+        "PERF-01",
+        "PERF-02",
+        "PERF-03"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC28",
+      "local_status": "pass",
+      "tests": [
+        "PERF-04"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC29",
+      "local_status": "pass",
+      "note": "Inventory validated by REG-14 (C03, E4); test sources unchanged since 0f9fdd1. EVAL-01 NOT_RUN.",
+      "tests": [
+        "REG-14"
+      ]
+    }
+  ],
+  "authorization": {
+    "granted": "User message 2026-09-17: fix the three CI pipe checks with a reproduction first, then re-run the complete verification on the new commit and update verified_head/evidence per the plan.",
+    "granted_remote": "User message 2026-09-17: push a new branch, open a PR to main, and read back the CI receipt; merge not authorized.",
+    "not_granted": [
+      "push",
+      "merge",
+      "deploy",
+      "remote CI trigger",
+      "NAT-01",
+      "EVAL-01",
+      "archive old session",
+      "v2 receipt",
+      "modify shared context_doctor.py or Lite interface"
+    ]
+  },
+  "checks": {
+    "C01 clean tree at the verified commit": true,
+    "C02 fixed full test command (1 legacy skip expected)": true,
+    "C03 full tests, zero skip": true,
+    "C04 first sync zero diff": true,
+    "C05 second sync zero new diff": true,
+    "C06 Strict check-source": true,
+    "C07 Lite check-source": true,
+    "C08 Lite build receipt, pinned verify, full doctor": true,
+    "C09 Strict build receipt, pinned verify, full doctor": true,
+    "C10 packaged example three results": true,
+    "C14 tree clean after all checks": true,
+    "C15 Lite manifest has no preflight": true,
+    "C19-C24 remote CI readback: one successful run, here-string executed, zero Broken pipe, tested tree equals evidence commit": true,
+    "E1 rehearsal manual recovery passes": true,
+    "E2 rehearsal synthetic contract": true,
+    "E3b rehearsal strict prepare passes (E3 harness attempt recorded as a deviation)": true,
+    "E4 CONTEXT/plan regression subset in the rehearsal clone": true,
+    "P01 reproduction RED on 83450a8 ci.yml": true,
+    "P02 reproduction GREEN on fix-commit ci.yml": true,
+    "P03 fix diff limited to the three check lines": true,
+    "S04 CI step: all tests": true,
+    "S05 CI step: build/verify/full doctor both packages outside the checkout": true,
+    "S06 CI step: Strict smoke and handoff distribution counterexamples (here-string check)": true,
+    "S07 CI step: every Strict package test (here-string check)": true,
+    "S08 CI step: every Lite package test (here-string check)": true,
+    "S09 CI step: checks did not rewrite tracked files": true,
+    "X1 stale proof: fix commit with CONTEXT verified_head 0f9fdd1 is stale": true
+  },
+  "defect": {
+    "after": "grep -Eq '^Ran [1-9][0-9]* tests' <<<\"$output\"",
+    "before": "printf '%s\\n' \"$output\" | grep -Eq '^Ran [1-9][0-9]* tests'",
+    "file": ".github/workflows/ci.yml",
+    "mechanism": "grep -q exits at the first match; a pipe writer with bytes left gets EPIPE (SIGPIPE ignored on the runner) or SIGPIPE, and bash -o pipefail fails the step although tests passed.",
+    "remote_evidence": "https://github.com/wei0210-bit/managing-long-task-context/actions/runs/35175710471 attempt 1 logged 'printf: write error: Broken pipe' after 'Ran 496 tests ... OK'.",
+    "steps": [
+      "Run Strict handoff package smoke and integrity counterexamples",
+      "Run every Strict test from the complete package",
+      "Run every Lite test from the complete package"
+    ]
+  },
+  "deviations": [
+    "Work ran in an isolated scratch clone: fast-forwarding the shared worktree branch was refused by the local permission policy. The two commits exist only in that clone until the user authorizes bringing them into the shared repository.",
+    "Local reproduction and CI replica used macOS bash 3.2.57; the runner uses bash 5.x. Both write a here-string completely (temp file, or a pipe for small bodies in 5.x) before grep starts, so the writer cannot receive EPIPE; remote confirmation is NOT_RUN.",
+    "CI steps 1-3 were not executed: checkout and setup-python are replaced by the clone and local Python 3.12.13; step 3 needs sudo and /private/tmp already exists on macOS.",
+    "implementation_head stays 0f9fdd1 (Phase-1 implementation); the CI-only change is recorded as ci_fix_head and is the new verified_head.",
+    "Separate PERF-04 wall-time metrics were not re-measured; PERF-01..04 assertions ran inside C03 and S04.",
+    "The fixed command without MLTC_LEGACY_PACKAGE has 1 expected skip (C02, S04); C03 supplies the frozen 0.7.0 package and has 0 skip.",
+    "E3 (first strict_protocol/prepare rehearsal) returned unknown with PREFLIGHT_WORKTREE_DIRTY: the rehearsal harness left an untracked handoff-material/readback.json in the clone, and prepare takes no readback input, so the file was unbound. The preflight behaved as designed; E3b reran the same command after removing that harness file and passed. Acceptance criteria were not changed."
+  ],
+  "environment": {
+    "bash_for_reproduction_and_ci_replica": "3.2.57(1)-release",
+    "ci_bash": "GitHub ubuntu-24.04 runner bash (5.x); not available locally",
+    "git": "git version 2.54.0 (Apple Git-157)",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "Python 3.12.13",
+    "run_id": "RUN-20260917-ci-herestring-8e86db6",
+    "source_revision": "8e86db6cb058ff931790483941320228aa9ff9fb"
+  },
+  "expected_artifacts": [
+    {
+      "path": "ci-epipe-reproduction.sh",
+      "status": "present"
+    },
+    {
+      "note": "regenerated at the fix commit; byte-identical to RUN-20260917-phase1-0f9fdd1",
+      "path": "test-inventory.json",
+      "status": "present"
+    },
+    {
+      "path": "verification-report.json",
+      "status": "present"
+    },
+    {
+      "path": "commands.jsonl",
+      "status": "present"
+    },
+    {
+      "note": "single CI run 35178996161 for PR #26; added after push authorization",
+      "path": "remote-ci-receipt.json",
+      "status": "present"
+    },
+    {
+      "path": "manual-replay.json",
+      "reason": "NAT-01 natural manual fallback replay is not authorized",
+      "status": "not_run"
+    },
+    {
+      "path": "eval-01.json",
+      "reason": "EVAL-01 isolated agent behaviour evaluation is not authorized",
+      "status": "not_run"
+    },
+    {
+      "note": "generated last; lists every other artifact; excludes itself",
+      "path": "evidence-manifest.sha256",
+      "status": "present"
+    }
+  ],
+  "generated_by": "local evidence runner (scratch, not committed); receipts in commands.jsonl",
+  "migration_results_evidence": {
+    "packaged_example_C10": {
+      "activate": "confirmed_committed",
+      "activation_events": 1,
+      "cancel": "confirmed_committed",
+      "identity": "pass",
+      "manual_fallback_results": {
+        "archive_allowed": false,
+        "control_transfer": "unknown",
+        "controller_generation": null,
+        "information_recovery": "pass",
+        "preflight_exit": 0,
+        "source_retirement": "not_allowed"
+      },
+      "prepare": "pass",
+      "repeat_activate_generation": 1,
+      "repeat_activate_same_event_log": true,
+      "status": "confirmed_committed",
+      "strict_migration_results": {
+        "archive_allowed": false,
+        "control_transfer": "pass",
+        "controller_generation": 1,
+        "information_recovery": "pass",
+        "source_retirement": "not_allowed"
+      },
+      "strict_preflight": {
+        "activate": "pass",
+        "prepare": "pass",
+        "status": "pass"
+      },
+      "validate": "pass"
+    },
+    "rehearsal_manual_fallback_E1": {
+      "archive_allowed": false,
+      "material_integrity": "pass",
+      "migration_outcome": {
+        "control_transfer": {
+          "commit_status": "not_attempted",
+          "controller_generation": null,
+          "status": "unknown"
+        },
+        "information_recovery": {
+          "evidence_refs": [
+            "handoff_file",
+            "recovery_checklist",
+            "recovery_readback"
+          ],
+          "status": "pass"
+        },
+        "source_retirement": {
+          "archive_allowed": false,
+          "evidence_refs": [],
+          "status": "not_allowed"
+        }
+      },
+      "preflight_status": "pass",
+      "revisions": {
+        "current_head": "51a6454c93902ead3879fcb648ceda15062324ad",
+        "verified_head": "8e86db6cb058ff931790483941320228aa9ff9fb"
+      }
+    },
+    "rehearsal_scope": "E1, E2, E3b and E4 ran in a clean clone whose last commit has the same CONTEXT.md, plan, and allowlisted evidence path set as the evidence commit; they are not a post-commit readback.",
+    "rehearsal_strict_prepare_E3b": {
+      "archive_allowed": false,
+      "material_integrity": "pass",
+      "migration_outcome": {
+        "control_transfer": {
+          "commit_status": "not_attempted",
+          "controller_generation": null,
+          "status": "unknown"
+        },
+        "information_recovery": {
+          "evidence_refs": [],
+          "status": "unknown"
+        },
+        "source_retirement": {
+          "archive_allowed": false,
+          "evidence_refs": [],
+          "status": "not_allowed"
+        }
+      },
+      "preflight_status": "pass",
+      "revisions": {
+        "current_head": "51a6454c93902ead3879fcb648ceda15062324ad",
+        "verified_head": "8e86db6cb058ff931790483941320228aa9ff9fb"
+      }
+    },
+    "stale_proof_X1": {
+      "git_revision": "PREFLIGHT_REVISION_STALE",
+      "package_binding": "PREFLIGHT_PACKAGE_STALE",
+      "preflight_status": "unknown",
+      "revisions": {
+        "current_head": "8e86db6cb058ff931790483941320228aa9ff9fb",
+        "verified_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af"
+      }
+    }
+  },
+  "not_run": {
+    "EVAL-01": "NOT_RUN",
+    "NAT-01": "NOT_RUN",
+    "archive_old_session": "not allowed in Phase 1",
+    "real_host_migration_and_takeover": "NOT_RUN/UNKNOWN",
+    "remote_ci": "PASS for evidence commit a36d08960b68eec2a602318ec59d28b977a82fbb only (CI run 35178996161, PR #26 merge ref with an identical tree); see remote-ci-receipt.json",
+    "token_cost_and_natural_benefit": "NOT_RUN/UNKNOWN"
+  },
+  "overall": {
+    "code_and_tests": "complete",
+    "evidence_closure": "pending_manifest_and_commit",
+    "real_host_validation": "NOT_RUN",
+    "remote_ci": "pass"
+  },
+  "packages": {
+    "context-lite": {
+      "manifest_sha256": "577bc03eeace39c52551a49d4e3e31fd787001fb23bc5138b4df2b4e4d5515ec",
+      "source_revision": "git:8e86db6cb058ff931790483941320228aa9ff9fb"
+    },
+    "context-strict": {
+      "manifest_sha256": "222246a2a7b2d3bd368c019bf38aecca67023603a6b1629886df5b6c2538bc9b",
+      "source_revision": "git:8e86db6cb058ff931790483941320228aa9ff9fb"
+    }
+  },
+  "plan": {
+    "path": "docs/superpowers/plans/2026-09-16-context-strict-real-migration-hardening.md",
+    "sha256": "80bdd97c7babbd7ba50236b7eafe6d972ff9dc8ad8dc382f8075ab19a0a0b3cf"
+  },
+  "purpose": "Complete re-verification after replacing three `printf | grep -Eq` CI checks with here-strings (EPIPE false failure, run 35175710471 attempt 1).",
+  "reproduction": {
+    "controls": "per check line: no Ran line -> reject, 'Ran 0 tests' -> reject, indented Ran line -> reject, 'Ran 12 tests' -> accept; identical before and after the fix",
+    "green_P02": {
+      "check_lines": 3,
+      "control_errors": 0,
+      "real_failures": 0,
+      "real_runs": 3000,
+      "synthetic_failures": 0,
+      "synthetic_runs": 120,
+      "verdict": "GREEN"
+    },
+    "note": "Synthetic case (match on line 1, 1 MiB tail) is deterministic for a pipe writer; the real 88 KB output is probabilistic (P01 3/3000).",
+    "red_P01": {
+      "captured_output_bytes": 88241,
+      "captured_output_sha256": "bc598505e4841d69ee8b991b276456d97204d6a309e92493af178383427dacb6",
+      "check_lines": 3,
+      "control_errors": 0,
+      "real_failures": 3,
+      "real_runs": 3000,
+      "synthetic_failures": 120,
+      "synthetic_runs": 120,
+      "verdict": "RED"
+    },
+    "script": "ci-epipe-reproduction.sh"
+  },
+  "revisions": {
+    "baseline_head": "16c06eede42544eb7a4f0271b3590728352e2426",
+    "ci_fix_head": "8e86db6cb058ff931790483941320228aa9ff9fb",
+    "documentation_and_merge_head_status": "documentation_head read back by CI run 35178996161; merge_head UNKNOWN (PR #26 not merged when recorded)",
+    "documentation_head": "a36d08960b68eec2a602318ec59d28b977a82fbb",
+    "implementation_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af",
+    "merge_head": null,
+    "previous_verified_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af",
+    "reproduction_base_head": "83450a8aee237d8c009542d416167466c384978e",
+    "v1_compatibility_baseline": "097c952e37e7f971274e70579c33c2727cc67fb0",
+    "verified_head": "8e86db6cb058ff931790483941320228aa9ff9fb"
+  },
+  "run_id": "RUN-20260917-ci-herestring-8e86db6",
+  "schema": "migration-verification-report/v1",
+  "tasks": {
+    "T1": "complete",
+    "T2": "complete",
+    "T3": "complete",
+    "T4": "complete",
+    "T5": "local evidence generated; authorized manual replay (NAT-01) NOT_RUN"
+  },
+  "test_counts": {
+    "ci_step_all_tests": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 377.529,
+      "skipped": 1,
+      "tests_run": 665
+    },
+    "ci_step_handoff_distribution": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 7.613,
+      "skipped": 0,
+      "tests_run": 5
+    },
+    "ci_step_lite_package_tests": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 21.25,
+      "skipped": 0,
+      "tests_run": 64
+    },
+    "ci_step_strict_package_tests": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 112.476,
+      "skipped": 0,
+      "tests_run": 496
+    },
+    "full_suite_fixed_command": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 261.594,
+      "skipped": 1,
+      "tests_run": 665
+    },
+    "full_suite_zero_skip": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 200.393,
+      "skipped": 0,
+      "tests_run": 671
+    },
+    "minimum_new_methods": {
+      "cli": 18,
+      "distribution": 4,
+      "integration": 12,
+      "performance": 4,
+      "regression_scenario": 19,
+      "unit": 28
+    },
+    "new_methods_by_category": {
+      "cli": 18,
+      "distribution": 4,
+      "integration": 12,
+      "performance": 4,
+      "regression_scenario": 20,
+      "unit": 28
+    },
+    "new_methods_total": 86,
+    "rehearsal_regression_subset": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 0.234,
+      "skipped": 0,
+      "tests_run": 3
+    }
+  }
+}

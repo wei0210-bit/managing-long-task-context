@@ -78,7 +78,7 @@ jobs:
           output="$(PYTHONPATH="$GITHUB_WORKSPACE/src:$GITHUB_WORKSPACE/tests" python -m unittest test_handoff_distribution -v 2>&1)" || status=$?
           printf '%s\n' "$output"
           test "$status" -eq 0
-          printf '%s\n' "$output" | grep -Eq '^Ran [1-9][0-9]* tests'
+          grep -Eq '^Ran [1-9][0-9]* tests' <<<"$output"
 
       - name: Run every Strict test from the complete package
         # These fixtures start Python fake CLI processes, never paid Codex tasks.
@@ -90,7 +90,7 @@ jobs:
             output="$(PYTHONPATH="$package/src:$package/tests" python -m unittest discover -s "$package/tests" -v 2>&1)" || status=$?
             printf '%s\n' "$output"
             test "$status" -eq 0
-            printf '%s\n' "$output" | grep -Eq '^Ran [1-9][0-9]* tests'
+            grep -Eq '^Ran [1-9][0-9]* tests' <<<"$output"
           )
 
       - name: Run every Lite test from the complete package
@@ -102,7 +102,7 @@ jobs:
             output="$(PYTHONPATH="$package/scripts:$package/tests" python -m unittest discover -s "$package/tests" -v 2>&1)" || status=$?
             printf '%s\n' "$output"
             test "$status" -eq 0
-            printf '%s\n' "$output" | grep -Eq '^Ran [1-9][0-9]* tests'
+            grep -Eq '^Ran [1-9][0-9]* tests' <<<"$output"
           )
 
       - name: Ensure checks did not rewrite tracked files
