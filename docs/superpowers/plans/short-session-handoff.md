@@ -1,5 +1,7 @@
 ---
 title: 长任务短会话与外置上下文开发计划
+authority: SUPERSEDED
+superseded_by: docs/superpowers/plans/2026-09-16-context-strict-real-migration-hardening.md
 plan_id: short-session-handoff
 plan_version: 0.39
 review_fix_status: prelanding-security-verified
@@ -24,6 +26,8 @@ source_sha256: 5b7e88c7b2c08fe357dacc0774e46f7a55bb5e046fa0e6d989a75166e944f3df
 ---
 
 # 长任务短会话与外置上下文开发计划
+
+> **SUPERSEDED / HISTORICAL_ONLY（2026-09-17）**：本文件只保留 v0.39 及以前的历史决定和验证记录，不再是当前方案，也不再声明当前状态或授权。当前唯一方案见 [2026-09-16-context-strict-real-migration-hardening.md](2026-09-16-context-strict-real-migration-hardening.md)；第 8 节内嵌 Node 校验器依赖未跟踪的本机文件，已退出权威校验链，当前校验由 Strict 包内 `scripts/handoff_preflight.py` 执行。下文“唯一主计划”“当前”等措辞均指当时状态。
 
 本文件是本次升级的唯一主计划。审核结论直接更新对应需求、验收或批次，并在文末追加变更记录，不只留在聊天里。**CEO与工程输入审核完成；E0–E3及E5/E6本地验收后新增的R1–R4与发布前7项安全/分发缺陷均已修复，全回归569/569。E4受限能力报告/拒绝路径已验，真实原生宿主接管仍BLOCKED；E7未触发。真实宿主、模型收益、自然使用和远程CI未验证，不代表生产自动切换已开放。** 最新发布前证据见[对抗复审与修复](../../validation/2026-09-16-prelanding-security-review.md)；v0.38候选包保留作历史基线。
 

@@ -1,0 +1,128 @@
+{
+  "ci_run_id": 35174817862,
+  "conclusion": "success",
+  "event": "pull_request",
+  "head_sha": "0f342ad8ad40080b526fc2d5d9c34ddaaf0601e3",
+  "job": {
+    "completed_at": "2026-09-17T02:36:20Z",
+    "conclusion": "success",
+    "duration_seconds": 219,
+    "name": "Tests and skill packages",
+    "started_at": "2026-09-17T02:32:41Z",
+    "steps": [
+      {
+        "conclusion": "success",
+        "name": "Set up job"
+      },
+      {
+        "conclusion": "success",
+        "name": "Check out complete history"
+      },
+      {
+        "conclusion": "success",
+        "name": "Set up Python"
+      },
+      {
+        "conclusion": "success",
+        "name": "Prepare existing temporary-file fixtures"
+      },
+      {
+        "conclusion": "success",
+        "name": "Run all tests, including distribution consistency"
+      },
+      {
+        "conclusion": "success",
+        "name": "Verify complete skill packages outside the checkout"
+      },
+      {
+        "conclusion": "success",
+        "name": "Run Strict handoff package smoke and integrity counterexamples"
+      },
+      {
+        "conclusion": "success",
+        "name": "Run every Strict test from the complete package"
+      },
+      {
+        "conclusion": "success",
+        "name": "Run every Lite test from the complete package"
+      },
+      {
+        "conclusion": "success",
+        "name": "Ensure checks did not rewrite tracked files"
+      },
+      {
+        "conclusion": "success",
+        "name": "Post Set up Python"
+      },
+      {
+        "conclusion": "success",
+        "name": "Post Check out complete history"
+      },
+      {
+        "conclusion": "success",
+        "name": "Complete job"
+      }
+    ],
+    "timeout_minutes": 5
+  },
+  "notes": [
+    "The root full suite skip is the legacy 0.7.0 migration class; MLTC_LEGACY_PACKAGE is not provided on CI.",
+    "head_sha is the documentation/evidence commit that contains implementation_head 0f9fdd1 unchanged in skills/context-strict."
+  ],
+  "read_back_at": "2026-09-17T02:46:38Z",
+  "readback_commands": [
+    "C19",
+    "C20",
+    "C21",
+    "C22"
+  ],
+  "revisions": {
+    "documentation_head": "0f342ad8ad40080b526fc2d5d9c34ddaaf0601e3",
+    "merge_head": null,
+    "verified_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af"
+  },
+  "run_id": "RUN-20260917-phase1-0f9fdd1",
+  "schema": "remote-ci-receipt/v1",
+  "scope": "Exactly one GitHub Actions run: the CI workflow on the pushed evidence commit. The commit that adds this receipt triggers another run that is not recorded here.",
+  "status": "completed",
+  "unittest_results": [
+    {
+      "errors": 0,
+      "failures": 0,
+      "result": "OK",
+      "seconds": 124.963,
+      "skipped": 1,
+      "step": "Run all tests, including distribution consistency",
+      "tests_run": 665
+    },
+    {
+      "errors": 0,
+      "failures": 0,
+      "result": "OK",
+      "seconds": 5.36,
+      "skipped": 0,
+      "step": "Run Strict handoff package smoke and integrity counterexamples",
+      "tests_run": 5
+    },
+    {
+      "errors": 0,
+      "failures": 0,
+      "result": "OK",
+      "seconds": 65.843,
+      "skipped": 0,
+      "step": "Run every Strict test from the complete package",
+      "tests_run": 496
+    },
+    {
+      "errors": 0,
+      "failures": 0,
+      "result": "OK",
+      "seconds": 10.911,
+      "skipped": 0,
+      "step": "Run every Lite test from the complete package",
+      "tests_run": 64
+    }
+  ],
+  "url": "https://github.com/wei0210-bit/managing-long-task-context/actions/runs/35174817862",
+  "workflow": "CI"
+}

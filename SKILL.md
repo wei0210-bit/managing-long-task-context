@@ -32,6 +32,28 @@ limits are in `references/host-native.md`. For host-supplied window/usage signal
 use `scripts/context_usage.py` per `references/context-usage.md`; recommendations
 never grant control. Do not scan chats or call a model to produce these signals.
 
+### Session migration: one mode, three separate results
+
+Before creating any new session, record `migration_mode: strict_protocol` or
+`migration_mode: manual_fallback`. Never omit it, never use `automatic`, `skill`, or `normal`,
+and never switch modes silently. From the complete built package, run
+`scripts/handoff_preflight.py` (`PYTHONPATH=<package>/src`) with the stage inputs in
+`references/handoff.md`. Its exit `0/1/2` means only preflight `pass/fail/unknown`, never
+that migration, takeover, or archive finished.
+
+Report `information_recovery`, `control_transfer`, and `source_retirement` separately; never a
+single `migration_success`. File, path, and SHA checks prove only `material_integrity`.
+`information_recovery=pass` needs an exact readback of the five fact categories `objective`,
+`current_state`, `constraints`, `next_action`, and `unresolved_risks`. A `clientThreadId`, task
+title, self-report, or chat reply never proves `control_transfer`. `manual_fallback` always keeps
+`control_transfer=unknown` and `source_retirement=not_allowed`. In this phase every mode keeps
+`archive_allowed=false`: never archive the source session.
+
+On any UNKNOWN, keep the source session, stop dispatching new controller work from it, allow
+only read-only checks, do not blindly retry create/activate/archive, and give one read-only
+next action. BLOCKED is only for a concrete external blocker, NOT_RUN for work not run, UNKNOWN
+for facts that cannot be proven; `brief_diagnostics().usable=true` proves structure, not currency.
+
 ### 1. Bind storage, publish, then release
 
 Prefer one absolute store so process `cwd` cannot select a different task:
@@ -210,3 +232,4 @@ neither is injected by default.
 - Unusable brief, missing checkpoint, mismatched evidence handler, or failed self-probe: do not hand off or complete.
 - A summary without a stable path to the original is unverified; read the original.
 - New machinery without a realistic dynamic scenario is candidate-only, not proven.
+- Missing migration mode, a single migration-success claim, or an archive request: stop; report the three results separately and keep the source session.

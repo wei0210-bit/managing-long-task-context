@@ -1,0 +1,1146 @@
+{
+  "counting_rule": "one unittest.TestCase method per ID; subTest does not add methods",
+  "failure_modes": {
+    "FM-01": "package identity: script imports another install or manifest changes during import",
+    "FM-02": "bounded read: symlink, FIFO/directory, inode change during read, or oversize input",
+    "FM-03": "Git: verified_head missing or not an ancestor, timeout, or output overflow",
+    "FM-04": "allowlist: non-allowlisted change after verification or relevant uncommitted file",
+    "FM-05": "checklist/readback: Unicode, CRLF, duplicate ID, unknown field, missing category, same ID different value",
+    "FM-06": "Strict prepare: handoff record not yet created",
+    "FM-07": "Strict activate: client ID only, self-report, or evidence changed during the call",
+    "FM-08": "Strict status: historical commit while current verifier or package is invalid",
+    "FM-09": "Manual recovery: material SHA correct but facts mismatched",
+    "FM-10": "Distribution: root fixed but Strict copy stale, or script leaks into Lite",
+    "FM-11": "Stable output: material text, user names, temporary paths, or exception text leak",
+    "FM-12": "Skill behaviour: directive present but the agent reports overall success or archives"
+  },
+  "method_counts": {
+    "cli": 18,
+    "distribution": 4,
+    "integration": 12,
+    "performance": 4,
+    "regression_scenario": 20,
+    "unit": 28
+  },
+  "minimum_methods": {
+    "cli": 18,
+    "distribution": 4,
+    "integration": 12,
+    "performance": 4,
+    "regression_scenario": 19,
+    "unit": 28
+  },
+  "not_run": {
+    "EVAL-01": {
+      "acceptance_criteria": [
+        29
+      ],
+      "category": "behaviour_eval",
+      "failure_modes": [
+        "FM-12"
+      ],
+      "reason": "no isolated LLM behaviour eval harness was authorized",
+      "status": "NOT_RUN"
+    },
+    "NAT-01": {
+      "acceptance_criteria": [
+        15
+      ],
+      "category": "natural",
+      "failure_modes": [
+        "FM-09"
+      ],
+      "reason": "manual fallback cold recovery requires separate user authorization",
+      "status": "NOT_RUN"
+    }
+  },
+  "schema": "migration-test-inventory/v1",
+  "tests": [
+    {
+      "acceptance_criteria": [
+        24
+      ],
+      "failure_modes": [
+        "FM-01"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-01",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_01_package_root_missing_or_not_canonical_is_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        24
+      ],
+      "failure_modes": [
+        "FM-01"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-02",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_02_script_outside_package_root_is_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        24
+      ],
+      "failure_modes": [
+        "FM-01"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-03",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_03_manifest_changed_after_preflight_start_is_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        24
+      ],
+      "failure_modes": [
+        "FM-01"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-04",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_04_tools_or_runtime_loaded_from_another_tree_are_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        21
+      ],
+      "failure_modes": [
+        "FM-02"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-05",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_05_regular_file_is_hashed_from_the_same_bytes_and_closed"
+    },
+    {
+      "acceptance_criteria": [
+        21
+      ],
+      "failure_modes": [
+        "FM-02"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-06",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_06_symbolic_links_are_rejected_at_file_and_directory_level"
+    },
+    {
+      "acceptance_criteria": [
+        21
+      ],
+      "failure_modes": [
+        "FM-02"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-07",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_07_fifo_and_directory_are_rejected_without_blocking"
+    },
+    {
+      "acceptance_criteria": [
+        21,
+        23
+      ],
+      "failure_modes": [
+        "FM-02"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-08",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_08_one_mebibyte_passes_and_one_more_byte_is_oversize"
+    },
+    {
+      "acceptance_criteria": [
+        21
+      ],
+      "failure_modes": [
+        "FM-02"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-09",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_09_change_or_replacement_during_read_is_a_read_race"
+    },
+    {
+      "acceptance_criteria": [
+        21
+      ],
+      "failure_modes": [
+        "FM-02"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-10",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_10_missing_input_is_unknown_and_escaping_path_fails"
+    },
+    {
+      "acceptance_criteria": [
+        20
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-11",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_11_allowlist_accepts_only_plan_context_and_evidence_runs"
+    },
+    {
+      "acceptance_criteria": [
+        27
+      ],
+      "failure_modes": [
+        "FM-03"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-12",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_12_nul_separated_git_output_is_bounded_and_rename_aware"
+    },
+    {
+      "acceptance_criteria": [
+        20,
+        22
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-13",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_13_ancestor_with_only_allowlisted_later_changes_passes"
+    },
+    {
+      "acceptance_criteria": [
+        2,
+        20
+      ],
+      "failure_modes": [
+        "FM-03"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-14",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_14_missing_non_ancestor_or_code_change_is_stale"
+    },
+    {
+      "acceptance_criteria": [
+        20
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-15",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_15_uncommitted_or_untracked_files_are_unknown_unless_bound"
+    },
+    {
+      "acceptance_criteria": [
+        2,
+        9,
+        10,
+        22
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-16",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_16_recovery_entry_has_one_current_authority_and_split_git_fields"
+    },
+    {
+      "acceptance_criteria": [
+        4,
+        23
+      ],
+      "failure_modes": [
+        "FM-05"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-17",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_17_checklist_digest_is_canonical_and_ignores_fact_order"
+    },
+    {
+      "acceptance_criteria": [
+        23
+      ],
+      "failure_modes": [
+        "FM-05"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-18",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_18_non_nfc_text_is_rejected_without_normalization"
+    },
+    {
+      "acceptance_criteria": [
+        23
+      ],
+      "failure_modes": [
+        "FM-05"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-19",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_19_carriage_returns_are_rejected"
+    },
+    {
+      "acceptance_criteria": [
+        23
+      ],
+      "failure_modes": [
+        "FM-05"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-20",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_20_unknown_missing_or_wrong_schema_fields_are_rejected"
+    },
+    {
+      "acceptance_criteria": [
+        23
+      ],
+      "failure_modes": [
+        "FM-05"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-21",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_21_duplicate_fact_ids_and_duplicate_json_keys_are_rejected"
+    },
+    {
+      "acceptance_criteria": [
+        23
+      ],
+      "failure_modes": [
+        "FM-05"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-22",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_22_each_of_the_five_categories_is_required"
+    },
+    {
+      "acceptance_criteria": [
+        23
+      ],
+      "failure_modes": [
+        "FM-05"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-23",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_23_sixty_four_facts_pass_and_sixty_five_are_oversize"
+    },
+    {
+      "acceptance_criteria": [
+        23
+      ],
+      "failure_modes": [
+        "FM-05"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-24",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_24_strict_json_rejects_non_finite_invalid_utf8_and_bom"
+    },
+    {
+      "acceptance_criteria": [
+        11,
+        25
+      ],
+      "failure_modes": [
+        "FM-11"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-25",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_25_every_stable_code_has_one_status_and_one_readonly_action"
+    },
+    {
+      "acceptance_criteria": [
+        18
+      ],
+      "failure_modes": [
+        "FM-11"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-26",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_26_preflight_status_aggregation_maps_to_exit_codes"
+    },
+    {
+      "acceptance_criteria": [
+        25
+      ],
+      "failure_modes": [
+        "FM-11"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-27",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_27_blocking_reasons_keep_check_order_and_one_next_action"
+    },
+    {
+      "acceptance_criteria": [
+        25
+      ],
+      "failure_modes": [
+        "FM-11"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "UNIT-28",
+      "primary_category": "unit",
+      "test": "test_handoff_preflight.PreflightUnitTests.test_unit_28_unexpected_exception_is_projected_without_exception_text"
+    },
+    {
+      "acceptance_criteria": [
+        26
+      ],
+      "failure_modes": [
+        "FM-06"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-01",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_01_strict_prepare_passes_without_an_existing_handoff_record"
+    },
+    {
+      "acceptance_criteria": [
+        6,
+        26
+      ],
+      "failure_modes": [
+        "FM-06"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-02",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_02_strict_prepare_requires_explicit_contract_capability"
+    },
+    {
+      "acceptance_criteria": [
+        6,
+        26
+      ],
+      "failure_modes": [
+        "FM-06"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-03",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_03_strict_prepare_with_unavailable_contract_store_is_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        6,
+        26
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-04",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_04_strict_activate_passes_only_with_trusted_verifier_and_exact_readback"
+    },
+    {
+      "acceptance_criteria": [
+        6,
+        7
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-05",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_05_strict_activate_without_trusted_verifier_stays_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        6,
+        7
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-06",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_06_strict_activate_with_changed_bearing_evidence_fails_closed"
+    },
+    {
+      "acceptance_criteria": [
+        8,
+        12
+      ],
+      "failure_modes": [
+        "FM-08"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-07",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_07_strict_status_reports_committed_control_with_current_verification"
+    },
+    {
+      "acceptance_criteria": [
+        8,
+        12
+      ],
+      "failure_modes": [
+        "FM-08"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-08",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_08_strict_status_keeps_history_visible_when_current_verifier_is_missing"
+    },
+    {
+      "acceptance_criteria": [
+        8,
+        16
+      ],
+      "failure_modes": [
+        "FM-08"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-09",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_09_strict_status_for_pending_or_cancelled_handoff_is_not_a_transfer"
+    },
+    {
+      "acceptance_criteria": [
+        5,
+        8
+      ],
+      "failure_modes": [
+        "FM-09"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-10",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_10_manual_recovery_reports_information_recovery_only"
+    },
+    {
+      "acceptance_criteria": [
+        4,
+        5
+      ],
+      "failure_modes": [
+        "FM-09"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-11",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_11_manual_material_pass_with_wrong_readback_fails_information_recovery"
+    },
+    {
+      "acceptance_criteria": [
+        4,
+        5
+      ],
+      "failure_modes": [
+        "FM-09"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "INT-12",
+      "primary_category": "integration",
+      "test": "test_handoff_preflight.PreflightIntegrationTests.test_int_12_manual_readback_bound_to_another_checklist_is_a_material_failure"
+    },
+    {
+      "acceptance_criteria": [
+        8,
+        18
+      ],
+      "failure_modes": [
+        "FM-11"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-01",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_01_passing_manual_report_has_stable_keys_and_identical_output"
+    },
+    {
+      "acceptance_criteria": [
+        3,
+        26
+      ],
+      "failure_modes": [
+        "FM-11"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-02",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_02_invalid_mode_stage_or_argument_matrix_fails_before_reading"
+    },
+    {
+      "acceptance_criteria": [
+        2
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-03",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_03_wrong_expected_plan_digest_exits_one"
+    },
+    {
+      "acceptance_criteria": [
+        2,
+        10
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-04",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_04_recovery_entry_bound_to_an_older_plan_digest_is_stale"
+    },
+    {
+      "acceptance_criteria": [
+        2,
+        20
+      ],
+      "failure_modes": [
+        "FM-03"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-05",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_05_old_verified_head_after_code_change_is_stale"
+    },
+    {
+      "acceptance_criteria": [
+        2
+      ],
+      "failure_modes": [
+        "FM-01"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-06",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_06_missing_or_different_package_digest_is_not_current"
+    },
+    {
+      "acceptance_criteria": [
+        2,
+        9
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-07",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_07_multiple_current_entries_or_unlabelled_old_plan_exit_one"
+    },
+    {
+      "acceptance_criteria": [
+        1,
+        2
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-08",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_08_missing_untracked_or_absolute_links_exit_one"
+    },
+    {
+      "acceptance_criteria": [
+        4,
+        21
+      ],
+      "failure_modes": [
+        "FM-02"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-09",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_09_missing_material_is_unknown_not_a_pass"
+    },
+    {
+      "acceptance_criteria": [
+        21
+      ],
+      "failure_modes": [
+        "FM-02"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-10",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_10_symlinked_or_escaping_material_is_rejected"
+    },
+    {
+      "acceptance_criteria": [
+        4
+      ],
+      "failure_modes": [
+        "FM-09"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-11",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_11_expected_handoff_digest_mismatch_blocks_material_integrity"
+    },
+    {
+      "acceptance_criteria": [
+        25
+      ],
+      "failure_modes": [
+        "FM-11"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-12",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_12_stable_output_redacts_material_paths_users_and_exception_text"
+    },
+    {
+      "acceptance_criteria": [
+        1,
+        22
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-13",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_13_clean_clone_needs_no_untracked_local_source_file"
+    },
+    {
+      "acceptance_criteria": [
+        24
+      ],
+      "failure_modes": [
+        "FM-01"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-14",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_14_script_outside_a_built_package_is_package_identity_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        24
+      ],
+      "failure_modes": [
+        "FM-01"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-15",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_15_mixed_runtime_or_missing_pythonpath_is_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        24
+      ],
+      "failure_modes": [
+        "FM-01"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-16",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_16_tampered_package_file_is_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        14,
+        18
+      ],
+      "failure_modes": [
+        "FM-11"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-17",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_17_preflight_writes_nothing_even_without_bytecode_suppression"
+    },
+    {
+      "acceptance_criteria": [
+        6,
+        7
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "CLI-18",
+      "primary_category": "cli",
+      "test": "test_handoff_preflight.PreflightCliTests.test_cli_18_cli_has_no_host_verifier_so_strict_activation_cannot_pass"
+    },
+    {
+      "acceptance_criteria": [
+        27
+      ],
+      "failure_modes": [
+        "FM-03"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "PERF-01",
+      "primary_category": "performance",
+      "test": "test_handoff_preflight.PreflightPerformanceTests.test_perf_01_single_git_call_timeout_kills_the_process_and_is_unknown"
+    },
+    {
+      "acceptance_criteria": [
+        27
+      ],
+      "failure_modes": [
+        "FM-03"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "PERF-02",
+      "primary_category": "performance",
+      "test": "test_handoff_preflight.PreflightPerformanceTests.test_perf_02_cumulative_budget_stops_launching_git_after_the_deadline"
+    },
+    {
+      "acceptance_criteria": [
+        27
+      ],
+      "failure_modes": [
+        "FM-03"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "PERF-03",
+      "primary_category": "performance",
+      "test": "test_handoff_preflight.PreflightPerformanceTests.test_perf_03_stream_and_path_count_limits_are_unknown_without_raw_output"
+    },
+    {
+      "acceptance_criteria": [
+        28
+      ],
+      "failure_modes": [
+        "FM-03"
+      ],
+      "file": "tests/test_handoff_preflight.py",
+      "id": "PERF-04",
+      "primary_category": "performance",
+      "test": "test_handoff_preflight.PreflightPerformanceTests.test_perf_04_git_calls_cpu_time_and_peak_rss_stay_bounded_as_inputs_grow"
+    },
+    {
+      "acceptance_criteria": [
+        13
+      ],
+      "failure_modes": [
+        "FM-10"
+      ],
+      "file": "tests/test_distribution.py",
+      "id": "DIST-01",
+      "primary_category": "distribution",
+      "test": "test_distribution.ContextStrictDistributionTests.test_dist_01_preflight_script_and_tests_are_byte_identical_generated_copies"
+    },
+    {
+      "acceptance_criteria": [
+        13
+      ],
+      "failure_modes": [
+        "FM-10"
+      ],
+      "file": "tests/test_distribution.py",
+      "id": "DIST-02",
+      "primary_category": "distribution",
+      "test": "test_distribution.ContextStrictDistributionTests.test_dist_02_preflight_is_listed_exactly_once_in_independent_and_sync_lists"
+    },
+    {
+      "acceptance_criteria": [
+        13
+      ],
+      "failure_modes": [
+        "FM-10"
+      ],
+      "file": "tests/test_distribution.py",
+      "id": "DIST-03",
+      "primary_category": "distribution",
+      "test": "test_distribution.ContextStrictDistributionTests.test_dist_03_lite_sources_tools_and_built_package_never_contain_preflight"
+    },
+    {
+      "acceptance_criteria": [
+        13,
+        14
+      ],
+      "failure_modes": [
+        "FM-10"
+      ],
+      "file": "tests/test_distribution.py",
+      "id": "DIST-04",
+      "primary_category": "distribution",
+      "test": "test_distribution.ContextStrictDistributionTests.test_dist_04_second_sync_of_a_copied_tree_writes_no_new_bytes"
+    },
+    {
+      "acceptance_criteria": [
+        12,
+        16
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-01",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_01_v1_capability_and_public_exports_are_unchanged"
+    },
+    {
+      "acceptance_criteria": [
+        12,
+        16
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-02",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_02_v1_event_record_and_result_fields_match_the_097c952_baseline"
+    },
+    {
+      "acceptance_criteria": [
+        12
+      ],
+      "failure_modes": [
+        "FM-08"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-03",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_03_v1_return_keys_and_statuses_are_unchanged"
+    },
+    {
+      "acceptance_criteria": [
+        12
+      ],
+      "failure_modes": [
+        "FM-08"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-04",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_04_repeated_activation_request_is_idempotent"
+    },
+    {
+      "acceptance_criteria": [
+        12
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-05",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_05_controller_generation_mismatch_writes_no_control_event"
+    },
+    {
+      "acceptance_criteria": [
+        12
+      ],
+      "failure_modes": [
+        "FM-10"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-06",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_06_v1_runtime_shared_doctor_and_lite_are_unchanged_since_097c952"
+    },
+    {
+      "acceptance_criteria": [
+        5,
+        16
+      ],
+      "failure_modes": [
+        "FM-09"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-07",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_07_preflight_source_never_calls_v1_writers_or_writes_files"
+    },
+    {
+      "acceptance_criteria": [
+        7,
+        12
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-08",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_08_native_adapters_still_refuse_control_and_archive"
+    },
+    {
+      "acceptance_criteria": [
+        16,
+        17,
+        19
+      ],
+      "failure_modes": [
+        "FM-12"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-09",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_09_no_v2_receipt_or_control_event_and_phase2_stays_gated"
+    },
+    {
+      "acceptance_criteria": [
+        8,
+        16
+      ],
+      "failure_modes": [
+        "FM-12"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-10",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_10_every_outcome_projection_keeps_three_axes_and_archive_closed"
+    },
+    {
+      "acceptance_criteria": [
+        3,
+        8,
+        11
+      ],
+      "failure_modes": [
+        "FM-12"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-11",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_11_skill_requires_mode_three_results_and_no_archive"
+    },
+    {
+      "acceptance_criteria": [
+        3,
+        5,
+        11
+      ],
+      "failure_modes": [
+        "FM-12"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-12",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_12_handoff_reference_fixes_strict_and_manual_flows"
+    },
+    {
+      "acceptance_criteria": [
+        8
+      ],
+      "failure_modes": [
+        "FM-12"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-13",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_13_packaged_example_reports_three_results_without_success_flag"
+    },
+    {
+      "acceptance_criteria": [
+        29
+      ],
+      "failure_modes": [
+        "FM-12"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "REG-14",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationRegressionTests.test_reg_14_test_inventory_has_unique_ids_no_gaps_and_bound_failure_modes"
+    },
+    {
+      "acceptance_criteria": [
+        2,
+        9,
+        15,
+        20
+      ],
+      "failure_modes": [
+        "FM-03",
+        "FM-04"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "SCN-01",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationScenarioTests.test_scn_01_stale_recovery_entry_after_later_code_commit_is_not_current"
+    },
+    {
+      "acceptance_criteria": [
+        1,
+        9,
+        15
+      ],
+      "failure_modes": [
+        "FM-04"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "SCN-02",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationScenarioTests.test_scn_02_current_repository_entry_needs_no_untracked_validator_input"
+    },
+    {
+      "acceptance_criteria": [
+        7,
+        15
+      ],
+      "failure_modes": [
+        "FM-07"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "SCN-03",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationScenarioTests.test_scn_03_client_thread_id_only_never_transfers_control"
+    },
+    {
+      "acceptance_criteria": [
+        4,
+        15
+      ],
+      "failure_modes": [
+        "FM-05",
+        "FM-09"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "SCN-04",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationScenarioTests.test_scn_04_material_intact_but_readback_rewritten_fails_information_recovery"
+    },
+    {
+      "acceptance_criteria": [
+        5,
+        15
+      ],
+      "failure_modes": [
+        "FM-09"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "SCN-05",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationScenarioTests.test_scn_05_manual_recovery_success_leaves_control_unknown_and_source_kept"
+    },
+    {
+      "acceptance_criteria": [
+        15,
+        16
+      ],
+      "failure_modes": [
+        "FM-08",
+        "FM-12"
+      ],
+      "file": "tests/test_real_migration_regression.py",
+      "id": "SCN-06",
+      "primary_category": "regression_scenario",
+      "test": "test_real_migration_regression.RealMigrationScenarioTests.test_scn_06_archive_stays_forbidden_even_after_confirmed_strict_activation"
+    }
+  ],
+  "validation_errors": []
+}

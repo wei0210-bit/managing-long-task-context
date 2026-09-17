@@ -1,0 +1,812 @@
+{
+  "acceptance_criteria": [
+    {
+      "commands": [
+        "C03",
+        "R01",
+        "R03"
+      ],
+      "id": "AC1",
+      "local_status": "pass",
+      "tests": [
+        "CLI-08",
+        "CLI-13",
+        "SCN-02"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC2",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-14",
+        "UNIT-16",
+        "CLI-03",
+        "CLI-04",
+        "CLI-05",
+        "CLI-06",
+        "CLI-07",
+        "CLI-08",
+        "SCN-01"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC3",
+      "local_status": "pass",
+      "tests": [
+        "CLI-02",
+        "REG-11",
+        "REG-12"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "R01"
+      ],
+      "id": "AC4",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-17",
+        "INT-11",
+        "INT-12",
+        "CLI-09",
+        "CLI-11",
+        "SCN-04"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "R01"
+      ],
+      "id": "AC5",
+      "local_status": "pass",
+      "tests": [
+        "INT-10",
+        "INT-11",
+        "INT-12",
+        "REG-07",
+        "REG-12",
+        "SCN-05"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "C12"
+      ],
+      "id": "AC6",
+      "local_status": "pass",
+      "tests": [
+        "INT-02",
+        "INT-03",
+        "INT-04",
+        "INT-05",
+        "INT-06",
+        "CLI-18"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC7",
+      "local_status": "pass",
+      "tests": [
+        "INT-05",
+        "INT-06",
+        "CLI-18",
+        "REG-08",
+        "SCN-03"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "C10"
+      ],
+      "id": "AC8",
+      "local_status": "pass",
+      "tests": [
+        "INT-07",
+        "INT-08",
+        "INT-09",
+        "INT-10",
+        "CLI-01",
+        "REG-10",
+        "REG-11",
+        "REG-13"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "R01",
+        "C18"
+      ],
+      "id": "AC9",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-16",
+        "CLI-07",
+        "SCN-01",
+        "SCN-02"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "C18"
+      ],
+      "id": "AC10",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-16",
+        "CLI-04"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC11",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-25",
+        "REG-11",
+        "REG-12"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "C12"
+      ],
+      "id": "AC12",
+      "local_status": "pass",
+      "tests": [
+        "INT-07",
+        "INT-08",
+        "REG-01",
+        "REG-02",
+        "REG-03",
+        "REG-04",
+        "REG-05",
+        "REG-06",
+        "REG-08"
+      ]
+    },
+    {
+      "commands": [
+        "C04",
+        "C05",
+        "C03",
+        "C15"
+      ],
+      "id": "AC13",
+      "local_status": "pass",
+      "tests": [
+        "DIST-01",
+        "DIST-02",
+        "DIST-03",
+        "DIST-04"
+      ]
+    },
+    {
+      "commands": [
+        "C02b",
+        "C03",
+        "C16",
+        "C17",
+        "C06",
+        "C07",
+        "C08a",
+        "C08b",
+        "C08c",
+        "C09a",
+        "C09b",
+        "C09c",
+        "C11",
+        "C12",
+        "C13",
+        "C14",
+        "C19",
+        "C20",
+        "C21",
+        "C22"
+      ],
+      "id": "AC14",
+      "local_status": "pass",
+      "note": "C02 first attempt FAILED 3 pre-existing test_truth_sources lock-timing tests (2 s child-process join) under heavy host load; they pass in C03, C16 and C02b, and their sources are unchanged (C17). The fixed command without MLTC_LEGACY_PACKAGE has 1 expected skip (C02b); C03 supplies the frozen 0.7.0 package and has 0 skip. Remote CI run 35174817862 passed on 0f342ad8ad40080b526fc2d5d9c34ddaaf0601e3 (root 665 tests with 1 legacy skip, Strict package 496, Lite package 64).",
+      "tests": [
+        "CLI-17",
+        "DIST-04"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC15",
+      "local_status": "pass",
+      "note": "Deterministic replays SCN-01..06 pass; NAT-01 natural manual replay NOT_RUN (not authorized).",
+      "tests": [
+        "SCN-01",
+        "SCN-02",
+        "SCN-03",
+        "SCN-04",
+        "SCN-05",
+        "SCN-06"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC16",
+      "local_status": "pass",
+      "tests": [
+        "INT-09",
+        "REG-01",
+        "REG-02",
+        "REG-07",
+        "REG-09",
+        "REG-10",
+        "SCN-06"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC17",
+      "local_status": "pass",
+      "note": "No host token/cost data: benefit remains NOT_RUN/UNKNOWN.",
+      "tests": [
+        "REG-09"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "R01",
+        "R03"
+      ],
+      "id": "AC18",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-26",
+        "CLI-01",
+        "CLI-17"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC19",
+      "local_status": "pass",
+      "note": "Phase 2 trigger section is checked textually; no Phase 2 work started.",
+      "tests": [
+        "REG-09"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "R01"
+      ],
+      "id": "AC20",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-11",
+        "UNIT-13",
+        "UNIT-14",
+        "UNIT-15",
+        "CLI-05",
+        "SCN-01"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC21",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-05",
+        "UNIT-06",
+        "UNIT-07",
+        "UNIT-08",
+        "UNIT-09",
+        "UNIT-10",
+        "CLI-09",
+        "CLI-10"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "R01"
+      ],
+      "id": "AC22",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-13",
+        "UNIT-16",
+        "CLI-13"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC23",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-08",
+        "UNIT-17",
+        "UNIT-18",
+        "UNIT-19",
+        "UNIT-20",
+        "UNIT-21",
+        "UNIT-22",
+        "UNIT-23",
+        "UNIT-24"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "C12"
+      ],
+      "id": "AC24",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-01",
+        "UNIT-02",
+        "UNIT-03",
+        "UNIT-04",
+        "CLI-14",
+        "CLI-15",
+        "CLI-16"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC25",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-25",
+        "UNIT-27",
+        "UNIT-28",
+        "CLI-12"
+      ]
+    },
+    {
+      "commands": [
+        "C03",
+        "R03"
+      ],
+      "id": "AC26",
+      "local_status": "pass",
+      "tests": [
+        "INT-01",
+        "INT-02",
+        "INT-03",
+        "INT-04",
+        "CLI-02"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC27",
+      "local_status": "pass",
+      "tests": [
+        "UNIT-12",
+        "PERF-01",
+        "PERF-02",
+        "PERF-03"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC28",
+      "local_status": "pass",
+      "note": "PERF-04 asserts fixed Git calls, CPU time and peak RSS; wall time is reported separately below.",
+      "tests": [
+        "PERF-04"
+      ]
+    },
+    {
+      "commands": [
+        "C03"
+      ],
+      "id": "AC29",
+      "local_status": "pass",
+      "note": "Inventory validated by REG-14; EVAL-01 behaviour eval NOT_RUN and reported separately.",
+      "tests": [
+        "REG-14"
+      ]
+    }
+  ],
+  "authorization": {
+    "granted": "User message 2026-09-17: implement Phase 1 T1-T4 and generate T5 local evidence.",
+    "not_granted": [
+      "v2 receipt",
+      "archive old session",
+      "modify shared context_doctor.py or Lite interface",
+      "NAT-01",
+      "EVAL-01",
+      "real host migration",
+      "merge",
+      "push",
+      "deploy"
+    ]
+  },
+  "checks": {
+    "C01 clean tree at verified commit": true,
+    "C02b fixed full test command rerun": true,
+    "C03 full tests, zero skip": true,
+    "C04 first sync zero diff": true,
+    "C05 second sync zero new diff": true,
+    "C06 Strict check-source": true,
+    "C07 Lite check-source": true,
+    "C08 Lite build/verify/full doctor outside tree": true,
+    "C09 Strict build/verify/full doctor outside tree": true,
+    "C10 packaged example three results": true,
+    "C11 handoff distribution counterexamples": true,
+    "C12 all Strict package tests": true,
+    "C13 all Lite package tests": true,
+    "C14 checks did not rewrite tracked files": true,
+    "C15 Lite manifest has no preflight": true,
+    "C16 isolated rerun of the C02 lock-timing failures": true,
+    "C17 flaky suite and truth-source runtime unchanged since baseline": true,
+    "C18 CONTEXT/plan regression subset on the evidence-commit documents": true,
+    "R01 rehearsal manual recovery": true,
+    "R02 rehearsal synthetic contract": true,
+    "R03 rehearsal strict prepare": true,
+    "inventory validation": true
+  },
+  "deviations": [
+    "test-inventory.json was generated after the tests were written, not before implementation as the plan orders; REG-14 validates it mechanically.",
+    "WP2 (Skill/reference/example) and WP3 (tests/sync/generated package) share one commit because the documented script path and generated package must land together for check-source.",
+    "Runtime handoff records live at <context-root>/<task-id>/handoff/<handoff-id>.json (existing v1 path); the plan text says handoffs/. The preflight uses the runtime path helper and does not change v1.",
+    "The plan lists example error codes; the preflight adds registered codes (e.g. PREFLIGHT_AUTHORITY_CONFLICT, PREFLIGHT_WORKTREE_DIRTY, PREFLIGHT_PACKAGE_SHA_MISSING, PREFLIGHT_UNEXPECTED_ERROR), each with one fixed status class.",
+    "The fixed full-test command yields 1 skip unless MLTC_LEGACY_PACKAGE names the frozen 0.7.0 package, which currently exists only under local /private/tmp.",
+    "Strict status maps confirmed_not_committed (pending or cancelled) to control_transfer=fail with no controller generation.",
+    "The preflight reads existing private runtime helpers (_capture_prepare_inputs, _control_projection, _read_handoff_json, _paths) without modifying them.",
+    "Root skill-package.json required_paths now also lists scripts/handoff_preflight.py and tests/test_handoff_preflight.py.",
+    "The packaged example now needs a git executable.",
+    "C02 (fixed full-test command) failed on its first attempt: 3 pre-existing timing-sensitive tests in test_truth_sources (child process must exit within 2 s) under host load averages of roughly 50-60. Not caused by this change (C17); reruns pass (C16, C02b). Flakiness risk remains for loaded hosts and CI."
+  ],
+  "environment": {
+    "git": "git version 2.54.0 (Apple Git-157)",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "Python 3.12.13",
+    "run_id": "RUN-20260917-phase1-0f9fdd1",
+    "source_revision": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af"
+  },
+  "expected_artifacts": [
+    {
+      "path": "test-inventory.json",
+      "status": "present"
+    },
+    {
+      "path": "verification-report.json",
+      "status": "present"
+    },
+    {
+      "path": "commands.jsonl",
+      "status": "present"
+    },
+    {
+      "note": "single CI run 35174817862; added after push authorization",
+      "path": "remote-ci-receipt.json",
+      "status": "present"
+    },
+    {
+      "path": "manual-replay.json",
+      "reason": "NAT-01 natural manual fallback replay is not authorized",
+      "status": "not_run"
+    },
+    {
+      "path": "eval-01.json",
+      "reason": "EVAL-01 isolated agent behaviour evaluation is not authorized",
+      "status": "not_run"
+    },
+    {
+      "note": "generated last; lists every other artifact; excludes itself",
+      "path": "evidence-manifest.sha256",
+      "status": "present"
+    }
+  ],
+  "generated_by": "local evidence runner (scratch, not committed); receipts in commands.jsonl",
+  "migration_results_evidence": {
+    "packaged_example_C10": {
+      "activate": "confirmed_committed",
+      "identity": "pass",
+      "manual_fallback_results": {
+        "archive_allowed": false,
+        "control_transfer": "unknown",
+        "controller_generation": null,
+        "information_recovery": "pass",
+        "preflight_exit": 0,
+        "source_retirement": "not_allowed"
+      },
+      "status": "confirmed_committed",
+      "strict_migration_results": {
+        "archive_allowed": false,
+        "control_transfer": "pass",
+        "controller_generation": 1,
+        "information_recovery": "pass",
+        "source_retirement": "not_allowed"
+      },
+      "strict_preflight": {
+        "activate": "pass",
+        "prepare": "pass",
+        "status": "pass"
+      }
+    },
+    "rehearsal_manual_fallback_R01": {
+      "archive_allowed": false,
+      "blocking_reasons": [],
+      "material_integrity": "pass",
+      "migration_outcome": {
+        "control_transfer": {
+          "commit_status": "not_attempted",
+          "controller_generation": null,
+          "status": "unknown"
+        },
+        "information_recovery": {
+          "evidence_refs": [
+            "handoff_file",
+            "recovery_checklist",
+            "recovery_readback"
+          ],
+          "status": "pass"
+        },
+        "source_retirement": {
+          "archive_allowed": false,
+          "evidence_refs": [],
+          "status": "not_allowed"
+        }
+      },
+      "preflight_status": "pass",
+      "recovery_coverage": {
+        "categories": {
+          "constraints": 1,
+          "current_state": 1,
+          "next_action": 1,
+          "objective": 1,
+          "unresolved_risks": 1
+        },
+        "fact_count": 5
+      },
+      "revisions": {
+        "current_head": "eca39a47ef7ead0ee927a2603bd8a306edbc53bf",
+        "verified_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af"
+      },
+      "stats": {
+        "git_calls": 7,
+        "input_bytes": 65135
+      }
+    },
+    "rehearsal_scope": "R01/R03 ran in a clean clone whose last commit has the same CONTEXT.md, plan, and allowlisted evidence path set as the evidence commit; they are not a post-commit readback.",
+    "rehearsal_strict_prepare_R03": {
+      "archive_allowed": false,
+      "blocking_reasons": [],
+      "material_integrity": "pass",
+      "migration_outcome": {
+        "control_transfer": {
+          "commit_status": "not_attempted",
+          "controller_generation": null,
+          "status": "unknown"
+        },
+        "information_recovery": {
+          "evidence_refs": [],
+          "status": "unknown"
+        },
+        "source_retirement": {
+          "archive_allowed": false,
+          "evidence_refs": [],
+          "status": "not_allowed"
+        }
+      },
+      "preflight_status": "pass",
+      "recovery_coverage": {
+        "categories": {
+          "constraints": 1,
+          "current_state": 1,
+          "next_action": 1,
+          "objective": 1,
+          "unresolved_risks": 1
+        },
+        "fact_count": 5
+      },
+      "revisions": {
+        "current_head": "eca39a47ef7ead0ee927a2603bd8a306edbc53bf",
+        "verified_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af"
+      },
+      "stats": {
+        "git_calls": 7,
+        "input_bytes": 63839
+      }
+    }
+  },
+  "not_run": {
+    "EVAL-01": "NOT_RUN",
+    "NAT-01": "NOT_RUN",
+    "archive_old_session": "not allowed in Phase 1",
+    "real_host_migration_and_takeover": "NOT_RUN/UNKNOWN",
+    "remote_ci": "PASS for evidence commit 0f342ad8ad40080b526fc2d5d9c34ddaaf0601e3 only (CI run 35174817862); see remote-ci-receipt.json",
+    "token_cost_and_natural_benefit": "NOT_RUN/UNKNOWN"
+  },
+  "overall": {
+    "code_and_tests": "complete",
+    "evidence_closure": "pending_manifest_and_commit",
+    "real_host_validation": "NOT_RUN"
+  },
+  "packages": {
+    "context-lite": {
+      "manifest_sha256": "3cd7c06f141dde473dbe0e8f0fbcf6ead035d1f2b1611670a3be4551039fa900",
+      "source_revision": "git:0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af"
+    },
+    "context-strict": {
+      "manifest_sha256": "df1a81abda8d5a1d8851bf972a0b8301b84ee8fc53c4e6f078dffa809c5af4e4",
+      "source_revision": "git:0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af"
+    }
+  },
+  "performance": {
+    "note": "Measured on a shared macOS host; load average varied widely during the session. RSS margin to 64 MiB is small.",
+    "perf_04_metrics": {
+      "grown": {
+        "files": 300,
+        "git_calls": 7,
+        "input_bytes": 4025,
+        "links": 42,
+        "median_cpu_seconds": 0.942,
+        "median_wall_seconds": 1.233,
+        "peak_rss_bytes": 65437696
+      },
+      "small": {
+        "files": 0,
+        "git_calls": 7,
+        "input_bytes": 2636,
+        "links": 2,
+        "median_cpu_seconds": 1.003,
+        "median_wall_seconds": 1.463,
+        "peak_rss_bytes": 66551808
+      }
+    },
+    "rss_target": "pass",
+    "targets": {
+      "median_wall_seconds_lt": 2.0,
+      "peak_rss_bytes_lt": 67108864
+    },
+    "wall_time_target": "pass"
+  },
+  "plan": {
+    "path": "docs/superpowers/plans/2026-09-16-context-strict-real-migration-hardening.md",
+    "sha256": "80bdd97c7babbd7ba50236b7eafe6d972ff9dc8ad8dc382f8075ab19a0a0b3cf"
+  },
+  "revisions": {
+    "baseline_head": "16c06eede42544eb7a4f0271b3590728352e2426",
+    "documentation_and_merge_head_status": "documentation_head read back by CI run 35174817862; merge_head UNKNOWN (not merged when recorded)",
+    "documentation_head": "0f342ad8ad40080b526fc2d5d9c34ddaaf0601e3",
+    "implementation_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af",
+    "merge_head": null,
+    "v1_compatibility_baseline": "097c952e37e7f971274e70579c33c2727cc67fb0",
+    "verified_head": "0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af"
+  },
+  "run_id": "RUN-20260917-phase1-0f9fdd1",
+  "schema": "migration-verification-report/v1",
+  "tasks": {
+    "T1": "complete",
+    "T2": "complete",
+    "T3": "complete",
+    "T4": "complete",
+    "T5": "local evidence generated; authorized manual replay (NAT-01) NOT_RUN"
+  },
+  "test_counts": {
+    "flaky_isolated_rerun": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 1.427,
+      "skipped": 0,
+      "tests_run": 3
+    },
+    "full_suite_fixed_command_first_attempt": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 3,
+      "resource_warnings": 0,
+      "result": "FAILED",
+      "seconds": 335.519,
+      "skipped": 1,
+      "tests_run": 665
+    },
+    "full_suite_fixed_command_rerun": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 104.074,
+      "skipped": 1,
+      "tests_run": 665
+    },
+    "full_suite_zero_skip": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 378.695,
+      "skipped": 0,
+      "tests_run": 671
+    },
+    "handoff_distribution": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 7.487,
+      "skipped": 0,
+      "tests_run": 5
+    },
+    "lite_package_tests": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 17.766,
+      "skipped": 0,
+      "tests_run": 64
+    },
+    "minimum_new_methods": {
+      "cli": 18,
+      "distribution": 4,
+      "integration": 12,
+      "performance": 4,
+      "regression_scenario": 19,
+      "unit": 28
+    },
+    "new_methods_by_category": {
+      "cli": 18,
+      "distribution": 4,
+      "integration": 12,
+      "performance": 4,
+      "regression_scenario": 20,
+      "unit": 28
+    },
+    "new_methods_total": 86,
+    "strict_package_tests": {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "resource_warnings": 0,
+      "result": "OK",
+      "seconds": 101.3,
+      "skipped": 0,
+      "tests_run": 496
+    }
+  }
+}

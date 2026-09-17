@@ -33,6 +33,7 @@ COPIED_FILES = (
     Path("references/handoff.md"),
     Path("references/host-codex-cli.md"),
     Path("references/host-native.md"),
+    Path("scripts/handoff_preflight.py"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
@@ -68,6 +69,7 @@ COPIED_FILES = (
     Path("tests/handoff_gate_fixtures.py"),
     Path("tests/test_handoff_codex_native.py"),
     Path("tests/test_handoff_claude_native.py"),
+    Path("tests/test_handoff_preflight.py"),
     Path("tests/fixtures/truth_source_pilot.md"),
 )
 
