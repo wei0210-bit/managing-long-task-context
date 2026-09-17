@@ -3,14 +3,14 @@ authority: AUTHORITATIVE_NOW
 task: context-strict-real-migration-hardening
 current_phase: phase-1-migration-truth-and-preflight
 plan_path: docs/superpowers/plans/2026-09-16-context-strict-real-migration-hardening.md
-plan_sha256: 489bea1f008650d1f1fa819550c1e484e76d6fdc4b9a7e6f3a2063b0d965d46d
-package_manifest_sha256: null
-package_source_revision: null
+plan_sha256: 80bdd97c7babbd7ba50236b7eafe6d972ff9dc8ad8dc382f8075ab19a0a0b3cf
+package_manifest_sha256: df1a81abda8d5a1d8851bf972a0b8301b84ee8fc53c4e6f078dffa809c5af4e4
+package_source_revision: git:0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af
 baseline_head: 16c06eede42544eb7a4f0271b3590728352e2426
-implementation_head: null
-verified_head: null
-verified_at: null
-updated_at: 2026-09-17T00:00:00Z
+implementation_head: 0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af
+verified_head: 0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af
+verified_at: 2026-09-17T02:13:20Z
+updated_at: 2026-09-17T02:17:10Z
 ---
 
 # 项目恢复入口
@@ -21,6 +21,7 @@ updated_at: 2026-09-17T00:00:00Z
 - `baseline_head` 是本轮实施起点，`implementation_head` 是包含实现的提交，`verified_head` 是最后一次完整校验实际运行的提交。
 - `current_head` 由 `handoff_preflight.py` 实时读取，不写入本文件；`documentation_head`、`merge_head` 只出现在提交后外部回读的验收记录中，缺失即 UNKNOWN。
 - 值为 `null` 的字段表示尚无事实；preflight 按 UNKNOWN 处理，不猜测、不补填。
+- `package_manifest_sha256` 是以 `package_source_revision` 从 `skills/context-strict` 重建的完整包 manifest；不同构建来源的包按 STALE 处理。
 
 ## 状态标签
 
@@ -47,7 +48,9 @@ updated_at: 2026-09-17T00:00:00Z
 - NAT-01（授权的 manual fallback 冷恢复）与 EVAL-01（代理行为评估）：NOT_RUN。
 - 真实宿主迁移与可信接管、远程 CI、token/费用/自然项目收益：NOT_RUN/UNKNOWN。
 - 未授权：v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、合并、推送、部署。
+- 本地实施与验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-phase1-0f9fdd1/`；远程 CI NOT_RUN。
+- 已知风险：`test_truth_sources` 中 3 个既有锁时序测试在高负载主机上曾失败一次，重跑通过，源码未改动。
 
 ## 下一步
 
-First action: 按方案 T2–T4 只编辑维护源，运行同步器与完整验证，再以实际完成完整校验的提交填写 `implementation_head`、`verified_head` 和包 SHA。
+First action: 以 `verified_head` 重建 Strict 包并运行 `handoff_preflight.py` 只读核验本入口；NAT-01、EVAL-01、真实宿主迁移、推送与合并须先取得用户单独授权。

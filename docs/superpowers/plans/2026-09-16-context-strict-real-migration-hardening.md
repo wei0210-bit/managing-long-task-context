@@ -456,19 +456,19 @@ AUTHORITATIVE_NOW plan + CONTEXT
 
 由本轮工程评审问题直接合成。后续只有获得实施授权后才能执行；每完成一项才勾选。
 
-- [ ] **T1 (P1, human: ~3h / Codex: ~30min)** — 权威入口 — 建立唯一当前方案并拆分不可自引用的 Git 身份字段
+- [x] **T1 (P1, human: ~3h / Codex: ~30min)** — 权威入口 — 建立唯一当前方案并拆分不可自引用的 Git 身份字段
   - Surfaced by: Architecture 1/5 — 多份资料可同时声称 current，且跟踪文件不能可靠保存包含自身的 HEAD。
   - Files: `CONTEXT.md`、`docs/superpowers/plans/short-session-handoff.md`、本方案文件。
   - Verify: 在临时 clone 中运行 prepare preflight；断言唯一 `AUTHORITATIVE_NOW`、祖先关系和允许列表差异。
-- [ ] **T2 (P1, human: ~5h / Codex: ~60min)** — Strict preflight — 实现分阶段、受限读取、包身份与有界 Git 检查
+- [x] **T2 (P1, human: ~5h / Codex: ~60min)** — Strict preflight — 实现分阶段、受限读取、包身份与有界 Git 检查
   - Surfaced by: Architecture 2/4/6/7、Code Quality 1/2、Performance 1 — 共享 doctor 不应扩张，退出码不能代表整体成功，输入和子进程必须 fail-closed。
   - Files: `scripts/handoff_preflight.py`。
   - Verify: `python3.12 -m unittest -v tests.test_handoff_preflight`；覆盖 UNIT、INT、CLI、PERF 编号且无 ResourceWarning。
-- [ ] **T3 (P1, human: ~3h / Codex: ~45min)** — Strict Skill — 固定 mode/stage、五类 readback、三轴结果和归档禁止
+- [x] **T3 (P1, human: ~3h / Codex: ~45min)** — Strict Skill — 固定 mode/stage、五类 readback、三轴结果和归档禁止
   - Surfaced by: Architecture 3/4、Code Quality 1 — 材料完整不能冒充信息恢复，信息恢复不能冒充控制迁移。
   - Files: `SKILL.md`、`references/handoff.md`、`examples/short_session_handoff.py`。
   - Verify: REG-07..13、SCN-01..06；确定性文档检查和合成输出都不得产生单一“迁移成功”。
-- [ ] **T4 (P1, human: ~6h / Codex: ~90min)** — 回归与分发 — 建立唯一测试清单并证明根源、Strict 生成物和 Lite 边界
+- [x] **T4 (P1, human: ~6h / Codex: ~90min)** — 回归与分发 — 建立唯一测试清单并证明根源、Strict 生成物和 Lite 边界
   - Surfaced by: Architecture 1/2、Code Quality 3、Test Review 1–4 — 修复可能只落在根文件，测试也可能重复计数或遗漏静默失败。
   - Files: `tests/test_handoff_preflight.py`、`tests/test_real_migration_regression.py`、`tests/test_distribution.py`、`scripts/sync_context_strict_skill.py`、`skills/context-strict/` 生成物。
   - Verify: 全量 unittest；两次同步第二次零 diff；Strict/Lite check-source；源码树外 build/verify/full doctor/包内测试；`test-inventory.json` 无重复或空洞。
@@ -476,6 +476,7 @@ AUTHORITATIVE_NOW plan + CONTEXT
   - Surfaced by: 用户风险要求与 Test Review 4 — 代码/配置通过不能替代实际落实证明，未获授权的自然路径必须保持 NOT_RUN。
   - Files: `docs/superpowers/evidence/context-strict-migration/<run-id>/`。
   - Verify: `evidence-manifest.sha256` 与所有产物匹配；`verification-report.json` 逐项引用 AC、测试 ID、命令回执和三轴结果；没有自然授权时明确 `NAT-01=NOT_RUN`、`EVAL-01=NOT_RUN`。
+  - Status（2026-09-17）：本地证据包 `docs/superpowers/evidence/context-strict-migration/RUN-20260917-phase1-0f9fdd1/` 已生成；获授权的 manual replay（NAT-01）与 EVAL-01 均为 NOT_RUN，因此 T5 保持未勾选。
 
 本轮没有 P3 实施任务。可信宿主 v2 不是“有空再做”的普通 backlog，而是由五项外部能力共同触发的新设计阶段；在触发前把它写进 `TODOS.md` 会造成可立即实施的错觉，因此只保留本方案中的阻塞条件和 D2 决策记录。
 
