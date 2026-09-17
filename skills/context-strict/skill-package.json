@@ -55,6 +55,7 @@
     "references/context-usage.md",
     "scripts/context_identity_core.py",
     "scripts/skill_package.py",
+    "scripts/handoff_preflight.py",
     "src/managing_long_task_context/runtime_identity.py",
     "src/managing_long_task_context/_identity_core.py",
     "src/managing_long_task_context/_experience_store.py",
@@ -78,6 +79,7 @@
     "tests/handoff_gate_fixtures.py",
     "tests/test_handoff_activation.py",
     "tests/test_handoff_protocol.py",
+    "tests/test_handoff_preflight.py",
     "tests/handoff_test_authority.py"
   ],
   "capabilities": {

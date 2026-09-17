@@ -1,4 +1,9 @@
-"""Run a local synthetic short-session handoff without a host adapter or business action."""
+"""Run a local synthetic short-session handoff without a host adapter or business action.
+
+The activation flow is gated by the packaged Strict-only preflight and reports the three
+migration results separately.  A manual fallback run recovers information only.  Nothing
+here archives a session or creates a v2 receipt.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +11,7 @@ import asyncio
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -18,6 +24,8 @@ import managing_long_task_context as context
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+PLAN = "docs/superpowers/plans/synthetic-migration-plan.md"
+CATEGORIES = ("objective", "current_state", "constraints", "next_action", "unresolved_risks")
 
 
 def _digest(value: object) -> str:
@@ -57,6 +65,103 @@ def _full_package_check() -> bool:
     except json.JSONDecodeError:
         return False
     return report.get("status") == "pass" and report.get("full_verification") == "pass"
+
+
+def _git(workspace: Path, *arguments: str) -> str:
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment.update({
+        "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "synthetic",
+        "GIT_AUTHOR_EMAIL": "synthetic@example.invalid", "GIT_COMMITTER_NAME": "synthetic",
+        "GIT_COMMITTER_EMAIL": "synthetic@example.invalid",
+    })
+    return subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", *arguments], cwd=workspace, env=environment,
+        text=True, capture_output=True, check=True, timeout=30,
+    ).stdout.strip()
+
+
+def _authoritative_workspace(workspace: Path) -> dict[str, str]:
+    """Commit a plan, then one AUTHORITATIVE_NOW entry whose verified commit precedes it."""
+    _git(workspace, "init", "-q")
+    plan = workspace / PLAN
+    plan.parent.mkdir(parents=True)
+    plan.write_text("---\nstatus: synthetic\nimplementation_authorized: true\n---\n# Synthetic plan\n", encoding="utf-8")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-q", "-m", "verified synthetic baseline")
+    verified = _git(workspace, "rev-parse", "HEAD")
+    plan_sha256 = hashlib.sha256(plan.read_bytes()).hexdigest()
+    manifest_sha256 = hashlib.sha256((PACKAGE_ROOT / "skill-manifest.json").read_bytes()).hexdigest()
+    (workspace / "CONTEXT.md").write_text("\n".join([
+        "---", "authority: AUTHORITATIVE_NOW", f"plan_path: {PLAN}", f"plan_sha256: {plan_sha256}",
+        f"package_manifest_sha256: {manifest_sha256}", f"baseline_head: {verified}",
+        f"implementation_head: {verified}", f"verified_head: {verified}", "verified_at: 2026-09-17T00:00:00Z",
+        "---", "", "# Synthetic recovery entry", "", f"- Current plan: [plan]({PLAN})", "",
+    ]), encoding="utf-8")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-q", "-m", "recovery entry")
+    return {"verified_head": verified, "plan_sha256": plan_sha256}
+
+
+def _recovery_material(workspace: Path, task_id: str, plan_sha256: str) -> dict[str, str]:
+    """Source handoff and checklist; the target writes its readback only after reading them."""
+    material = workspace / "handoff-material"
+    material.mkdir()
+    handoff = material / "handoff.md"
+    handoff.write_text("# Synthetic handoff\nobjective, state, constraints, next action, risks\n", encoding="utf-8")
+    handoff_sha256 = hashlib.sha256(handoff.read_bytes()).hexdigest()
+    facts = [
+        {"fact_id": f"F-{index}", "category": category, "value": f"synthetic {category}", "source_ref": f"handoff.md#L{index}"}
+        for index, category in enumerate(CATEGORIES, start=1)
+    ]
+    checklist = {"schema": "recovery-checklist/v1", "task_id": task_id, "handoff_sha256": handoff_sha256,
+                 "plan_sha256": plan_sha256, "facts": facts}
+    checklist_sha256 = _digest(dict(checklist, facts=sorted(facts, key=lambda item: item["fact_id"])))
+    readback = {"schema": "recovery-readback/v1", "task_id": task_id, "handoff_sha256": handoff_sha256,
+                "plan_sha256": plan_sha256, "checklist_sha256": checklist_sha256, "facts": list(reversed(facts))}
+    (material / "checklist.json").write_text(json.dumps(checklist, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"handoff": str(handoff), "handoff_sha256": handoff_sha256, "checklist": str(material / "checklist.json"),
+            "checklist_sha256": checklist_sha256, "readback": str(material / "readback.json"),
+            "readback_text": json.dumps(readback, ensure_ascii=False, indent=2)}
+
+
+def _preflight_arguments(mode: str, stage: str, *, workspace: Path, base_dir: Path, task_id: str, handoff_id: str,
+                         authority: dict[str, str], material: dict[str, str]) -> list[str]:
+    arguments = [
+        "--mode", mode, "--stage", stage, "--package-root", str(PACKAGE_ROOT), "--workspace-root", str(workspace),
+        "--task-id", task_id, "--plan", PLAN, "--expected-plan-sha256", authority["plan_sha256"],
+        "--expected-verified-head", authority["verified_head"],
+        "--handoff-file", material["handoff"], "--expected-handoff-sha256", material["handoff_sha256"],
+        "--recovery-checklist", material["checklist"], "--expected-checklist-sha256", material["checklist_sha256"],
+    ]
+    if mode == "strict_protocol":
+        arguments += ["--context-root", str(base_dir), "--handoff-id", handoff_id]
+    if stage != "prepare":
+        arguments += ["--recovery-readback", material["readback"]]
+    return arguments
+
+
+def _load_preflight() -> object:
+    scripts = str(PACKAGE_ROOT / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    spec = importlib.util.spec_from_file_location("handoff_preflight", PACKAGE_ROOT / "scripts" / "handoff_preflight.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _results(outcome: dict[str, object]) -> dict[str, object]:
+    """Three separate results; there is deliberately no single migration-success value."""
+    information, control, retirement = (
+        outcome["information_recovery"], outcome["control_transfer"], outcome["source_retirement"],
+    )
+    assert isinstance(information, dict) and isinstance(control, dict) and isinstance(retirement, dict)
+    return {
+        "information_recovery": information["status"], "control_transfer": control["status"],
+        "controller_generation": control["controller_generation"], "source_retirement": retirement["status"],
+        "archive_allowed": retirement["archive_allowed"],
+    }
 
 
 class SyntheticHost:
@@ -131,9 +236,17 @@ class SyntheticHost:
 
 def _flow(task_id: str, handoff_id: str, *, activate: bool) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="mltc-handoff-example-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         base_dir, workspace = root / "context", root / "workspace"
         workspace.mkdir()
+        contents = {
+            "source": "synthetic source controller\n", "target": "synthetic target controller\n",
+            "authorization": "fixed registered authorization\n", "basis": "readable local basis\n",
+            "artifacts": "synthetic artifact manifest\n",
+        }
+        for reference_id, text in contents.items():
+            (workspace / f"{reference_id}.txt").write_text(text, encoding="utf-8")
+        authority = _authoritative_workspace(workspace) if activate else None
         published = context.publish_contract({
             "schema": 1, "task_id": task_id, "version": 1, "issued_by": "synthetic-publisher",
             "issued_at": "2026-09-15T00:00:00Z", "authorized_approvers": [],
@@ -142,16 +255,9 @@ def _flow(task_id: str, handoff_id: str, *, activate: bool) -> dict[str, object]
             "acceptance_criteria": [{"id": "AC-LOCAL", "criterion": "synthetic only", "required_evidence": ["local fixture"]}],
         }, confirmed_by="synthetic-publisher", base_dir=base_dir)
         cursor = json.loads((base_dir / task_id / "events.jsonl").read_text(encoding="utf-8").splitlines()[-1])["event_id"]
-        contents = {
-            "source": "synthetic source controller\n", "target": "synthetic target controller\n",
-            "authorization": "fixed registered authorization\n", "basis": "readable local basis\n",
-            "artifacts": "synthetic artifact manifest\n",
+        references = {
+            reference_id: _reference(task_id, reference_id, workspace / f"{reference_id}.txt") for reference_id in contents
         }
-        references: dict[str, dict[str, str]] = {}
-        for reference_id, text in contents.items():
-            path = workspace / f"{reference_id}.txt"
-            path.write_text(text, encoding="utf-8")
-            references[reference_id] = _reference(task_id, reference_id, path)
         record: dict[str, object] = {
             "protocol": "short-session-handoff/v1", "task_id": task_id, "contract_version": 1,
             "contract_digest": published["seal"]["integrity_digest"].removeprefix("sha256:"),
@@ -165,6 +271,22 @@ def _flow(task_id: str, handoff_id: str, *, activate: bool) -> dict[str, object]
         identity = object()
         verifier = SyntheticHost(record, contents, identity, "prepare", base_dir)
         bound = context.bind(base_dir, workspace_root=workspace, package_root=PACKAGE_ROOT)
+        gates: dict[str, object] = {}
+        if activate:
+            assert authority is not None
+            material = _recovery_material(workspace, task_id, authority["plan_sha256"])
+            preflight = _load_preflight()
+
+            def gate(stage: str, host: object) -> dict[str, object]:
+                report, _ = preflight.run_preflight(  # type: ignore[attr-defined]
+                    _preflight_arguments("strict_protocol", stage, workspace=workspace, base_dir=base_dir, task_id=task_id,
+                                         handoff_id=handoff_id, authority=authority, material=material),
+                    handoff_verifier=host,
+                )
+                gates[stage] = report["preflight_status"]
+                return report
+
+            gate("prepare", None)
         prepared = bound.prepare_handoff(
             task_id,
             request_id=record["request_id"], controller_generation=0, record=record, runtime_identity=identity,
@@ -183,6 +305,9 @@ def _flow(task_id: str, handoff_id: str, *, activate: bool) -> dict[str, object]
                 runtime_identity=cancel_identity, write_authorizer=cancel_host, handoff_verifier=cancel_host,
             )
             return {"prepare": prepared, "validate": validated, "cancel": cancelled}
+        if activate:
+            Path(material["readback"]).write_text(material["readback_text"], encoding="utf-8")
+        gate("activate", verifier)
         activate_identity = object()
         activate_host = SyntheticHost(record, contents, activate_identity, "activate", base_dir)
         activated = asyncio.run(context.run(
@@ -206,9 +331,19 @@ def _flow(task_id: str, handoff_id: str, *, activate: bool) -> dict[str, object]
             json.loads(line)["event_type"] == "handoff_activated"
             for line in after_repeat.decode("utf-8").splitlines()
         )
+        strict_report = gate("status", activate_host)
+        manual = subprocess.run(
+            [sys.executable, str(PACKAGE_ROOT / "scripts" / "handoff_preflight.py"),
+             *_preflight_arguments("manual_fallback", "recovery", workspace=workspace, base_dir=base_dir, task_id=task_id,
+                                   handoff_id=handoff_id, authority=authority, material=material)],
+            cwd=root, env={**os.environ, "PYTHONPATH": str(PACKAGE_ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"},
+            text=True, capture_output=True, timeout=60,
+        )
         return {
             "prepare": prepared, "validate": validated, "activate": activated, "repeat": repeated, "status": status,
             "repeat_activate_same_event_log": before_repeat == after_repeat, "activation_events": activation_events,
+            "preflight": gates, "strict_outcome": strict_report["migration_outcome"],
+            "manual_exit": manual.returncode, "manual": json.loads(manual.stdout),
         }
 
 
@@ -229,6 +364,9 @@ def main() -> int:
         "repeat_activate_same_event_log": primary["repeat_activate_same_event_log"],
         "activation_events": primary["activation_events"],
         "status": primary["status"]["commit_status"], "cancel": cancelled["cancel"]["commit_status"],
+        "strict_preflight": primary["preflight"],
+        "strict_migration_results": _results(primary["strict_outcome"]),
+        "manual_fallback_results": {"preflight_exit": primary["manual_exit"], **_results(primary["manual"]["migration_outcome"])},
     }
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     expected = {
@@ -236,6 +374,15 @@ def main() -> int:
         "activate": "confirmed_committed", "repeat_activate_generation": 1,
         "repeat_activate_same_event_log": True, "activation_events": 1,
         "status": "confirmed_committed", "cancel": "confirmed_committed",
+        "strict_preflight": {"prepare": "pass", "activate": "pass", "status": "pass"},
+        "strict_migration_results": {
+            "information_recovery": "pass", "control_transfer": "pass", "controller_generation": 1,
+            "source_retirement": "not_allowed", "archive_allowed": False,
+        },
+        "manual_fallback_results": {
+            "preflight_exit": 0, "information_recovery": "pass", "control_transfer": "unknown",
+            "controller_generation": None, "source_retirement": "not_allowed", "archive_allowed": False,
+        },
     }
     return 0 if report == expected else 1
 
