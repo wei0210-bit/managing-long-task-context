@@ -1,0 +1,59 @@
+{
+  "schema": "migration-status-reconciliation/v1",
+  "observed_at": "2026-09-19T09:34:27Z",
+  "observation_method": "read-only GitHub CLI and local Git object readback",
+  "repository": "wei0210-bit/managing-long-task-context",
+  "remote_main": {
+    "commit": "59604f54e8384fa427d38886acd2354de70c5b6b",
+    "status": "observed"
+  },
+  "pull_requests": [
+    {
+      "number": 25,
+      "state": "MERGED",
+      "merged_at": "2026-09-17T02:56:52Z",
+      "merge_commit": "f5b5fc16b168457b18e37ac1897dbded8ed6ccca",
+      "head_ref": "claude/phase-1-t1-t5-implementation-d9e39e",
+      "required_check": {
+        "name": "Tests and skill packages",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "run_url": "https://github.com/wei0210-bit/managing-long-task-context/actions/runs/35175710471"
+      },
+      "url": "https://github.com/wei0210-bit/managing-long-task-context/pull/25"
+    },
+    {
+      "number": 26,
+      "state": "MERGED",
+      "merged_at": "2026-09-17T03:51:50Z",
+      "merge_commit": "59604f54e8384fa427d38886acd2354de70c5b6b",
+      "head_ref": "claude/ci-herestring-epipe-fix",
+      "required_check": {
+        "name": "Tests and skill packages",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "run_url": "https://github.com/wei0210-bit/managing-long-task-context/actions/runs/35179382768"
+      },
+      "url": "https://github.com/wei0210-bit/managing-long-task-context/pull/26"
+    }
+  ],
+  "implementation_status": {
+    "T1": "complete",
+    "T2": "complete",
+    "T3": "complete",
+    "T4": "complete",
+    "T5": "partial",
+    "NAT-01": "NOT_RUN",
+    "EVAL-01": "NOT_RUN",
+    "real_host_migration": "NOT_RUN/UNKNOWN",
+    "archive_allowed": false,
+    "v2_receipts": "deferred"
+  },
+  "corrections": [
+    "PR #26 is merged, not pending.",
+    "Remote CI is PASS, not NOT_RUN/UNKNOWN.",
+    "The plan is implementation-authorized and T1-T4 are landed; the former implementation_authorized=false summary is historical.",
+    "T5 remains partial because NAT-01 and EVAL-01 were not authorized or run."
+  ],
+  "scope": "status documentation only; no runtime, Skill, test, package, deployment, archive, or migration action"
+}
