@@ -3,14 +3,14 @@ authority: AUTHORITATIVE_NOW
 task: context-strict-real-migration-hardening
 current_phase: phase-1-migration-truth-and-preflight
 plan_path: docs/superpowers/plans/2026-09-16-context-strict-real-migration-hardening.md
-plan_sha256: 80bdd97c7babbd7ba50236b7eafe6d972ff9dc8ad8dc382f8075ab19a0a0b3cf
+plan_sha256: 16356e68940f5e47e5a0ed932435e3b8a105019227294f8b1ff38983d9e97e0f
 package_manifest_sha256: 222246a2a7b2d3bd368c019bf38aecca67023603a6b1629886df5b6c2538bc9b
 package_source_revision: git:8e86db6cb058ff931790483941320228aa9ff9fb
 baseline_head: 16c06eede42544eb7a4f0271b3590728352e2426
 implementation_head: 0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af
 verified_head: 8e86db6cb058ff931790483941320228aa9ff9fb
 verified_at: 2026-09-17T03:22:23Z
-updated_at: 2026-09-17T03:45:07Z
+updated_at: 2026-09-19T13:06:07Z
 ---
 
 # 项目恢复入口
@@ -46,12 +46,13 @@ updated_at: 2026-09-17T03:45:07Z
 ## 未验证与授权边界
 
 - NAT-01（授权的 manual fallback 冷恢复）与 EVAL-01（代理行为评估）：NOT_RUN。
-- 真实宿主迁移与可信接管、远程 CI、token/费用/自然项目收益：NOT_RUN/UNKNOWN。
-- 未授权：v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、合并、推送、部署。
-- 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）；`RUN-20260917-phase1-0f9fdd1/` 为 HISTORICAL_ONLY。远程 CI：run 35178996161（PR #26，测试树与 `a36d089` 相同）success。
+- 真实宿主迁移与可信接管、token/费用/自然项目收益：NOT_RUN/UNKNOWN；远程 CI：PASS。
+- 未授权：v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、NAT-01、EVAL-01、真实宿主迁移，以及后续新的合并、推送或部署。
+- 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）；`RUN-20260917-phase1-0f9fdd1/` 为 HISTORICAL_ONLY。远程 CI：run 35178996161（证据提交）与 PR #26 required check run 35179382768 均 success。
+- 合并后状态回读：`docs/superpowers/evidence/context-strict-migration/RUN-20260919-status-correction/`；在 `2026-09-19T09:34:27Z` 回读时，PR #25 已合并为 `f5b5fc1`，PR #26 已合并为 `59604f5`，且当时远程 `main` 指向 `59604f5`。该值是带时间点的历史观察，不冒充实时 `current_head`。
 - 已知风险：`test_truth_sources` 中 3 个既有锁时序测试在高负载主机上曾失败一次，重跑通过，源码未改动。
-- CI 修复：三处 `printf | grep -q` 在 `pipefail` 下的 EPIPE 误报（run 35175710471 attempt 1）已改为 here-string；本地复现、完整重验与远程 CI run 35178996161 均通过；PR #26 未合并，须用合并提交方式合入。
+- CI 修复：三处 `printf | grep -q` 在 `pipefail` 下的 EPIPE 误报（run 35175710471 attempt 1）已改为 here-string；本地复现、完整重验、证据提交 CI run 35178996161 与 PR #26 required check 均通过；PR #26 已合并。
 
 ## 下一步
 
-First action: 以 `verified_head` 重建 Strict 包并运行 `handoff_preflight.py` 只读核验本入口；NAT-01、EVAL-01、真实宿主迁移、推送与合并须先取得用户单独授权。
+First action: 若要继续完成 T5，先单独授权并定义 NAT-01 或 EVAL-01 的安全 fixture；在此之前保持真实宿主迁移、控制接管和归档为 NOT_RUN/UNKNOWN。任何后续新的推送、合并或部署仍须单独授权。

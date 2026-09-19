@@ -1,12 +1,17 @@
 ---
-status: eng-review-complete
+status: phase-1-implementation-complete-t5-partial
 spec_type: context-migration-operational-hardening
-verified_at: 2026-09-16
-verified_head: 097c952
+verified_at: 2026-09-17T03:22:23Z
+verified_head: 8e86db6cb058ff931790483941320228aa9ff9fb
+status_reconciled_at: 2026-09-19T09:34:27Z
 scope_decision: phase-1-reduced
 current_phase: migration-truth-and-preflight
 deferred_phase: trusted-host-v2-receipts
 implementation_authorized: true
+implementation_status: t1-t4-complete-t5-partial
+remote_ci: pass
+natural_validation: not_run
+agent_behavior_eval: not_run
 issue_filing_authorized: false
 agent_spawn_authorized: false
 semantic_review: clean
@@ -32,13 +37,13 @@ outside_voice: skipped-under-codex
 - 子任务与宿主适配器：可能在控制权未确定时继续写入或重复执行。
 - 后续实施者：可能复用旧版本通过的校验结果，而没有验证当前 HEAD。
 
-本方案只定义后续优化，不授权修改 Skill、运行时代码、会话状态，不授权归档旧会话，不授权创建实施代理、合并、发布或部署。
+以下 Context、基线、Root Cause 与 Proposed Change 记录 `2026-09-16` 工程评审阶段的决策输入；它们是历史基线，不覆盖 frontmatter、D16/D17 与文末状态摘要所记录的后续实施事实。该评审阶段只定义后续优化，不授权修改 Skill、运行时代码、会话状态，不授权归档旧会话，不授权创建实施代理、合并、发布或部署。
 
 本轮工程评审已确认缩减当前实施范围：第一阶段只修复迁移真实性、权威入口、只读预检和事故回归；可信宿主接口尚不存在时，不提前实现 v2 receipt、source-retirement receipt、运行时 authority state 或经济性实验。
 
-## Verified Current State
+## 2026-09-16 Verified Baseline（HISTORICAL_ONLY）
 
-核验日期：2026-09-16。当前仓库 HEAD 为 `097c952`，已包含原短会话接管候选实现。
+核验日期：2026-09-16。当时仓库 HEAD 为 `097c952`，已包含原短会话接管候选实现。此节只描述实施前基线；当前实施与合并状态以 frontmatter、D16/D17 和文末状态摘要为准。
 
 | 组件 | 已有能力 | 实际应用结果 | 缺口 |
 |---|---|---|---|
@@ -52,7 +57,7 @@ outside_voice: skipped-under-codex
 | 旧会话归档 | 原设计要求接管成功后归档 | 旧会话正确保留 | 新会话成功后没有回写和后续归档机制 |
 | 收益评估 | 已有合成冷恢复案例 | 证明可恢复 | 没有 No-Skill 对照、token、费用或自然项目证据 |
 
-### 当前代码证据
+### 当时的代码证据
 
 - `src/managing_long_task_context/handoff.py:692` 已有只读验证入口。
 - `src/managing_long_task_context/handoff.py:739` 会区分当前校验结果与历史提交事实。
@@ -454,7 +459,7 @@ AUTHORITATIVE_NOW plan + CONTEXT
 
 ## Implementation Tasks
 
-由本轮工程评审问题直接合成。后续只有获得实施授权后才能执行；每完成一项才勾选。
+由工程评审问题直接合成。D16 已授权 T1–T4 与 T5 的本地证据生成；每完成一项才勾选。
 
 - [x] **T1 (P1, human: ~3h / Codex: ~30min)** — 权威入口 — 建立唯一当前方案并拆分不可自引用的 Git 身份字段
   - Surfaced by: Architecture 1/5 — 多份资料可同时声称 current，且跟踪文件不能可靠保存包含自身的 HEAD。
@@ -476,7 +481,7 @@ AUTHORITATIVE_NOW plan + CONTEXT
   - Surfaced by: 用户风险要求与 Test Review 4 — 代码/配置通过不能替代实际落实证明，未获授权的自然路径必须保持 NOT_RUN。
   - Files: `docs/superpowers/evidence/context-strict-migration/<run-id>/`。
   - Verify: `evidence-manifest.sha256` 与所有产物匹配；`verification-report.json` 逐项引用 AC、测试 ID、命令回执和三轴结果；没有自然授权时明确 `NAT-01=NOT_RUN`、`EVAL-01=NOT_RUN`。
-  - Status（2026-09-17）：本地证据包 `docs/superpowers/evidence/context-strict-migration/RUN-20260917-phase1-0f9fdd1/` 已生成；获授权的 manual replay（NAT-01）与 EVAL-01 均为 NOT_RUN，因此 T5 保持未勾选。
+  - Status（2026-09-19 校正）：本地证据包 `RUN-20260917-phase1-0f9fdd1/` 与当前验证头证据包 `RUN-20260917-ci-herestring-8e86db6/` 已生成，远程 CI 已通过；NAT-01 与 EVAL-01 均为 NOT_RUN，因此 T5 保持未勾选。
 
 本轮没有 P3 实施任务。可信宿主 v2 不是“有空再做”的普通 backlog，而是由五项外部能力共同触发的新设计阶段；在触发前把它写进 `TODOS.md` 会造成可立即实施的错觉，因此只保留本方案中的阻塞条件和 D2 决策记录。
 
@@ -657,6 +662,7 @@ python3.12 scripts/skill_package.py check-source --source skills/context-lite
 | 后续实施 | `docs/superpowers/evidence/context-strict-migration/<run-id>/manual-replay.json` | 获得自然验证授权后生成；否则不创建 | NAT-01 输入指纹、readback、三轴结果与无归档证明 |
 | 后续实施 | `docs/superpowers/evidence/context-strict-migration/<run-id>/eval-01.json` | 获得隔离行为验证条件后生成；否则不创建 | 模型/宿主/fixture/原始输出摘要/判定器版本 |
 | 后续实施 | `docs/superpowers/evidence/context-strict-migration/<run-id>/evidence-manifest.sha256` | 最后生成 | 对本 run 所有已生成产物做完整性封口；不列自身 |
+| 合并后校正 | `docs/superpowers/evidence/context-strict-migration/RUN-20260919-status-correction/` | 只读 GitHub/Git 回读 | 证明 PR #25/#26 已合并、required check 成功及 T5 仍为 partial |
 
 `verification-report.json` 必须显式列出预期产物，并将每项标记为 `present`、`not_run` 或 `not_applicable`；缺文件不能静默忽略。`manual-replay.json` 与 `eval-01.json` 未获授权时以报告中的 `NOT_RUN` 条目替代，禁止生成伪回执。`evidence-manifest.sha256`、Git 树和报告三者任一不一致，修复落实状态为 unknown，不得宣称完成。
 
@@ -677,14 +683,14 @@ python3.12 scripts/skill_package.py check-source --source skills/context-lite
 - 未跟踪原始对话和用户现有冲突副本。
 - 用户对合并、部署、生产修改和付费验证的人工授权边界。
 
-## NOT in scope
+## NOT in scope（工程评审与 Phase 1 边界）
 
-- 本轮评审直接修改 Skill 或运行时代码；后续实施仍需用户另行授权。
-- 当前就归档旧会话。
+- `2026-09-16` 工程评审阶段直接修改 Skill 或运行时代码；后续 D16 已单独授权并完成 T1–T4，不能反向解释为评审阶段已有实施权限。
+- Phase 1 与本次状态校正均不归档旧会话；归档仍需可信宿主接口与新的明确授权。
 - 实现 Codex 或 Claude 的新宿主原生接口。
 - 在可信宿主接口出现前设计或实现 `short-session-handoff/v2`、successor receipt、source-retirement receipt、新控制事件或归档资格投影。
 - 第一阶段新增运行时 `authority-state/v1` 或修改 `brief_diagnostics()`。
-- 合并、部署、发布新版本或修改全局安装。
+- D16 所授权的 Phase 1 实施不包含合并、部署、发布新版本或修改全局安装；任何后续动作继续逐次授权，本次状态校正的推送/合并授权不扩大为部署或发布权限。
 - 批量重写所有历史账本。
 - 运行 No Skill/Lite/Strict 经济性实验，或在没有宿主数据时宣称 token、费用、模型稳定性收益。
 
@@ -713,12 +719,12 @@ python3.12 scripts/skill_package.py check-source --source skills/context-lite
 
 因此本方案把当前实施压缩为 Phase 1、复用 v1、采用 Strict-only preflight，并要求小而封口的证据 bundle。历史验证资料只作回归输入，不自动升级为 current proof；任何“文件存在”“进程退出 0”或“包构建成功”都不能单独证明信息恢复、控制迁移或旧源退役。
 
-## 本轮方案交付 Definition of Done
+## 工程评审阶段 Definition of Done（历史）
 
 1. 本文件进入工程评审，已按用户选择缩减为第一阶段；前一版 8/10 质量门禁只属于缩减前草稿，不冒充当前评审结论。
 2. 本文件落盘后没有修改任何计划外文件。
-3. 本轮没有启动实施代理、创建 GitHub Issue、修改 Skill、归档会话或执行部署。
-4. 后续实施只有在用户另行授权后，才从 WP1 开始。
+3. 该评审阶段没有启动实施代理、创建 GitHub Issue、修改 Skill、归档会话或执行部署。
+4. 后续实施须另行授权；该授权后来由 D16 记录，不能反向解释为评审阶段已经实施。
 
 ## 后续实施 Definition of Done
 
@@ -749,8 +755,9 @@ python3.12 scripts/skill_package.py check-source --source skills/context-lite
 - D14：测试以唯一 ID 和失败模式绑定计数；确定性 Skill 文档断言与真实代理行为 `EVAL-01` 分开，未运行不冒充通过。
 - D15：后续落实只有在证据 bundle 的产物清单、manifest、Git 树和报告一致时才可确认；缺失自然验证必须明确 `NOT_RUN`。
 - D16（2026-09-17）：用户授权实施 T1–T4 与 T5 的本地证据生成，`implementation_authorized` 改为 `true`；该授权不包含 v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、`NAT-01`、`EVAL-01`、真实宿主迁移、合并、推送和部署。
+- D17（2026-09-19 状态校正）：GitHub 实时回读确认 Phase 1 实现 PR #25 已于 2026-09-17T02:56:52Z 合并为 `f5b5fc1`，CI 修复 PR #26 已于 2026-09-17T03:51:50Z 合并为 `59604f5`；两条 PR 的 required check 均为 SUCCESS。该事实更新不扩大 NAT-01、EVAL-01、真实宿主迁移、归档或 v2 权限。
 
-## Engineering Review Completion Summary
+## Engineering Review and Phase 1 Status Summary
 
 - Step 0 Scope Challenge：按建议缩减为 Phase 1；v2 等待五项可信宿主能力后重新设计。
 - Architecture Review：7 个问题，全部折入方案。
@@ -763,9 +770,11 @@ python3.12 scripts/skill_package.py check-source --source skills/context-lite
 - Outside voice：当前运行于 Codex，按 skill 规则跳过嵌套 Codex；没有冒充独立复核。
 - Parallelization：4 条 lane；B/C 两条可并行，A/D 两条顺序门禁。
 - Lake Score：15/15 条建议采用并写入方案。
-- 本轮产物：方案、80 行测试计划、5 行唯一任务 JSONL；两份外部产物 SHA-256 已记录。
-- 基线回归：`tests.test_distribution` + `tests.test_handoff_distribution` 共 12 项通过，失败 0。
-- 实施状态：`implementation_authorized=false`；本轮未修改 Skill/运行时代码，未归档、未部署、未创建 Issue 或实施代理。
+- 评审产物：方案、80 行测试计划、5 行唯一任务 JSONL；两份外部产物 SHA-256 已记录。
+- Phase 1 实施：T1–T4 已完成并经 PR #25 合并；CI here-string 修复经 PR #26 合并。
+- 验证结果：完整零 skip 套件 671 项通过；Strict 包 496 项、Lite 包 64 项通过；PR #25、#26 required check 均为 SUCCESS。
+- T5 状态：本地证据与远程 CI 回执已生成；NAT-01、EVAL-01、真实宿主迁移仍为 NOT_RUN，旧会话未归档。
+- 权限边界：不因合并事实自动授权 v2、归档、NAT-01、EVAL-01、真实宿主迁移或后续新的推送/合并/部署。
 
 ## GSTACK REVIEW REPORT
 
@@ -777,6 +786,6 @@ python3.12 scripts/skill_package.py check-source --source skills/context-lite
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | N/A | 后端、CLI 与文档方案，无 UI 变更 |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | 未运行 |
 
-**VERDICT:** ENG CLEARED — 方案已可进入另行授权的 Phase 1 实施；不代表实施已完成，也不授权 v2、归档、合并或部署。
+**VERDICT:** ENG CLEARED；PHASE 1 T1–T4 LANDED — T5 仍因 NAT-01 与 EVAL-01 未运行而部分完成；不授权 v2、归档、真实宿主迁移或后续新的推送/合并/部署。
 
 NO UNRESOLVED DECISIONS
