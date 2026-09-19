@@ -3,14 +3,14 @@ authority: AUTHORITATIVE_NOW
 task: context-strict-real-migration-hardening
 current_phase: phase-1-migration-truth-and-preflight
 plan_path: docs/superpowers/plans/2026-09-16-context-strict-real-migration-hardening.md
-plan_sha256: c0ee7bdfc7ad15fd06597359f583ec4868b94095c1860b9461e172c1ea1674c0
+plan_sha256: 16356e68940f5e47e5a0ed932435e3b8a105019227294f8b1ff38983d9e97e0f
 package_manifest_sha256: 222246a2a7b2d3bd368c019bf38aecca67023603a6b1629886df5b6c2538bc9b
 package_source_revision: git:8e86db6cb058ff931790483941320228aa9ff9fb
 baseline_head: 16c06eede42544eb7a4f0271b3590728352e2426
 implementation_head: 0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af
 verified_head: 8e86db6cb058ff931790483941320228aa9ff9fb
 verified_at: 2026-09-17T03:22:23Z
-updated_at: 2026-09-19T09:34:27Z
+updated_at: 2026-09-19T13:06:07Z
 ---
 
 # 项目恢复入口
@@ -49,7 +49,7 @@ updated_at: 2026-09-19T09:34:27Z
 - 真实宿主迁移与可信接管、token/费用/自然项目收益：NOT_RUN/UNKNOWN；远程 CI：PASS。
 - 未授权：v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、NAT-01、EVAL-01、真实宿主迁移，以及后续新的合并、推送或部署。
 - 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）；`RUN-20260917-phase1-0f9fdd1/` 为 HISTORICAL_ONLY。远程 CI：run 35178996161（证据提交）与 PR #26 required check run 35179382768 均 success。
-- 合并后状态回读：`docs/superpowers/evidence/context-strict-migration/RUN-20260919-status-correction/`；PR #25 已合并为 `f5b5fc1`，PR #26 已合并为当前远程 main `59604f5`。
+- 合并后状态回读：`docs/superpowers/evidence/context-strict-migration/RUN-20260919-status-correction/`；在 `2026-09-19T09:34:27Z` 回读时，PR #25 已合并为 `f5b5fc1`，PR #26 已合并为 `59604f5`，且当时远程 `main` 指向 `59604f5`。该值是带时间点的历史观察，不冒充实时 `current_head`。
 - 已知风险：`test_truth_sources` 中 3 个既有锁时序测试在高负载主机上曾失败一次，重跑通过，源码未改动。
 - CI 修复：三处 `printf | grep -q` 在 `pipefail` 下的 EPIPE 误报（run 35175710471 attempt 1）已改为 here-string；本地复现、完整重验、证据提交 CI run 35178996161 与 PR #26 required check 均通过；PR #26 已合并。
 

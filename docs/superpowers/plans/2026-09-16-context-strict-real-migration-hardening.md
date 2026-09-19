@@ -37,13 +37,13 @@ outside_voice: skipped-under-codex
 - 子任务与宿主适配器：可能在控制权未确定时继续写入或重复执行。
 - 后续实施者：可能复用旧版本通过的校验结果，而没有验证当前 HEAD。
 
-本方案只定义后续优化，不授权修改 Skill、运行时代码、会话状态，不授权归档旧会话，不授权创建实施代理、合并、发布或部署。
+以下 Context、基线、Root Cause 与 Proposed Change 记录 `2026-09-16` 工程评审阶段的决策输入；它们是历史基线，不覆盖 frontmatter、D16/D17 与文末状态摘要所记录的后续实施事实。该评审阶段只定义后续优化，不授权修改 Skill、运行时代码、会话状态，不授权归档旧会话，不授权创建实施代理、合并、发布或部署。
 
 本轮工程评审已确认缩减当前实施范围：第一阶段只修复迁移真实性、权威入口、只读预检和事故回归；可信宿主接口尚不存在时，不提前实现 v2 receipt、source-retirement receipt、运行时 authority state 或经济性实验。
 
-## Verified Current State
+## 2026-09-16 Verified Baseline（HISTORICAL_ONLY）
 
-核验日期：2026-09-16。当前仓库 HEAD 为 `097c952`，已包含原短会话接管候选实现。
+核验日期：2026-09-16。当时仓库 HEAD 为 `097c952`，已包含原短会话接管候选实现。此节只描述实施前基线；当前实施与合并状态以 frontmatter、D16/D17 和文末状态摘要为准。
 
 | 组件 | 已有能力 | 实际应用结果 | 缺口 |
 |---|---|---|---|
@@ -57,7 +57,7 @@ outside_voice: skipped-under-codex
 | 旧会话归档 | 原设计要求接管成功后归档 | 旧会话正确保留 | 新会话成功后没有回写和后续归档机制 |
 | 收益评估 | 已有合成冷恢复案例 | 证明可恢复 | 没有 No-Skill 对照、token、费用或自然项目证据 |
 
-### 当前代码证据
+### 当时的代码证据
 
 - `src/managing_long_task_context/handoff.py:692` 已有只读验证入口。
 - `src/managing_long_task_context/handoff.py:739` 会区分当前校验结果与历史提交事实。
@@ -683,14 +683,14 @@ python3.12 scripts/skill_package.py check-source --source skills/context-lite
 - 未跟踪原始对话和用户现有冲突副本。
 - 用户对合并、部署、生产修改和付费验证的人工授权边界。
 
-## NOT in scope
+## NOT in scope（工程评审与 Phase 1 边界）
 
-- 本轮评审直接修改 Skill 或运行时代码；后续实施仍需用户另行授权。
-- 当前就归档旧会话。
+- `2026-09-16` 工程评审阶段直接修改 Skill 或运行时代码；后续 D16 已单独授权并完成 T1–T4，不能反向解释为评审阶段已有实施权限。
+- Phase 1 与本次状态校正均不归档旧会话；归档仍需可信宿主接口与新的明确授权。
 - 实现 Codex 或 Claude 的新宿主原生接口。
 - 在可信宿主接口出现前设计或实现 `short-session-handoff/v2`、successor receipt、source-retirement receipt、新控制事件或归档资格投影。
 - 第一阶段新增运行时 `authority-state/v1` 或修改 `brief_diagnostics()`。
-- 合并、部署、发布新版本或修改全局安装。
+- D16 所授权的 Phase 1 实施不包含合并、部署、发布新版本或修改全局安装；任何后续动作继续逐次授权，本次状态校正的推送/合并授权不扩大为部署或发布权限。
 - 批量重写所有历史账本。
 - 运行 No Skill/Lite/Strict 经济性实验，或在没有宿主数据时宣称 token、费用、模型稳定性收益。
 
