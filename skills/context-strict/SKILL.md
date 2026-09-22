@@ -269,6 +269,10 @@ See also `references/bot-pipeline-handoff.md`.
 
 新合同应填写现存绝对目录 `workspace_root`，并启用 `evidence-handlers/v1`。自由文本证据类型不会被发布拒绝；用 `managing_long_task_context.evidence.contract_compat_report` 检查缺失或不存在的工作区，以及未映射到内置或已声明 handler 的证据类型。
 
+## Usage freshness
+
+交接前调用 `managing_long_task_context.usage_freshness.usage_freshness_report(task_root, now=...)`。它只读任务目录。账本停更、合同版本超过 5、以及名为 `.DS_Store` 或匹配末尾 ` 2` 副本的条目会给出 warning。最近一次 checkpoint 早于 72 小时，或缺少 checkpoint，报告状态为 unknown。`audit`、`brief`、`gate` 的既有结论不变。
+
 ## Hard stops
 
 - Missing, unsealed, modified, or unauthorized contract: stop and return to publisher.

@@ -39,6 +39,7 @@ COPIED_FILES = (
     Path("scripts/handoff_preflight.py"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
+    Path("src/managing_long_task_context/usage_freshness.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
     Path("src/managing_long_task_context/runtime_identity.py"),
     Path("src/managing_long_task_context/handoff.py"),
