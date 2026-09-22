@@ -21,6 +21,7 @@ SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 DOCUMENTED_PATH = re.compile(r"(?P<path>(?:assets|examples|scripts|src|tests)/[A-Za-z0-9_.\-/]+)")
 CONTEXT_API = re.compile(r"\bcontext\.([a-z][a-z0-9_]*)\s*\(")
 TABLE_API = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)\(", re.MULTILINE)
+DUPLICATE_COPY_NAME = re.compile(r" 2(\.[^.]+)?$")
 
 
 class PackageError(Exception):
@@ -237,7 +238,7 @@ def check_source(source: Path) -> dict[str, object]:
         name = Path(str(entry["path"])).name
         if name == ".DS_Store":
             continue
-        if " 2." in name or name.endswith(" 2"):
+        if DUPLICATE_COPY_NAME.search(name):
             errors.append({
                 "code": "PACKAGE_DUPLICATE_COPY",
                 "message": str(entry["path"]),

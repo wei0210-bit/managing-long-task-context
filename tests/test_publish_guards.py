@@ -274,12 +274,24 @@ class PublishGuardsTests(unittest.TestCase):
         self.assertEqual(repo_report["status"], "pass")
         self.assertNotIn("PACKAGE_DUPLICATE_COPY", repo_report["codes"])
 
-        copied = self.root / "context-strict"
-        shutil.copytree(ROOT / "skills" / "context-strict", copied)
-        (copied / "src" / "experience 2.py").write_text("# duplicate copy\n", encoding="utf-8")
-        failed = skill_package.check_source(copied)
-        self.assertEqual(failed["status"], "fail")
-        self.assertIn("PACKAGE_DUPLICATE_COPY", failed["codes"])
+        rejected = ("experience 2.py", "experience 2", "file.tar 2.gz")
+        allowed = ("chapter 20.py", "notes 2.1.md", "v2.py")
+        for name in rejected:
+            with self.subTest(name=name):
+                copied = self.root / f"reject-{name.replace(' ', '_')}"
+                shutil.copytree(ROOT / "skills" / "context-strict", copied)
+                (copied / "src" / name).write_text("# duplicate copy\n", encoding="utf-8")
+                failed = skill_package.check_source(copied)
+                self.assertEqual(failed["status"], "fail")
+                self.assertIn("PACKAGE_DUPLICATE_COPY", failed["codes"])
+        for name in allowed:
+            with self.subTest(name=name):
+                copied = self.root / f"allow-{name.replace(' ', '_')}"
+                shutil.copytree(ROOT / "skills" / "context-strict", copied)
+                (copied / "src" / name).write_text("# not a finder copy\n", encoding="utf-8")
+                report = skill_package.check_source(copied)
+                self.assertEqual(report["status"], "pass")
+                self.assertNotIn("PACKAGE_DUPLICATE_COPY", report["codes"])
 
 
 if __name__ == "__main__":
