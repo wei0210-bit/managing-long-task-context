@@ -233,6 +233,16 @@ def check_source(source: Path) -> dict[str, object]:
             "message": f"declaration={declared_package_version!r} pyproject={project_version!r}",
         })
 
+    for entry in entries:
+        name = Path(str(entry["path"])).name
+        if name == ".DS_Store":
+            continue
+        if " 2." in name or name.endswith(" 2"):
+            errors.append({
+                "code": "PACKAGE_DUPLICATE_COPY",
+                "message": str(entry["path"]),
+            })
+
     declared_exports = {
         export
         for capability in declaration["capabilities"].values()

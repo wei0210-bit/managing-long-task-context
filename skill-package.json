@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "skill_name": "managing-long-task-context",
-  "skill_version": "0.8.2",
+  "skill_version": "0.8.3",
   "package_name": "managing-long-task-context",
-  "package_version": "0.8.2",
+  "package_version": "0.8.3",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",

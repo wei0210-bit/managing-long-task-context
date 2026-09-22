@@ -24,7 +24,19 @@ BUILTIN_RESOLVER_CAPABILITIES = {
     "git-commit": "builtin:git-commit/v1",
     "test-report": "builtin:test-report/v1",
     "url": "builtin:url/v1",
+    "command-output": "builtin:command-output/v1",
+    "screenshot": "builtin:screenshot/v1",
+    "evidence-manifest": "builtin:evidence-manifest/v1",
 }
+_BUILTIN_SELF_VERIFY_KINDS = frozenset({
+    "command-output",
+    "screenshot",
+    "evidence-manifest",
+})
+_MANIFEST_LINE_RE = re.compile(r"([0-9a-f]{64})  (.+)\Z")
+_PNG_MAGIC = b"\x89PNG"
+_JPEG_MAGIC = b"\xff\xd8\xff"
+_SCREENSHOT_SUFFIXES = {".png", ".jpg", ".jpeg"}
 _HANDLER_ROOT_FIELDS = frozenset({"schema", "types"})
 _HANDLER_FIELDS = frozenset({"resolver_capability", "verifier_capability"})
 _HANDLER_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
@@ -319,8 +331,17 @@ def evaluate_evidence(
         else:
             checks = normalize_resolver_checks(resolver_output)
 
-    _, verifier = _runtime_handler(dict(verifiers or {}).get(kind))
-    if verifier is None or not all(value["status"] == PASS for value in checks.values()):
+    verifier_values = dict(verifiers or {})
+    _, verifier = _runtime_handler(verifier_values.get(kind))
+    layers_pass = all(value["status"] == PASS for value in checks.values())
+    use_builtin_claim = (
+        verifier is None
+        and kind in _BUILTIN_SELF_VERIFY_KINDS
+        and (verifiers is None or kind not in verifiers)
+    )
+    if use_builtin_claim and layers_pass:
+        checks["claim"] = check(PASS)
+    elif verifier is None or not layers_pass:
         checks["claim"] = check(UNKNOWN, "CLAIM_NOT_VERIFIED")
     else:
         try:
@@ -375,7 +396,74 @@ def default_resolvers() -> dict[str, Resolver]:
         "git-commit": _resolve_git_commit,
         "test-report": _resolve_test_report,
         "url": _resolve_url,
+        "command-output": _resolve_command_output,
+        "screenshot": _resolve_screenshot,
+        "evidence-manifest": _resolve_evidence_manifest,
     }
+
+
+def contract_compat_report(contract: Mapping[str, Any]) -> dict[str, Any]:
+    """Read-only compatibility warnings; never raises and never writes files."""
+
+    warnings: list[str] = []
+    try:
+        if not isinstance(contract, Mapping):
+            return {
+                "status": "warn",
+                "warnings": ["contract.workspace_root is missing or is not an existing absolute directory"],
+            }
+        workspace = contract.get("workspace_root") if "workspace_root" in contract else None
+        if workspace is None or (isinstance(workspace, str) and not workspace.strip()):
+            warnings.append(
+                "contract.workspace_root is missing or is not an existing absolute directory"
+            )
+        elif not isinstance(workspace, str):
+            warnings.append(
+                "contract.workspace_root is missing or is not an existing absolute directory"
+            )
+        else:
+            try:
+                path = Path(workspace)
+                if not path.is_absolute() or not path.expanduser().is_dir():
+                    warnings.append(
+                        "contract.workspace_root is missing or is not an existing absolute directory"
+                    )
+            except (OSError, RuntimeError, ValueError):
+                warnings.append(
+                    "contract.workspace_root is missing or is not an existing absolute directory"
+                )
+
+        handler_types: set[str] = set()
+        root = contract.get("evidence_handlers")
+        types = root.get("types") if isinstance(root, Mapping) else None
+        if isinstance(types, Mapping):
+            handler_types.update(kind for kind in types if isinstance(kind, str))
+
+        builtin = set(BUILTIN_RESOLVER_CAPABILITIES)
+        criteria = contract.get("acceptance_criteria")
+        seen_kinds: set[str] = set()
+        if isinstance(criteria, list):
+            for criterion in criteria:
+                if not isinstance(criterion, Mapping):
+                    continue
+                required = criterion.get("required_evidence_types")
+                if required is None:
+                    required = criterion.get("required_evidence")
+                if not isinstance(required, list):
+                    continue
+                for kind in required:
+                    if not isinstance(kind, str) or kind in seen_kinds:
+                        continue
+                    seen_kinds.add(kind)
+                    if kind not in builtin and kind not in handler_types:
+                        warnings.append(
+                            f"required evidence type {kind!r} is not a builtin kind and has no evidence handler"
+                        )
+    except Exception:
+        warnings.append(
+            "contract.workspace_root is missing or is not an existing absolute directory"
+        )
+    return {"status": "warn" if warnings else "pass", "warnings": warnings}
 
 
 def _aggregate_status(statuses: Any) -> str:
@@ -571,6 +659,242 @@ def _resolve_url(
     return {
         "resolve": _url_syntax_check(evidence.get("locator")),
         "integrity_and_freshness": _freshness_check(evidence, criterion, now),
+        "scope": _merge_checks(
+            _scope_check(evidence, criterion),
+            _envelope_revision_check(evidence, criterion, contract),
+        ),
+    }
+
+
+def _string_list(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return None
+    return list(value)
+
+
+def _content_constraint_check(text: str, evidence: Mapping[str, Any]) -> dict[str, Any]:
+    result = check(PASS)
+    must_contain = evidence.get("must_contain")
+    must_not_contain = evidence.get("must_not_contain")
+    if must_contain is not None:
+        items = _string_list(must_contain)
+        if items is None:
+            result = _merge_checks(result, check(FAIL, "INVALID_MUST_CONTAIN"))
+        elif any(item not in text for item in items):
+            result = _merge_checks(result, check(FAIL, "MUST_CONTAIN_MISSING"))
+    if must_not_contain is not None:
+        items = _string_list(must_not_contain)
+        if items is None:
+            result = _merge_checks(result, check(FAIL, "INVALID_MUST_NOT_CONTAIN"))
+        elif any(item in text for item in items):
+            result = _merge_checks(result, check(FAIL, "MUST_NOT_CONTAIN_PRESENT"))
+    return result
+
+
+def _optional_digest_check(
+    path: Path, evidence: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected = evidence.get("artifact_digest")
+    if expected is None:
+        return check(PASS)
+    actual, digest_check = _bounded_file_digest(path)
+    if digest_check["status"] != PASS:
+        return digest_check
+    if not isinstance(expected, str) or not _DIGEST_RE.fullmatch(expected) or expected != actual:
+        return check(FAIL, "DIGEST_MISMATCH")
+    return check(PASS)
+
+
+def _resolve_command_output(
+    evidence: Mapping[str, Any],
+    criterion: Mapping[str, Any],
+    contract: Mapping[str, Any],
+    now: datetime,
+) -> Mapping[str, Any]:
+    path, path_check = _local_path(evidence, contract)
+    integrity = _freshness_check(evidence, criterion, now)
+    if path_check["status"] == PASS and path is not None:
+        raw, read_check = _bounded_file_bytes(path)
+        integrity = _merge_checks(integrity, read_check)
+        if read_check["status"] == PASS:
+            if raw is None or raw == b"":
+                integrity = _merge_checks(integrity, check(FAIL, "EMPTY_COMMAND_OUTPUT"))
+            else:
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeError:
+                    integrity = _merge_checks(integrity, check(FAIL, "INVALID_UTF8"))
+                else:
+                    if not text:
+                        integrity = _merge_checks(integrity, check(FAIL, "EMPTY_COMMAND_OUTPUT"))
+                    else:
+                        integrity = _merge_checks(integrity, _content_constraint_check(text, evidence))
+    return {
+        "resolve": path_check,
+        "integrity_and_freshness": integrity,
+        "scope": _merge_checks(
+            _scope_check(evidence, criterion),
+            _envelope_revision_check(evidence, criterion, contract),
+        ),
+    }
+
+
+def _resolve_screenshot(
+    evidence: Mapping[str, Any],
+    criterion: Mapping[str, Any],
+    contract: Mapping[str, Any],
+    now: datetime,
+) -> Mapping[str, Any]:
+    path, path_check = _local_path(evidence, contract)
+    integrity = _freshness_check(evidence, criterion, now)
+    if path_check["status"] == PASS and path is not None:
+        suffix = path.suffix.lower()
+        if suffix not in _SCREENSHOT_SUFFIXES:
+            integrity = _merge_checks(integrity, check(FAIL, "INVALID_SCREENSHOT_SUFFIX"))
+        raw, read_check = _bounded_file_bytes(path)
+        integrity = _merge_checks(integrity, read_check)
+        if read_check["status"] == PASS:
+            if raw is None or len(raw) == 0:
+                integrity = _merge_checks(integrity, check(FAIL, "EMPTY_SCREENSHOT"))
+            elif suffix == ".png" and not raw.startswith(_PNG_MAGIC):
+                integrity = _merge_checks(integrity, check(FAIL, "INVALID_SCREENSHOT_MAGIC"))
+            elif suffix in {".jpg", ".jpeg"} and not raw.startswith(_JPEG_MAGIC):
+                integrity = _merge_checks(integrity, check(FAIL, "INVALID_SCREENSHOT_MAGIC"))
+            else:
+                integrity = _merge_checks(integrity, _optional_digest_check(path, evidence))
+    return {
+        "resolve": path_check,
+        "integrity_and_freshness": integrity,
+        "scope": _merge_checks(
+            _scope_check(evidence, criterion),
+            _envelope_revision_check(evidence, criterion, contract),
+        ),
+    }
+
+
+def _allowed_roots(
+    contract: Mapping[str, Any],
+) -> tuple[list[Path] | None, dict[str, Any] | None]:
+    workspace_value = contract.get("workspace_root")
+    if not isinstance(workspace_value, (str, Path)):
+        return None, check(FAIL, "INVALID_WORKSPACE_ROOT")
+    try:
+        roots = [Path(workspace_value).expanduser().resolve()]
+        evidence_roots = contract.get("evidence_roots", [])
+        if isinstance(evidence_roots, list):
+            roots.extend(
+                Path(root).expanduser().resolve()
+                for root in evidence_roots
+                if isinstance(root, (str, Path))
+            )
+    except PermissionError:
+        return None, check(UNKNOWN, "PERMISSION_DENIED")
+    except FileNotFoundError:
+        return None, check(FAIL, "NOT_FOUND")
+    except (OSError, RuntimeError):
+        return None, check(UNKNOWN, "TRANSIENT_IO")
+    return roots, None
+
+
+def _path_inside_roots(target: Path, roots: list[Path]) -> bool:
+    return any(target == root or root in target.parents for root in roots)
+
+
+def _resolve_evidence_manifest(
+    evidence: Mapping[str, Any],
+    criterion: Mapping[str, Any],
+    contract: Mapping[str, Any],
+    now: datetime,
+) -> Mapping[str, Any]:
+    path, path_check = _local_path(evidence, contract)
+    integrity = _freshness_check(evidence, criterion, now)
+    if path_check["status"] == PASS and path is not None:
+        raw, read_check = _bounded_file_bytes(path)
+        integrity = _merge_checks(integrity, read_check)
+        if read_check["status"] == PASS:
+            if raw is None:
+                integrity = _merge_checks(integrity, check(FAIL, "EMPTY_MANIFEST"))
+            else:
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeError:
+                    integrity = _merge_checks(integrity, check(FAIL, "INVALID_UTF8"))
+                else:
+                    lines = [line for line in text.splitlines() if line.strip()]
+                    if not lines:
+                        integrity = _merge_checks(integrity, check(FAIL, "EMPTY_MANIFEST"))
+                    else:
+                        roots, root_error = _allowed_roots(contract)
+                        if root_error is not None:
+                            integrity = _merge_checks(integrity, root_error)
+                        elif roots is not None:
+                            for line in lines:
+                                matched = _MANIFEST_LINE_RE.fullmatch(line)
+                                if matched is None:
+                                    integrity = _merge_checks(
+                                        integrity, check(FAIL, "MALFORMED_MANIFEST_LINE")
+                                    )
+                                    continue
+                                digest_hex, relative = matched.group(1), matched.group(2)
+                                if "\x00" in relative:
+                                    integrity = _merge_checks(
+                                        integrity, check(FAIL, "MALFORMED_MANIFEST_LINE")
+                                    )
+                                    continue
+                                try:
+                                    target = (path.parent / relative).expanduser().resolve()
+                                except PermissionError:
+                                    integrity = _merge_checks(
+                                        integrity, check(UNKNOWN, "PERMISSION_DENIED")
+                                    )
+                                    continue
+                                except FileNotFoundError:
+                                    integrity = _merge_checks(integrity, check(FAIL, "NOT_FOUND"))
+                                    continue
+                                except (OSError, RuntimeError):
+                                    integrity = _merge_checks(
+                                        integrity, check(UNKNOWN, "TRANSIENT_IO")
+                                    )
+                                    continue
+                                if not _path_inside_roots(target, roots):
+                                    integrity = _merge_checks(
+                                        integrity, check(FAIL, "OUTSIDE_ALLOWED_ROOT")
+                                    )
+                                    continue
+                                try:
+                                    if not target.is_file():
+                                        integrity = _merge_checks(
+                                            integrity, check(FAIL, "NOT_FOUND")
+                                        )
+                                        continue
+                                except PermissionError:
+                                    integrity = _merge_checks(
+                                        integrity, check(UNKNOWN, "PERMISSION_DENIED")
+                                    )
+                                    continue
+                                except FileNotFoundError:
+                                    integrity = _merge_checks(integrity, check(FAIL, "NOT_FOUND"))
+                                    continue
+                                except OSError:
+                                    integrity = _merge_checks(
+                                        integrity, check(UNKNOWN, "TRANSIENT_IO")
+                                    )
+                                    continue
+                                actual, digest_check = _bounded_file_digest(target)
+                                integrity = _merge_checks(integrity, digest_check)
+                                expected = f"sha256:{digest_hex}"
+                                if (
+                                    digest_check["status"] == PASS
+                                    and actual != expected
+                                ):
+                                    integrity = _merge_checks(
+                                        integrity, check(FAIL, "DIGEST_MISMATCH")
+                                    )
+    return {
+        "resolve": path_check,
+        "integrity_and_freshness": integrity,
         "scope": _merge_checks(
             _scope_check(evidence, criterion),
             _envelope_revision_check(evidence, criterion, contract),

@@ -306,7 +306,13 @@ class RealMigrationRegressionTests(unittest.TestCase):
         ]
         completed = _git("diff", "--name-only", V1_BASELINE_COMMIT, "--", *protected)
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout, "")
+        allowed_lite_copy = "skills/context-lite/scripts/skill_package.py"
+        changed = [path for path in completed.stdout.splitlines() if path]
+        self.assertEqual([path for path in changed if path != allowed_lite_copy], [])
+        self.assertEqual(
+            (ROOT / allowed_lite_copy).read_bytes(),
+            (ROOT / "scripts/skill_package.py").read_bytes(),
+        )
 
     def test_reg_07_preflight_source_never_calls_v1_writers_or_writes_files(self) -> None:
         tree = ast.parse((ROOT / "scripts/handoff_preflight.py").read_text(encoding="utf-8"))

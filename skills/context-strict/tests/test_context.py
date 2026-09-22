@@ -291,7 +291,7 @@ class ContextSkillTests(unittest.TestCase):
 
         self.assertFalse(report["passed"])
         message = "\n".join(report["errors"])
-        self.assertIn("built-in evidence types: ['file', 'git-commit', 'test-report', 'url']", message)
+        self.assertIn("built-in evidence types: ['command-output', 'evidence-manifest', 'file', 'git-commit', 'screenshot', 'test-report', 'url']", message)
         self.assertIn("custom types require declared resolver and verifier capabilities", message)
 
     def test_public_gate_rejects_caller_supplied_now(self):

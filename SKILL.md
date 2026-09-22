@@ -265,6 +265,10 @@ messages: the message must carry the Strict path so peers can bind the same stor
 
 See also `references/bot-pipeline-handoff.md`.
 
+## Publish guards
+
+新合同应填写现存绝对目录 `workspace_root`，并启用 `evidence-handlers/v1`。自由文本证据类型不会被发布拒绝；用 `managing_long_task_context.evidence.contract_compat_report` 检查缺失或不存在的工作区，以及未映射到内置或已声明 handler 的证据类型。
+
 ## Hard stops
 
 - Missing, unsealed, modified, or unauthorized contract: stop and return to publisher.

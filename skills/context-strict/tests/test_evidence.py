@@ -505,8 +505,19 @@ class EvidenceEvaluationTests(unittest.TestCase):
                 self.assertEqual(result["status"], "fail")
                 self.assertEqual(result["checks"]["resolve"]["status"], "fail")
 
-    def test_default_resolvers_exposes_only_the_four_builtin_kinds(self) -> None:
-        self.assertEqual(set(default_resolvers()), {"file", "git-commit", "test-report", "url"})
+    def test_default_resolvers_exposes_the_seven_builtin_kinds(self) -> None:
+        self.assertEqual(
+            set(default_resolvers()),
+            {
+                "file",
+                "git-commit",
+                "test-report",
+                "url",
+                "command-output",
+                "screenshot",
+                "evidence-manifest",
+            },
+        )
 
     def test_malformed_evidence_kind_is_fail_not_unknown(self) -> None:
         for malformed_kind in (None, "", "   ", 7):
