@@ -273,6 +273,10 @@ See also `references/bot-pipeline-handoff.md`.
 
 交接前调用 `managing_long_task_context.usage_freshness.usage_freshness_report(task_root, now=...)`。它只读任务目录。账本停更、合同版本超过 5、以及名为 `.DS_Store` 或匹配末尾 ` 2` 副本的条目会给出 warning。最近一次 checkpoint 早于 72 小时，或缺少 checkpoint，报告状态为 unknown。`audit`、`brief`、`gate` 的既有结论不变。
 
+## Package lineage
+
+构建或安装前运行 `scripts/package_lineage.py --repo <仓库绝对路径> --source-revision <revision>`。`git:` 后接可解析提交，且该提交是 `origin/main` 的祖先时，报告为 pass。`local:` 必须同时传入 `--confirm-local`，否则为 warn。`candidate:`、`test:` 以及其他无法解析的修订为 unknown，不改变 `skill_package.py build`。`context_doctor.py` 不包含这项检查。
+
 ## Hard stops
 
 - Missing, unsealed, modified, or unauthorized contract: stop and return to publisher.
