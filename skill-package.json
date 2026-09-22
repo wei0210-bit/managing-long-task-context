@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "skill_name": "managing-long-task-context",
-  "skill_version": "0.8.0",
+  "skill_version": "0.8.2",
   "package_name": "managing-long-task-context",
-  "package_version": "0.8.0",
+  "package_version": "0.8.2",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",
@@ -34,6 +34,7 @@
     "references/production-failure-patterns.md",
     "references/independent-validation.md",
     "references/handoff.md",
+    "references/bot-pipeline-handoff.md",
     "references/host-codex-cli.md",
     "references/host-native.md",
     "src/managing_long_task_context/host_codex_native.py",
@@ -83,68 +84,131 @@
     "tests/handoff_test_authority.py"
   ],
   "capabilities": {
-    "native-host-capability-report/v1": {"python_exports": []},
-    "local-usage-accounting/v1": {"python_exports": []},
-    "context-pressure-advisory/v1": {"python_exports": []},
+    "native-host-capability-report/v1": {
+      "python_exports": []
+    },
+    "local-usage-accounting/v1": {
+      "python_exports": []
+    },
+    "context-pressure-advisory/v1": {
+      "python_exports": []
+    },
     "runtime-identity/v1": {
-      "python_exports": ["runtime_identity"]
+      "python_exports": [
+        "runtime_identity"
+      ]
     },
     "workspace-binding/v1": {
-      "python_exports": ["bind"]
+      "python_exports": [
+        "bind"
+      ]
     },
     "context-doctor/v1": {
       "python_exports": []
     },
     "checked-resume/v1": {
-      "python_exports": ["checked_resume"]
+      "python_exports": [
+        "checked_resume"
+      ]
     },
     "task-contract/v1": {
-      "python_exports": ["publish_contract"]
+      "python_exports": [
+        "publish_contract"
+      ]
     },
     "append-only-context/v1": {
-      "python_exports": ["record", "update_item", "checkpoint"]
+      "python_exports": [
+        "record",
+        "update_item",
+        "checkpoint"
+      ]
     },
     "handoff-brief/v1": {
-      "python_exports": ["brief", "brief_diagnostics"]
+      "python_exports": [
+        "brief",
+        "brief_diagnostics"
+      ]
     },
     "quality-gates/v2": {
-      "python_exports": ["gate", "audit"]
+      "python_exports": [
+        "gate",
+        "audit"
+      ]
     },
     "evidence-handlers/v1": {
-      "python_exports": ["publish_contract", "gate"]
+      "python_exports": [
+        "publish_contract",
+        "gate"
+      ]
     },
     "truth-sources/v1": {
-      "python_exports": ["mark_truth_sources_dirty", "observe_truth_source"]
+      "python_exports": [
+        "mark_truth_sources_dirty",
+        "observe_truth_source"
+      ]
     },
     "contract-file-protection/v1": {
-      "python_exports": ["publish_contract", "audit", "gate"]
+      "python_exports": [
+        "publish_contract",
+        "audit",
+        "gate"
+      ]
     },
     "context-externalization/v1": {
-      "python_exports": ["externalize_item", "restore_externalization_controls"]
+      "python_exports": [
+        "externalize_item",
+        "restore_externalization_controls"
+      ]
     },
     "bound-context/v1": {
-      "python_exports": ["bind"]
+      "python_exports": [
+        "bind"
+      ]
     },
     "ordered-hops/v1": {
-      "python_exports": ["publish_contract", "gate"]
+      "python_exports": [
+        "publish_contract",
+        "gate"
+      ]
     },
     "brief-overflow-hard-stop/v1": {
-      "python_exports": ["brief", "brief_diagnostics", "gate"]
+      "python_exports": [
+        "brief",
+        "brief_diagnostics",
+        "gate"
+      ]
     },
     "experience-store/v1": {
-      "python_exports": ["bind_experience"]
+      "python_exports": [
+        "bind_experience"
+      ]
     },
     "experience-review/v1": {
-      "python_exports": ["bind_experience"]
+      "python_exports": [
+        "bind_experience"
+      ]
     },
     "rule-execution/v1": {
-      "python_exports": ["publish_contract", "gate"]
+      "python_exports": [
+        "publish_contract",
+        "gate"
+      ]
     },
     "independent-validation/v1": {
-      "python_exports": ["bind", "publish_contract", "gate"]
+      "python_exports": [
+        "bind",
+        "publish_contract",
+        "gate"
+      ]
     },
     "short-session-handoff/v1": {
-      "python_exports": ["prepare_handoff", "validate_handoff", "activate_handoff", "cancel_handoff", "handoff_status"]
+      "python_exports": [
+        "prepare_handoff",
+        "validate_handoff",
+        "activate_handoff",
+        "cancel_handoff",
+        "handoff_status"
+      ]
     }
   }
 }

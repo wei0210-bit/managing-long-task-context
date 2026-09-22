@@ -1,6 +1,6 @@
 ---
 name: context-strict
-description: Use when work spans multiple turns, sessions, or agents and depends on changing facts, controlled acceptance criteria, evidence-backed handoffs, or protection against stale, conflicting, and misattributed context.
+description: Use when work spans multiple turns, sessions, or agents (including bot-to-bot pipelines) and depends on changing facts, controlled acceptance criteria, evidence-backed handoffs that carry `.prime/context/<task-id>/` paths, or protection against stale, conflicting, and misattributed context.
 ---
 
 # Managing Long-Task Context
@@ -224,6 +224,46 @@ examples: `examples/experience_review.py`, `examples/rule_execution.py`, and
 State lives under `.prime/context/<task-id>/` as a sealed contract, append-only
 `events.jsonl`, and rebuildable `snapshot.json`. Events are history; snapshot is a cache;
 neither is injected by default.
+
+## Multi-bot / assistant pipeline handoff (shared truth)
+
+When several bots or agents collaborate on one task (for example plan → Office hours →
+writer → reviewer), **Context Strict storage is the shared truth source**. Chat memory
+and free-form messages are not enough.
+
+### Required handoff field
+
+Every cross-bot handoff pack MUST include at least one of:
+
+- absolute path to the task store: `<project>/.prime/context/<task-id>/`
+- absolute path to the sealed contract file: `.../task-contract.json` (or the
+  project-standard contract filename under that task id)
+
+Downstream bots MUST open and read that contract (objective, scope, constraints,
+acceptance / verification criteria) **before** implementing or reviewing. Do not
+rely on a retelling of AC in chat if the sealed contract exists.
+
+Upstream bots MUST publish or point to a usable Strict pack before asking the next
+stage to start. If the path is missing, unreadable, or the contract is unsealed /
+stale, stop and ask the publisher to fix it — do not invent acceptance criteria.
+
+### Recommended handoff pack (minimum)
+
+1. Project root (absolute)
+2. `.prime/context/<task-id>/` (absolute) **or** `task-contract.json` (absolute)
+3. Task id
+4. Goal (short; contract remains authoritative)
+5. Verification / acceptance criteria (copy from sealed contract; do not weaken)
+6. Artifact pointers (branch, PR, diff) when they exist
+7. Self-check commands/results when they exist
+
+### Relation to brief() / gates
+
+Prefer producing a usable `brief()` and passing handoff/completion gates when the
+runtime is available. The path rule above still applies when a host only exchanges
+messages: the message must carry the Strict path so peers can bind the same store.
+
+See also `references/bot-pipeline-handoff.md`.
 
 ## Hard stops
 

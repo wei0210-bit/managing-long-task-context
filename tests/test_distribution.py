@@ -33,6 +33,7 @@ COPIED_FILES = (
     Path("references/independent-validation.md"),
     Path("references/runtime-identity.md"),
     Path("references/handoff.md"),
+    Path("references/bot-pipeline-handoff.md"),
     Path("references/host-codex-cli.md"),
     Path("references/host-native.md"),
     Path("scripts/handoff_preflight.py"),
