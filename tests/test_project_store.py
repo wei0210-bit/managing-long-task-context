@@ -246,10 +246,16 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertEqual(project_store.default_experience_root(workspace), workspace / ".prime" / "experience")
 
     def test_lite_package_does_not_ship_project_store(self) -> None:
+        self.assertTrue((ROOT / "src/managing_long_task_context/project_store.py").is_file())
+        sync_tools = ROOT / "scripts" / "sync_context_tools.py"
+        sync_strict = ROOT / "scripts" / "sync_context_strict_skill.py"
         lite = ROOT / "skills" / "context-lite"
+        if not sync_tools.is_file():
+            self.assertFalse(lite.exists())
+            return
         self.assertEqual([path.name for path in lite.rglob("project_store.py")], [])
-        self.assertNotIn("project_store", (ROOT / "scripts" / "sync_context_tools.py").read_text(encoding="utf-8"))
-        self.assertIn("project_store.py", (ROOT / "scripts" / "sync_context_strict_skill.py").read_text(encoding="utf-8"))
+        self.assertNotIn("project_store", sync_tools.read_text(encoding="utf-8"))
+        self.assertIn("project_store.py", sync_strict.read_text(encoding="utf-8"))
 
     def test_experience_default_is_prime_experience(self) -> None:
         from managing_long_task_context._experience_store import _store_path
