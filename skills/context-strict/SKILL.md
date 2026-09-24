@@ -207,6 +207,9 @@ red?** Do not load that reference for routine execution.
 | `brief(...)` / `brief_diagnostics(...)` | Produce or preflight the controlled handoff packet |
 | `audit(...)` / `gate(...)` | Run integrity, state, truth, and acceptance checks |
 | `bind_experience(workspace_root, store_root)` | Bind Strict-only experience review and approval |
+| `publish_context(task_id)` | Secret-check, then force-add and push only `CONTEXT_PATHS` |
+| `align_context(task_id)` | Restore tracked `.prime` from HEAD; stop if local events are ahead |
+| `check_store(task_id)` / `read_task(task_id)` | Inspect the project store without uploading |
 | `prepare_handoff(...)` / `validate_handoff(...)` / `activate_handoff(...)` / `cancel_handoff(...)` / `handoff_status(...)` | Explicit host-verified short-session handoff; only when the capability is sealed in the contract |
 
 ## Verified experience and rule execution
@@ -221,9 +224,20 @@ examples: `examples/experience_review.py`, `examples/rule_execution.py`, and
 `examples/experience_rule_gate.py`. The candidate CLI example is
 `examples/experience_candidates.py`.
 
-State lives under `.prime/context/<task-id>/` as a sealed contract, append-only
-`events.jsonl`, and rebuildable `snapshot.json`. Events are history; snapshot is a cache;
-neither is injected by default.
+State lives under the Git worktree at `.prime/context/<task-id>/` as a sealed contract,
+append-only `events.jsonl`, and rebuildable `snapshot.json`. Stored identity uses
+`workspace_root: "."` and `context_root: ".prime/context"` so cloud and local checkouts
+share one tree. Experience defaults to `.prime/experience/`. Events are history; snapshot
+is a cache; neither is injected by default.
+
+`.prime/context/` and `.prime/experience/` stay gitignored. Ordinary `git add` / `git
+commit` must not upload them. After the first `publish_context`, those paths are tracked;
+the in-repo `.githooks/pre-commit` plus `core.hooksPath=.githooks` blocks later ordinary
+commits. Only `publish_context` sets `MLTC_PUBLISH_CONTEXT=1`, secret-checks, force-adds
+`CONTEXT_PATHS`, commits those paths, and pushes. `align_context` checks out HEAD's
+tracked copy and stops with `LOCAL_AHEAD` when the working tree has extra `event_id`s.
+Detached HEAD and in-progress merges are read-only, except a merge may write
+`conflict-<id>.json` and mark `snapshot.json` as `{"rebuild":"required"}`.
 
 ## Multi-bot / assistant pipeline handoff (shared truth)
 
@@ -267,7 +281,7 @@ See also `references/bot-pipeline-handoff.md`.
 
 ## Publish guards
 
-新合同应填写现存绝对目录 `workspace_root`，并启用 `evidence-handlers/v1`。自由文本证据类型不会被发布拒绝；用 `managing_long_task_context.evidence.contract_compat_report` 检查缺失或不存在的工作区，以及未映射到内置或已声明 handler 的证据类型。
+新合同应填写相对工作区 `workspace_root: "."`，并启用 `evidence-handlers/v1`。旧的绝对路径合同用 `migrate_contract` 改成相对路径并重新封印。自由文本证据类型不会被发布拒绝；用 `managing_long_task_context.evidence.contract_compat_report` 检查缺失或不存在的工作区，以及未映射到内置或已声明 handler 的证据类型。证据解析在运行时仍使用调用方传入的绝对工作区。
 
 ## Usage freshness
 

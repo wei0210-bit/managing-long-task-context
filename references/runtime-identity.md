@@ -46,7 +46,9 @@ rebinding is not provided. Keep the old binding and task materials until that
 migration is resolved. Restarting alone does not authorize a new package hash.
 
 Git workspaces must name their actual worktree root. Branch/HEAD changes are not
-identity changes, but another worktree is a different workspace. A context store
+identity changes, but another worktree is a different workspace. A stored binding
+may keep the absolute paths or the project-relative values `workspace_root: "."`
+and `context_root: ".prime/context"`; both match the same worktree. A context store
 can be outside the workspace; task paths cannot escape that store through a
 symlink. A symlink to the installed package itself is resolved normally.
 

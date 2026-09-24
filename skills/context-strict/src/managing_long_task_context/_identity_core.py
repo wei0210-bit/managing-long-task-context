@@ -91,6 +91,44 @@ def _absolute_existing(raw: str | Path, *, kind: str) -> tuple[Path | None, dict
     return resolved, None
 
 
+def _git_toplevel(path: Path) -> Path | None:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            text=True, capture_output=True, check=False, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    try:
+        return Path(completed.stdout.strip()).resolve()
+    except (OSError, RuntimeError):
+        return None
+
+
+def _workspace_binding_matches(stored: object, workspace: Path, context_root: Path | None = None) -> bool:
+    if stored == str(workspace):
+        return True
+    if stored != ".":
+        return False
+    top = _git_toplevel(context_root if context_root is not None else workspace)
+    return top is not None and workspace.resolve() == top
+
+
+def _context_binding_matches(stored: object, context_root: Path, workspace: Path | None = None) -> bool:
+    if stored == str(context_root):
+        return True
+    if not isinstance(stored, str) or stored not in {".prime/context", "./.prime/context"}:
+        return False
+    if workspace is None:
+        return context_root.name == "context" and context_root.parent.name == ".prime"
+    try:
+        return context_root.resolve() == (workspace / ".prime" / "context").resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
 def normalize_workspace(raw: str | Path) -> tuple[Path | None, dict[str, object] | None]:
     root, failure = _absolute_existing(raw, kind="workspace_root")
     if failure is not None or root is None:
@@ -293,9 +331,9 @@ def identity_diagnostic(
                         binding = None
                     elif binding["task_id"] != task_id:
                         checks.append(_check("binding", "fail", "BINDING_CONFLICT", "binding task_id differs"))
-                    elif binding["workspace_root"] != str(workspace):
+                    elif not _workspace_binding_matches(binding["workspace_root"], workspace, context_root):
                         checks.append(_check("workspace", "fail", "WORKSPACE_MISMATCH", "binding workspace_root differs"))
-                    elif binding["context_root"] != str(context_root):
+                    elif not _context_binding_matches(binding["context_root"], context_root, workspace):
                         checks.append(_check("storage", "fail", "STORAGE_MISMATCH", "binding context_root differs"))
                     elif manifest is None or actual_hash is None:
                         checks.append(_check("package_identity", "unknown", "RUNTIME_UNVERIFIED", "package identity is unavailable"))

@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "skill_name": "managing-long-task-context",
-  "skill_version": "0.8.6",
+  "skill_version": "0.8.7",
   "package_name": "managing-long-task-context",
-  "package_version": "0.8.6",
+  "package_version": "0.8.7",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",
@@ -42,6 +42,7 @@
     "tests/test_handoff_codex_native.py",
     "tests/test_handoff_claude_native.py",
     "src/managing_long_task_context/__init__.py",
+    "src/managing_long_task_context/project_store.py",
     "src/managing_long_task_context/evidence.py",
     "src/managing_long_task_context/truth_sources.py",
     "tests/test_context.py",
@@ -64,6 +65,7 @@
     "src/managing_long_task_context/rule_execution.py",
     "references/runtime-identity.md",
     "tests/test_runtime_identity.py",
+    "tests/test_project_store.py",
     "scripts/context_experience.py",
     "tests/test_context_experience_cli.py",
     "tests/test_experience_review.py",

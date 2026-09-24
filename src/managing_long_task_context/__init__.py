@@ -80,7 +80,17 @@ from . import host_codex_cli as _host_codex_cli_module
 from . import host_records as _host_records_module
 from . import host_codex_native as _host_codex_native_module
 from . import host_claude_native as _host_claude_native_module
+from . import project_store as _project_store_module
 from .runtime_identity import _capture_baseline, checked_resume, runtime_identity
+from .project_store import (
+    CONTEXT_PATHS,
+    StoreNotWritable,
+    align_context,
+    check_store,
+    migrate_contract,
+    publish_context,
+    read_task,
+)
 
 try:  # Prime Agent targets macOS/Linux; keep a safe fallback for other runtimes.
     import fcntl  # type: ignore
@@ -174,7 +184,10 @@ def _resolve_base_dir(base_dir: str | Path | None = None) -> tuple[Path, str]:
         if not configured_path.is_absolute():
             raise ContextError(f"{BASE_DIR_ENV}_INVALID: path must be absolute")
         return configured_path.resolve(), "environment"
-    return (Path.cwd() / DEFAULT_BASE_DIR).resolve(), "cwd-default"
+    try:
+        return _project_store_module.context_root(), "worktree-default"
+    except StoreNotWritable:
+        return (Path.cwd() / DEFAULT_BASE_DIR).resolve(), "cwd-default"
 
 
 def _task_dir(task_id: str, base_dir: str | Path | None = None) -> Path:
@@ -225,8 +238,24 @@ def _process_lock_guard(root: Path) -> threading.Lock:
         return guard
 
 
+def _assert_default_store_writable(root: Path) -> None:
+    try:
+        default = _project_store_module.context_root()
+    except StoreNotWritable:
+        return
+    try:
+        root.resolve().relative_to(default)
+    except ValueError:
+        return
+    try:
+        _project_store_module.assert_writable()
+    except StoreNotWritable as exc:
+        raise ContextError(f"{exc.code}: {exc}") from exc
+
+
 @contextmanager
 def _locked(root: Path):
+    _assert_default_store_writable(root)
     with _process_lock_guard(root):
         root.mkdir(parents=True, exist_ok=True)
         lock_path = root / ".lock"
@@ -5489,6 +5518,12 @@ _BOUND_HANDOFF_ACTIONS = frozenset({
     "cancel_handoff",
     "handoff_status",
 })
+_BOUND_PROJECT_STORE_ACTIONS = frozenset({
+    "publish_context",
+    "align_context",
+    "check_store",
+    "read_task",
+})
 
 
 class BoundContext:
@@ -5530,6 +5565,21 @@ class BoundContext:
         )
 
     def __getattr__(self, name: str) -> Any:
+        if name in _BOUND_PROJECT_STORE_ACTIONS:
+            function = getattr(_project_store_module, name)
+
+            def bound_store_call(*args: Any, **kwargs: Any) -> Any:
+                if "worktree" in kwargs:
+                    raise TypeError("bound context calls do not accept worktree")
+                worktree = self.workspace_root
+                if worktree is None:
+                    try:
+                        worktree = _project_store_module.resolve_worktree_root(self.base_dir)
+                    except StoreNotWritable as exc:
+                        raise ContextError(f"{exc.code}: {exc}") from exc
+                return function(*args, **kwargs, worktree=worktree)
+
+            return bound_store_call
         if name in _BOUND_HANDOFF_ACTIONS:
             function = globals()[name]
 
@@ -5620,6 +5670,11 @@ async def run(action: str, **kwargs: Any) -> Any:
         "validate_handoff": validate_handoff,
         "activate_handoff": activate_handoff,
         "handoff_status": handoff_status,
+        "publish_context": publish_context,
+        "align_context": align_context,
+        "check_store": check_store,
+        "read_task": read_task,
+        "migrate_contract": migrate_contract,
     }
     function = actions.get(action)
     if function is None:
@@ -5656,6 +5711,13 @@ __all__ = [
     "BoundContext",
     "bind",
     "run",
+    "CONTEXT_PATHS",
+    "StoreNotWritable",
+    "publish_context",
+    "align_context",
+    "check_store",
+    "read_task",
+    "migrate_contract",
 ]
 
 
@@ -5675,4 +5737,5 @@ _capture_baseline((
     Path(_host_records_module.__file__).resolve(),
     Path(_host_codex_native_module.__file__).resolve(),
     Path(_host_claude_native_module.__file__).resolve(),
+    Path(_project_store_module.__file__).resolve(),
 ), initial_manifest_path=_IDENTITY_MANIFEST_BEFORE, initial_manifest_sha256=_IDENTITY_DIGEST_BEFORE)

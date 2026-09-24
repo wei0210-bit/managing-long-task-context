@@ -10,8 +10,10 @@ dist/
 *.egg-info/
 
 # Runtime context state is local and may contain task-specific details.
+# Ordinary commits must not pick these up; publish_context is the only uploader.
 .context-lite/
 .prime/context/
+.prime/experience/
 
 # Isolated feature worktrees.
 .worktrees/

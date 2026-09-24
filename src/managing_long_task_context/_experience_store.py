@@ -74,7 +74,7 @@ def _workspace_path(value: str) -> Path:
 
 
 def _store_path(workspace: Path, value: str | None) -> Path:
-    raw_path = Path(value) if value else workspace / ".context-experience"
+    raw_path = Path(value) if value else workspace / ".prime" / "experience"
     if not raw_path.is_absolute():
         raw_path = raw_path.absolute()
     if raw_path.exists() and raw_path.is_symlink():
