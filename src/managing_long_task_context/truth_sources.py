@@ -280,6 +280,12 @@ def resolve_file_source(workspace_root: str | Path, source_ref: Mapping[str, Any
     if not isinstance(workspace_root, (str, Path)):
         return _result("fail", "TRUTH_SOURCE_UNSAFE_PATH")
     root_string = os.fspath(workspace_root)
+    if root_string == ".":
+        try:
+            from .project_store import resolve_worktree_root
+            root_string = str(resolve_worktree_root())
+        except Exception:
+            return _result("fail", "TRUTH_SOURCE_UNSAFE_PATH")
     if "\x00" in root_string or not os.path.isabs(root_string):
         return _result("fail", "TRUTH_SOURCE_UNSAFE_PATH")
     flags = _required_flags()

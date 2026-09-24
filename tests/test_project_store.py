@@ -146,6 +146,8 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertGreater(updated["version"], 1)
         self.assertTrue(str(updated["seal"]["integrity_digest"]).startswith("sha256:"))
         self.assertEqual(updated["objective"], objective)
+        self.assertEqual(context._validate_sealed_contract(updated), [])
+        self.assertEqual(project_store.check_store("TASK-001", repo)["status"], "ok")
 
     def test_hook_blocks_ordinary_context_commit(self) -> None:
         repo = _with_remote(_init_repo(self.root / "hook"))
@@ -187,6 +189,25 @@ class ProjectStoreTests(unittest.TestCase):
         with self.assertRaises(project_store.StoreNotWritable) as raised:
             project_store.publish_context("TASK-001", repo)
         self.assertEqual(raised.exception.code, "SECRETS_FOUND")
+
+    def test_align_is_read_only_on_detached_head_and_skips_untracked_experience(self) -> None:
+        repo = _with_remote(_init_repo(self.root / "align"))
+        _publish_local_task(repo)
+        project_store.publish_context("TASK-001", repo)
+        experience = repo / ".prime" / "experience" / "keep.txt"
+        experience.parent.mkdir(parents=True, exist_ok=True)
+        experience.write_text("local-only\n", encoding="utf-8")
+        branch = _git(repo, "branch", "--show-current").stdout.strip()
+        sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        _git(repo, "checkout", "--detach", sha)
+        with self.assertRaises(project_store.StoreNotWritable) as raised:
+            project_store.align_context("TASK-001", repo)
+        self.assertEqual(raised.exception.code, "DETACHED_HEAD")
+        self.assertEqual(experience.read_text(encoding="utf-8"), "local-only\n")
+        _git(repo, "checkout", branch)
+        aligned = project_store.align_context("TASK-001", repo)
+        self.assertEqual(aligned["status"], "ok")
+        self.assertEqual(experience.read_text(encoding="utf-8"), "local-only\n")
 
     def test_align_stops_when_local_events_are_ahead(self) -> None:
         repo = _with_remote(_init_repo(self.root / "ahead"))

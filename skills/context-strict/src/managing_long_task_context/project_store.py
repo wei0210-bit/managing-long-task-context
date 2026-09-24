@@ -263,10 +263,7 @@ def _rebuilt_snapshot(task_id: str, lines: list[str]) -> dict[str, Any]:
 
 
 def _snapshot_fields_match(snapshot: Mapping[str, Any], rebuilt: Mapping[str, Any]) -> bool:
-    for key in ("items", "latest_checkpoint", "event_count"):
-        if json.dumps(snapshot.get(key), sort_keys=True) != json.dumps(rebuilt.get(key), sort_keys=True):
-            return False
-    return True
+    return json.dumps(snapshot, sort_keys=True) == json.dumps(rebuilt, sort_keys=True)
 
 
 def _scan_secrets(root: Path) -> list[str]:
@@ -278,10 +275,12 @@ def _scan_secrets(root: Path) -> list[str]:
         files = [path] if path.is_file() else [child for child in path.rglob("*") if child.is_file()]
         for child in files:
             try:
-                text = child.read_text(encoding="utf-8")
-            except (OSError, UnicodeError):
+                data = child.read_bytes()
+            except OSError:
+                found.append(child.relative_to(root).as_posix())
                 continue
-            if _contains_secrets(text):
+            text = data.decode("utf-8", errors="replace")
+            if _contains_secrets(text) or any(marker.encode("ascii") in data for marker in SECRET_MARKERS):
                 found.append(child.relative_to(root).as_posix())
     return found
 
@@ -400,10 +399,19 @@ def migrate_contract(task_id: str, worktree: Path | None = None) -> dict[str, An
     updated["version"] = int(version) + 1 if isinstance(version, int) else 1
     previous_seal = updated.get("seal") if isinstance(updated.get("seal"), Mapping) else {}
     updated.pop("seal", None)
-    from managing_long_task_context import _contract_digest
+    from managing_long_task_context import (
+        _append_event_locked,
+        _contract_digest,
+        _load_snapshot,
+        _locked,
+        _new_event,
+        _now,
+        _paths,
+    )
+    confirmed_by = previous_seal.get("confirmed_by") or "publisher"
     updated["seal"] = {
-        "confirmed_by": previous_seal.get("confirmed_by") or "publisher",
-        "confirmed_at": previous_seal.get("confirmed_at"),
+        "confirmed_by": confirmed_by,
+        "confirmed_at": _now(),
         "file_protection": previous_seal.get("file_protection") or "read-only-advisory-v1",
     }
     updated["seal"]["integrity_digest"] = _contract_digest(updated)
@@ -412,6 +420,22 @@ def migrate_contract(task_id: str, worktree: Path | None = None) -> dict[str, An
     contract_path.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if updated["seal"].get("file_protection") == "read-only-advisory-v1":
         contract_path.chmod(0o444)
+    paths = _paths(task_id, context_root(root))
+    with _locked(paths["root"]):
+        snapshot = _load_snapshot(task_id, paths)
+        event = _new_event(
+            task_id,
+            "contract-published",
+            str(confirmed_by),
+            {
+                "task_id": task_id,
+                "version": updated["version"],
+                "integrity_digest": updated["seal"]["integrity_digest"],
+                "confirmed_by": confirmed_by,
+                "confirmed_at": updated["seal"]["confirmed_at"],
+            },
+        )
+        _append_event_locked(paths, snapshot, event)
     binding_path = directory / "context-binding.json"
     if binding_path.exists():
         try:
@@ -531,10 +555,11 @@ def _install_project_git_files(root: Path) -> None:
     current = attributes.read_text(encoding="utf-8") if attributes.exists() else ""
     head = _run_git(root, "show", f"HEAD:{ATTRIBUTES_FILE}")
     head_text = head.stdout if head.returncode == 0 else ""
+    desired = head_text if extra in head_text else head_text + extra
+    if current not in {"", head_text, desired}:
+        raise StoreNotWritable("ATTRIBUTES_DIRTY", ".gitattributes has unrelated edits")
     if extra not in current:
-        if current not in {"", head_text}:
-            raise StoreNotWritable("ATTRIBUTES_DIRTY", ".gitattributes has unrelated edits")
-        attributes.write_text(head_text + extra, encoding="utf-8")
+        attributes.write_text(desired, encoding="utf-8")
     _run_git(root, "config", "core.hooksPath", HOOKS_PATH)
     _run_git(root, "config", "merge.mltc-events.driver", f"python3 {MERGE_SCRIPT} %O %A %B")
     _run_git(root, "config", "merge.mltc-snapshot.driver", f"python3 -c 'import json,sys; from pathlib import Path; Path(sys.argv[2]).write_text(json.dumps({{\"rebuild\":\"required\"}})+chr(10))' %O %A %B")
