@@ -26,7 +26,8 @@ HOOKS_PATH = ".githooks"
 HOOK_FILE = ".githooks/pre-commit"
 MERGE_SCRIPT = ".prime/scripts/merge-events.py"
 ATTRIBUTES_FILE = ".gitattributes"
-PUBLISH_MARKER = "MLTC_PUBLISH_CONTEXT=1"
+PUBLISH_ENV = "MLTC_PUBLISH_CONTEXT"
+PUBLISH_MARKER = f"{PUBLISH_ENV}=1"
 REBUILD_MARKER = {"rebuild": "required"}
 
 SECRET_MARKERS = (
@@ -105,7 +106,13 @@ def _head_kind(root: Path) -> str:
 
 
 def _merge_in_progress(root: Path) -> bool:
-    return (root / ".git" / "MERGE_HEAD").exists()
+    completed = _run_git(root, "rev-parse", "--git-path", "MERGE_HEAD")
+    if completed.returncode != 0:
+        return (root / ".git" / "MERGE_HEAD").exists()
+    path = Path(completed.stdout.strip())
+    if not path.is_absolute():
+        path = root / path
+    return path.exists()
 
 
 def assert_writable(worktree: Path | None = None) -> Path:
@@ -166,22 +173,29 @@ def union_events(ours_lines: Iterable[str], other_lines: Iterable[str]) -> dict[
         raise StoreNotWritable("CONFLICT_MARKERS", "events.jsonl has Git conflict markers")
     ours_by_id: dict[str, str] = {}
     order: list[str] = []
+    unidentified: list[str] = []
     for line in ours:
         event_id = _event_id(line)
         if event_id is None:
-            continue
-        ours_by_id[event_id] = line
-        order.append(event_id)
-    for line in other:
-        event_id = _event_id(line)
-        if event_id is None:
+            unidentified.append(line)
             continue
         if event_id in ours_by_id and ours_by_id[event_id] != line:
             return {"status": "conflict", "event_id": event_id, "left": ours_by_id[event_id], "right": line}
         if event_id not in ours_by_id:
             ours_by_id[event_id] = line
             order.append(event_id)
-    return {"status": "merged", "lines": [ours_by_id[event_id] for event_id in order]}
+    for line in other:
+        event_id = _event_id(line)
+        if event_id is None:
+            if line not in unidentified:
+                unidentified.append(line)
+            continue
+        if event_id in ours_by_id and ours_by_id[event_id] != line:
+            return {"status": "conflict", "event_id": event_id, "left": ours_by_id[event_id], "right": line}
+        if event_id not in ours_by_id:
+            ours_by_id[event_id] = line
+            order.append(event_id)
+    return {"status": "merged", "lines": unidentified + [ours_by_id[event_id] for event_id in order]}
 
 
 def write_conflict(task_id: str, event_id: str, left: str, right: str, worktree: Path | None = None) -> Path:
@@ -243,12 +257,33 @@ def _rebuild_snapshot_from_events(task_id: str, lines: list[str]) -> dict[str, A
 
 
 def _rebuilt_snapshot(task_id: str, lines: list[str]) -> dict[str, Any]:
-    try:
-        events = [json.loads(line) for line in lines]
-        from managing_long_task_context import _rebuild_snapshot
-        return _rebuild_snapshot(task_id, events)
-    except Exception:
-        return _rebuild_snapshot_from_events(task_id, lines)
+    events = [json.loads(line) for line in lines]
+    from managing_long_task_context import _rebuild_snapshot
+    return _rebuild_snapshot(task_id, events)
+
+
+def _snapshot_fields_match(snapshot: Mapping[str, Any], rebuilt: Mapping[str, Any]) -> bool:
+    for key in ("items", "latest_checkpoint", "event_count"):
+        if json.dumps(snapshot.get(key), sort_keys=True) != json.dumps(rebuilt.get(key), sort_keys=True):
+            return False
+    return True
+
+
+def _scan_secrets(root: Path) -> list[str]:
+    found: list[str] = []
+    for relative in CONTEXT_PATHS:
+        path = root / relative
+        if not path.exists():
+            continue
+        files = [path] if path.is_file() else [child for child in path.rglob("*") if child.is_file()]
+        for child in files:
+            try:
+                text = child.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if _contains_secrets(text):
+                found.append(child.relative_to(root).as_posix())
+    return found
 
 
 def check_store(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
@@ -271,8 +306,9 @@ def check_store(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
     events_text = events_path.read_text(encoding="utf-8")
     if _has_conflict_markers(events_text):
         return {"status": "invalid", "report": "events.jsonl has conflict markers", "code": "CONFLICT_MARKERS", "file": str(events_path.relative_to(root))}
-    if _contains_secrets(events_text) or _contains_secrets(contract_path.read_text(encoding="utf-8")) or _contains_secrets(snapshot_path.read_text(encoding="utf-8")):
-        return {"status": "invalid", "report": "known secret marker found", "code": "SECRETS_FOUND"}
+    leaked = _scan_secrets(root)
+    if leaked:
+        return {"status": "invalid", "report": "known secret marker found", "code": "SECRETS_FOUND", "files": leaked}
     try:
         contract = json.loads(contract_path.read_text(encoding="utf-8"))
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
@@ -285,7 +321,7 @@ def check_store(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
         rebuilt = _rebuilt_snapshot(task_id, lines)
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return {"status": "invalid", "report": "snapshot cannot be rebuilt from events", "code": "SNAPSHOT_DRIFT"}
-    if json.dumps(snapshot.get("items"), sort_keys=True) != json.dumps(rebuilt.get("items"), sort_keys=True):
+    if not _snapshot_fields_match(snapshot, rebuilt):
         return {"status": "invalid", "report": "snapshot cannot be rebuilt from events", "code": "SNAPSHOT_DRIFT"}
     found: list[str] = []
     _walk_absolute(contract, "task-contract", found)
@@ -325,7 +361,7 @@ def read_task(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
             snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
             lines = [line for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
             rebuilt = _rebuilt_snapshot(task_id, lines)
-            if isinstance(snapshot, dict) and json.dumps(snapshot.get("items"), sort_keys=True) == json.dumps(rebuilt.get("items"), sort_keys=True):
+            if isinstance(snapshot, dict) and _snapshot_fields_match(snapshot, rebuilt):
                 result["snapshot"] = snapshot
                 checkpoint = snapshot.get("latest_checkpoint")
                 result["latest_checkpoint"] = checkpoint if checkpoint is not None else None
@@ -362,12 +398,20 @@ def migrate_contract(task_id: str, worktree: Path | None = None) -> dict[str, An
     updated["workspace_root"] = RELATIVE_WORKSPACE
     version = updated.get("version")
     updated["version"] = int(version) + 1 if isinstance(version, int) else 1
-    seal = dict(updated.get("seal") or {})
-    payload = {key: updated[key] for key in updated if key != "seal"}
-    digest = __import__("hashlib").sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
-    seal["integrity_digest"] = digest
-    updated["seal"] = seal
+    previous_seal = updated.get("seal") if isinstance(updated.get("seal"), Mapping) else {}
+    updated.pop("seal", None)
+    from managing_long_task_context import _contract_digest
+    updated["seal"] = {
+        "confirmed_by": previous_seal.get("confirmed_by") or "publisher",
+        "confirmed_at": previous_seal.get("confirmed_at"),
+        "file_protection": previous_seal.get("file_protection") or "read-only-advisory-v1",
+    }
+    updated["seal"]["integrity_digest"] = _contract_digest(updated)
+    if contract_path.exists():
+        contract_path.chmod(stat.S_IWUSR | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     contract_path.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if updated["seal"].get("file_protection") == "read-only-advisory-v1":
+        contract_path.chmod(0o444)
     binding_path = directory / "context-binding.json"
     if binding_path.exists():
         try:
@@ -384,7 +428,7 @@ def migrate_contract(task_id: str, worktree: Path | None = None) -> dict[str, An
 def hook_script() -> str:
     paths = " ".join(CONTEXT_PATHS)
     return f"""#!/bin/sh
-if [ "${PUBLISH_MARKER}" = "1" ]; then
+if [ "${PUBLISH_ENV}" = "1" ]; then
   exit 0
 fi
 if git diff --cached --name-only -- {paths} | grep -q .; then
@@ -424,15 +468,23 @@ def union_events(ours_lines, other_lines):
         sys.exit(1)
     ours_by_id = {}
     order = []
+    unidentified = []
     for line in ours:
         eid = event_id(line)
         if eid is None:
+            unidentified.append(line)
             continue
-        ours_by_id[eid] = line
-        order.append(eid)
+        if eid in ours_by_id and ours_by_id[eid] != line:
+            sys.stderr.write("duplicate event_id with different lines\n")
+            sys.exit(1)
+        if eid not in ours_by_id:
+            ours_by_id[eid] = line
+            order.append(eid)
     for line in other:
         eid = event_id(line)
         if eid is None:
+            if line not in unidentified:
+                unidentified.append(line)
             continue
         if eid in ours_by_id and ours_by_id[eid] != line:
             path = Path(sys.argv[2]).parent / ("conflict-%s.json" % eid)
@@ -444,7 +496,7 @@ def union_events(ours_lines, other_lines):
         if eid not in ours_by_id:
             ours_by_id[eid] = line
             order.append(eid)
-    return [ours_by_id[eid] for eid in order]
+    return unidentified + [ours_by_id[eid] for eid in order]
 
 ours = Path(sys.argv[2])
 theirs = Path(sys.argv[3])
@@ -475,10 +527,14 @@ def _install_project_git_files(root: Path) -> None:
     script.write_text(merge_script(), encoding="utf-8")
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     attributes = root / ATTRIBUTES_FILE
-    current = attributes.read_text(encoding="utf-8") if attributes.exists() else ""
     extra = attributes_text()
+    current = attributes.read_text(encoding="utf-8") if attributes.exists() else ""
+    head = _run_git(root, "show", f"HEAD:{ATTRIBUTES_FILE}")
+    head_text = head.stdout if head.returncode == 0 else ""
     if extra not in current:
-        attributes.write_text(current + extra, encoding="utf-8")
+        if current not in {"", head_text}:
+            raise StoreNotWritable("ATTRIBUTES_DIRTY", ".gitattributes has unrelated edits")
+        attributes.write_text(head_text + extra, encoding="utf-8")
     _run_git(root, "config", "core.hooksPath", HOOKS_PATH)
     _run_git(root, "config", "merge.mltc-events.driver", f"python3 {MERGE_SCRIPT} %O %A %B")
     _run_git(root, "config", "merge.mltc-snapshot.driver", f"python3 -c 'import json,sys; from pathlib import Path; Path(sys.argv[2]).write_text(json.dumps({{\"rebuild\":\"required\"}})+chr(10))' %O %A %B")
@@ -504,8 +560,12 @@ def publish_context(task_id: str, worktree: Path | None = None) -> dict[str, Any
         raise StoreNotWritable(str(checked.get("code") or "STORE_INVALID"), checked["report"])
     assert_publishable(root)
     env = os.environ.copy()
-    env[PUBLISH_MARKER.split("=")[0]] = "1"
+    env[PUBLISH_ENV] = "1"
     _force_add(root)
+    leaked = _scan_secrets(root)
+    if leaked:
+        _run_git(root, "reset", "-q", "HEAD", "--", *CONTEXT_PATHS, HOOK_FILE, MERGE_SCRIPT, ATTRIBUTES_FILE)
+        raise StoreNotWritable("SECRETS_FOUND", "known secret marker found")
     commit_paths = [relative for relative in CONTEXT_PATHS if (root / relative).exists()]
     commit_paths.extend(relative for relative in (HOOK_FILE, MERGE_SCRIPT, ATTRIBUTES_FILE) if (root / relative).exists())
     commit = subprocess.run(
@@ -517,6 +577,7 @@ def publish_context(task_id: str, worktree: Path | None = None) -> dict[str, Any
         timeout=30,
     )
     if commit.returncode != 0:
+        _run_git(root, "reset", "-q", "HEAD", "--", *commit_paths)
         raise StoreNotWritable("COMMIT_FAILED", commit.stderr.strip() or commit.stdout.strip() or "commit failed")
     upstream = _run_git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
     if upstream.returncode == 0:
@@ -558,10 +619,15 @@ def _head_event_ids(root: Path, task_id: str) -> set[str]:
 
 def align_context(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
     root = resolve_worktree_root(worktree)
+    if _head_kind(root) == "detached":
+        raise StoreNotWritable("DETACHED_HEAD", "detached HEAD is read-only")
+    if _merge_in_progress(root):
+        raise StoreNotWritable("MERGE_IN_PROGRESS", "merge in progress")
     if _run_git(root, "config", "--get", "core.hooksPath").stdout.strip() != HOOKS_PATH:
         raise StoreNotWritable("HOOKS_NOT_INSTALLED", "core.hooksPath must be .githooks")
-    tracked = _run_git(root, "ls-tree", "-r", "--name-only", "HEAD", "--", RELATIVE_CONTEXT)
-    if tracked.returncode != 0 or not tracked.stdout.strip():
+    tracked = _run_git(root, "ls-tree", "-r", "--name-only", "HEAD", "--", *CONTEXT_PATHS)
+    names = {line for line in tracked.stdout.splitlines() if line.strip()}
+    if tracked.returncode != 0 or not any(name.startswith(RELATIVE_CONTEXT + "/") or name == RELATIVE_CONTEXT for name in names):
         return {"status": "missing", "report": "没有可对齐的上下文"}
     directory = task_dir(task_id, root)
     local_ids = _local_event_ids(directory)
@@ -569,7 +635,8 @@ def align_context(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
     extra = local_ids - head_ids
     if extra:
         raise StoreNotWritable("LOCAL_AHEAD", "local events are not in HEAD: " + ", ".join(sorted(extra)))
-    checkout = _run_git(root, "checkout", "HEAD", "--", *CONTEXT_PATHS)
+    checkout_paths = [relative for relative in CONTEXT_PATHS if any(name == relative or name.startswith(relative + "/") for name in names)]
+    checkout = _run_git(root, "checkout", "HEAD", "--", *checkout_paths)
     if checkout.returncode != 0:
         raise StoreNotWritable("ALIGN_FAILED", checkout.stderr.strip() or "checkout failed")
     return {"status": "ok", "task_id": task_id}
@@ -589,11 +656,16 @@ def stored_workspace_matches(stored: object, workspace: Path) -> bool:
 def stored_context_matches(stored: object, context: Path) -> bool:
     if stored == str(context):
         return True
-    if stored in {RELATIVE_CONTEXT, f"./{RELATIVE_CONTEXT}"}:
+    if stored not in {RELATIVE_CONTEXT, f"./{RELATIVE_CONTEXT}"}:
+        return False
+    start = context
+    for _ in range(6):
         try:
-            return context.resolve() == context_root(resolve_worktree_root(context))
+            return context.resolve() == context_root(resolve_worktree_root(start))
         except StoreNotWritable:
-            return False
+            if start.parent == start:
+                return False
+            start = start.parent
     return False
 
 

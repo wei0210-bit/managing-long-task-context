@@ -186,8 +186,8 @@ def _resolve_base_dir(base_dir: str | Path | None = None) -> tuple[Path, str]:
         return configured_path.resolve(), "environment"
     try:
         return _project_store_module.context_root(), "worktree-default"
-    except StoreNotWritable:
-        return (Path.cwd() / DEFAULT_BASE_DIR).resolve(), "cwd-default"
+    except StoreNotWritable as exc:
+        raise ContextError(f"{exc.code}: {exc}") from exc
 
 
 def _task_dir(task_id: str, base_dir: str | Path | None = None) -> Path:
@@ -241,6 +241,7 @@ def _process_lock_guard(root: Path) -> threading.Lock:
 def _assert_default_store_writable(root: Path) -> None:
     try:
         default = _project_store_module.context_root()
+        worktree = _project_store_module.resolve_worktree_root()
     except StoreNotWritable:
         return
     try:
@@ -248,7 +249,8 @@ def _assert_default_store_writable(root: Path) -> None:
     except ValueError:
         return
     try:
-        _project_store_module.assert_writable()
+        _project_store_module.assert_writable(worktree)
+        _project_store_module._install_project_git_files(worktree)
     except StoreNotWritable as exc:
         raise ContextError(f"{exc.code}: {exc}") from exc
 
@@ -1121,6 +1123,8 @@ def _load_snapshot(task_id: str, paths: Mapping[str, Path]) -> dict[str, Any]:
     try:
         snapshot = _read_json(paths["snapshot"])
     except ContextError:
+        return _rebuild_snapshot(task_id, _read_events(paths["events"]))
+    if snapshot == {"rebuild": "required"}:
         return _rebuild_snapshot(task_id, _read_events(paths["events"]))
     return snapshot
 

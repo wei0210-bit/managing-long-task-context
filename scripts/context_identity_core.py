@@ -372,10 +372,15 @@ def init_binding(
     task_dir, task_failure = _task_path(context, task_id)
     if task_failure is not None or task_dir is None:
         return _report(mode="init", scope="task", checks=checks + [task_failure or _check("binding", "unknown", "READ_FAILED", "task unavailable")])
+    stored_workspace = str(workspace)
+    stored_context = str(context)
+    if _git_toplevel(workspace) == workspace.resolve() and context.resolve() == (workspace / ".prime" / "context").resolve():
+        stored_workspace = "."
+        stored_context = ".prime/context"
     binding: dict[str, object] = {
         "schema": SCHEMA, "task_id": task_id, "skill_name": manifest["skill_name"],
-        "expected_manifest_sha256": expected_manifest_sha256, "workspace_root": str(workspace),
-        "context_root": str(context), "created_at": utc_now(),
+        "expected_manifest_sha256": expected_manifest_sha256, "workspace_root": stored_workspace,
+        "context_root": stored_context, "created_at": utc_now(),
     }
     target, target_failure = _binding_file(task_dir)
     if target_failure is not None or target is None:

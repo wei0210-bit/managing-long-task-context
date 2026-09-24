@@ -170,6 +170,12 @@ def _valid_workspace_root(value: object) -> bool:
     if not isinstance(value, (str, Path)):
         return False
     value_string = os.fspath(value)
+    if value_string == ".":
+        try:
+            from .project_store import resolve_worktree_root
+            value_string = str(resolve_worktree_root())
+        except Exception:
+            return False
     if "\x00" in value_string or not os.path.isabs(value_string):
         return False
     try:

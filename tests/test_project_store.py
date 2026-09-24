@@ -93,6 +93,15 @@ class ProjectStoreTests(unittest.TestCase):
         with self.assertRaises(project_store.StoreNotWritable) as raised:
             project_store.resolve_worktree_root(missing)
         self.assertEqual(raised.exception.code, "NOT_A_REPOSITORY")
+        previous = Path.cwd()
+        os.chdir(missing)
+        try:
+            with self.assertRaises(context.ContextError) as blocked:
+                context.publish_contract(_contract(), confirmed_by="publisher")
+            self.assertIn("NOT_A_REPOSITORY", str(blocked.exception))
+        finally:
+            os.chdir(previous)
+        self.assertFalse((missing / ".prime" / "context").exists())
 
     def test_default_base_dir_uses_worktree_prime_context(self) -> None:
         repo = _init_repo(self.root / "work")
@@ -125,15 +134,18 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertEqual(conflict["status"], "conflict")
         self.assertEqual(conflict["event_id"], "a")
 
-        absolute = json.loads((base / "TASK-001" / "task-contract.json").read_text())
+        contract_path = base / "TASK-001" / "task-contract.json"
+        absolute = json.loads(contract_path.read_text())
+        objective = absolute["objective"]
+        os.chmod(contract_path, 0o644)
         absolute["workspace_root"] = str(repo.resolve())
-        (base / "TASK-001" / "task-contract.json").write_text(
-            json.dumps(absolute, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
-        )
-        os.chmod(base / "TASK-001" / "task-contract.json", 0o644)
+        contract_path.write_text(json.dumps(absolute, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.chmod(contract_path, 0o444)
         updated = project_store.migrate_contract("TASK-001", repo)
         self.assertEqual(updated["workspace_root"], ".")
         self.assertGreater(updated["version"], 1)
+        self.assertTrue(str(updated["seal"]["integrity_digest"]).startswith("sha256:"))
+        self.assertEqual(updated["objective"], objective)
 
     def test_hook_blocks_ordinary_context_commit(self) -> None:
         repo = _with_remote(_init_repo(self.root / "hook"))
@@ -168,10 +180,10 @@ class ProjectStoreTests(unittest.TestCase):
 
     def test_secret_marker_blocks_publish(self) -> None:
         repo = _with_remote(_init_repo(self.root / "secret"))
-        base = _publish_local_task(repo)
-        contract = base / "TASK-001" / "task-contract.json"
-        os.chmod(contract, 0o644)
-        contract.write_text(contract.read_text(encoding="utf-8") + "-----BEGIN RSA PRIVATE KEY-----\n", encoding="utf-8")
+        _publish_local_task(repo)
+        experience = repo / ".prime" / "experience"
+        experience.mkdir(parents=True)
+        (experience / "key.pem").write_text("-----BEGIN RSA PRIVATE KEY-----\n", encoding="utf-8")
         with self.assertRaises(project_store.StoreNotWritable) as raised:
             project_store.publish_context("TASK-001", repo)
         self.assertEqual(raised.exception.code, "SECRETS_FOUND")
@@ -223,6 +235,25 @@ class ProjectStoreTests(unittest.TestCase):
         workspace = self.root / "exp"
         workspace.mkdir()
         self.assertEqual(_store_path(workspace, None), workspace / ".prime" / "experience")
+
+    def test_merge_script_writes_conflict_and_rebuild_marker(self) -> None:
+        repo = _init_repo(self.root / "merge")
+        base = _publish_local_task(repo)
+        project_store._install_project_git_files(repo)
+        script = repo / ".prime" / "scripts" / "merge-events.py"
+        ours = base / "TASK-001" / "events.jsonl"
+        theirs = self.root / "theirs.jsonl"
+        snapshot = base / "TASK-001" / "snapshot.json"
+        ours.write_text('{"event_id":"EV-1","body":1}\n', encoding="utf-8")
+        theirs.write_text('{"event_id":"EV-1","body":2}\n', encoding="utf-8")
+        completed = subprocess.run(
+            [sys.executable, str(script), "unused", str(ours), str(theirs)],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        conflict = base / "TASK-001" / "conflict-EV-1.json"
+        self.assertTrue(conflict.is_file(), conflict)
+        self.assertEqual(json.loads(snapshot.read_text()), {"rebuild": "required"})
 
 
 if __name__ == "__main__":
