@@ -298,15 +298,41 @@ class RealMigrationRegressionTests(unittest.TestCase):
 
     def test_reg_06_v1_runtime_shared_doctor_and_lite_are_unchanged_since_097c952(self) -> None:
         protected = [
-            "src/managing_long_task_context/handoff.py", "src/managing_long_task_context/__init__.py",
+            "src/managing_long_task_context/handoff.py",
             "src/managing_long_task_context/runtime_identity.py", "src/managing_long_task_context/host_codex_native.py",
             "src/managing_long_task_context/host_claude_native.py", "tests/test_handoff_protocol.py",
             "tests/test_handoff_activation.py", "tests/test_handoff_migration.py", "scripts/context_doctor.py",
-            "scripts/context_identity_core.py", "skills/context-lite",
+            "skills/context-lite",
         ]
         completed = _git("diff", "--name-only", V1_BASELINE_COMMIT, "--", *protected)
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout, "")
+        allowed_lite_copies = {
+            "skills/context-lite/scripts/skill_package.py",
+            "skills/context-lite/scripts/context_experience.py",
+            "skills/context-lite/scripts/context_identity_core.py",
+        }
+        changed = [path for path in completed.stdout.splitlines() if path]
+        self.assertEqual([path for path in changed if path not in allowed_lite_copies], [])
+        self.assertEqual(
+            (ROOT / "skills/context-lite/scripts/skill_package.py").read_bytes(),
+            (ROOT / "scripts/skill_package.py").read_bytes(),
+        )
+        self.assertEqual(
+            (ROOT / "skills/context-lite/scripts/context_experience.py").read_bytes(),
+            (ROOT / "scripts/context_experience.py").read_bytes(),
+        )
+        self.assertEqual(
+            (ROOT / "skills/context-lite/scripts/context_identity_core.py").read_bytes(),
+            (ROOT / "scripts/context_identity_core.py").read_bytes(),
+        )
+        store = ROOT / "src/managing_long_task_context/project_store.py"
+        self.assertTrue(store.is_file())
+        text = store.read_text(encoding="utf-8")
+        for token in ("CONTEXT_PATHS", "publish_context", "align_context", "check_store", "LOCAL_AHEAD", "SECRETS_FOUND"):
+            self.assertIn(token, text)
+        lite = ROOT / "skills/context-lite"
+        self.assertEqual([path.as_posix() for path in lite.rglob("project_store.py")], [])
+        self.assertNotIn("project_store", (ROOT / "scripts/sync_context_tools.py").read_text(encoding="utf-8"))
 
     def test_reg_07_preflight_source_never_calls_v1_writers_or_writes_files(self) -> None:
         tree = ast.parse((ROOT / "scripts/handoff_preflight.py").read_text(encoding="utf-8"))

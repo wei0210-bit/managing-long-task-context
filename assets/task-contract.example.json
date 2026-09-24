@@ -5,7 +5,7 @@
   "issued_by": "task-publisher",
   "issued_at": "2026-08-26T09:00:00Z",
   "authorized_approvers": [],
-  "workspace_root": "/absolute/path/to/project",
+  "workspace_root": ".",
   "required_capabilities": [
     "evidence-handlers/v1"
   ],

@@ -1,6 +1,6 @@
 ---
 name: context-strict
-description: Use when work spans multiple turns, sessions, or agents and depends on changing facts, controlled acceptance criteria, evidence-backed handoffs, or protection against stale, conflicting, and misattributed context.
+description: Use when work spans multiple turns, sessions, or agents (including bot-to-bot pipelines) and depends on changing facts, controlled acceptance criteria, evidence-backed handoffs that carry `.prime/context/<task-id>/` paths, or protection against stale, conflicting, and misattributed context.
 ---
 
 # Managing Long-Task Context
@@ -207,6 +207,9 @@ red?** Do not load that reference for routine execution.
 | `brief(...)` / `brief_diagnostics(...)` | Produce or preflight the controlled handoff packet |
 | `audit(...)` / `gate(...)` | Run integrity, state, truth, and acceptance checks |
 | `bind_experience(workspace_root, store_root)` | Bind Strict-only experience review and approval |
+| `publish_context(task_id)` | Secret-check, then force-add and push only `CONTEXT_PATHS` |
+| `align_context(task_id)` | Restore tracked `.prime` from HEAD; stop if local events are ahead |
+| `check_store(task_id)` / `read_task(task_id)` | Inspect the project store without uploading |
 | `prepare_handoff(...)` / `validate_handoff(...)` / `activate_handoff(...)` / `cancel_handoff(...)` / `handoff_status(...)` | Explicit host-verified short-session handoff; only when the capability is sealed in the contract |
 
 ## Verified experience and rule execution
@@ -221,9 +224,72 @@ examples: `examples/experience_review.py`, `examples/rule_execution.py`, and
 `examples/experience_rule_gate.py`. The candidate CLI example is
 `examples/experience_candidates.py`.
 
-State lives under `.prime/context/<task-id>/` as a sealed contract, append-only
-`events.jsonl`, and rebuildable `snapshot.json`. Events are history; snapshot is a cache;
-neither is injected by default.
+State lives under the Git worktree at `.prime/context/<task-id>/` as a sealed contract,
+append-only `events.jsonl`, and rebuildable `snapshot.json`. Stored identity uses
+`workspace_root: "."` and `context_root: ".prime/context"` so cloud and local checkouts
+share one tree. Experience defaults to `.prime/experience/`. Events are history; snapshot
+is a cache; neither is injected by default.
+
+`.prime/context/` and `.prime/experience/` stay gitignored. Ordinary `git add` / `git
+commit` must not upload them. After the first `publish_context`, those paths are tracked;
+the in-repo `.githooks/pre-commit` plus `core.hooksPath=.githooks` blocks later ordinary
+commits. Only `publish_context` sets `MLTC_PUBLISH_CONTEXT=1`, secret-checks, force-adds
+`CONTEXT_PATHS`, commits those paths, and pushes. `align_context` checks out HEAD's
+tracked copy and stops with `LOCAL_AHEAD` when the working tree has extra `event_id`s.
+Detached HEAD and in-progress merges are read-only, except a merge may write
+`conflict-<id>.json` and mark `snapshot.json` as `{"rebuild":"required"}`.
+
+## Multi-bot / assistant pipeline handoff (shared truth)
+
+When several bots or agents collaborate on one task (for example plan → Office hours →
+writer → reviewer), **Context Strict storage is the shared truth source**. Chat memory
+and free-form messages are not enough.
+
+### Required handoff field
+
+Every cross-bot handoff pack MUST include at least one of:
+
+- absolute path to the task store: `<project>/.prime/context/<task-id>/`
+- absolute path to the sealed contract file: `.../task-contract.json` (or the
+  project-standard contract filename under that task id)
+
+Downstream bots MUST open and read that contract (objective, scope, constraints,
+acceptance / verification criteria) **before** implementing or reviewing. Do not
+rely on a retelling of AC in chat if the sealed contract exists.
+
+Upstream bots MUST publish or point to a usable Strict pack before asking the next
+stage to start. If the path is missing, unreadable, or the contract is unsealed /
+stale, stop and ask the publisher to fix it — do not invent acceptance criteria.
+
+### Recommended handoff pack (minimum)
+
+1. Project root (absolute)
+2. `.prime/context/<task-id>/` (absolute) **or** `task-contract.json` (absolute)
+3. Task id
+4. Goal (short; contract remains authoritative)
+5. Verification / acceptance criteria (copy from sealed contract; do not weaken)
+6. Artifact pointers (branch, PR, diff) when they exist
+7. Self-check commands/results when they exist
+
+### Relation to brief() / gates
+
+Prefer producing a usable `brief()` and passing handoff/completion gates when the
+runtime is available. The path rule above still applies when a host only exchanges
+messages: the message must carry the Strict path so peers can bind the same store.
+
+See also `references/bot-pipeline-handoff.md`.
+
+## Publish guards
+
+新合同应填写相对工作区 `workspace_root: "."`，并启用 `evidence-handlers/v1`。旧的绝对路径合同用 `migrate_contract` 改成相对路径并重新封印。自由文本证据类型不会被发布拒绝；用 `managing_long_task_context.evidence.contract_compat_report` 检查缺失或不存在的工作区，以及未映射到内置或已声明 handler 的证据类型。证据解析在运行时仍使用调用方传入的绝对工作区。
+
+## Usage freshness
+
+交接前调用 `managing_long_task_context.usage_freshness.usage_freshness_report(task_root, now=...)`。它只读任务目录。账本停更、合同版本超过 5、以及名为 `.DS_Store` 或匹配末尾 ` 2` 副本的条目会给出 warning。最近一次 checkpoint 早于 72 小时，或缺少 checkpoint，报告状态为 unknown。`audit`、`brief`、`gate` 的既有结论不变。
+
+## Package lineage
+
+构建或安装前运行 `scripts/package_lineage.py --repo <仓库绝对路径> --source-revision <revision>`。`git:` 后接可解析提交，且该提交是 `origin/main` 的祖先时，报告为 pass。`local:` 必须同时传入 `--confirm-local`，否则为 warn。`candidate:`、`test:` 以及其他无法解析的修订为 unknown，不改变 `skill_package.py build`。`context_doctor.py` 不包含这项检查。
 
 ## Hard stops
 
