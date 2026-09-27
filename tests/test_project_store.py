@@ -261,7 +261,7 @@ class ProjectStoreTests(unittest.TestCase):
         from managing_long_task_context._experience_store import _store_path
         workspace = self.root / "exp"
         workspace.mkdir()
-        self.assertEqual(_store_path(workspace, None), workspace / ".prime" / "experience")
+        self.assertEqual(_store_path(workspace, None), (workspace / ".prime" / "experience").resolve())
 
     def test_merge_script_writes_conflict_and_rebuild_marker(self) -> None:
         repo = _init_repo(self.root / "merge")
