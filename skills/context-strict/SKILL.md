@@ -277,7 +277,9 @@ Prefer producing a usable `brief()` and passing handoff/completion gates when th
 runtime is available. The path rule above still applies when a host only exchanges
 messages: the message must carry the Strict path so peers can bind the same store.
 
-See also `references/bot-pipeline-handoff.md`.
+See also `references/bot-pipeline-handoff.md`. For what each role (executor, repair
+executor, independent reviewer, orchestrator recovery) receives, see
+`references/agent-role-handoff.md`.
 
 ## Publish guards
 
