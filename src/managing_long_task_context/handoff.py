@@ -156,16 +156,6 @@ def validate_protocol_event(event: object, *, task_id: str) -> str | None:
     return None
 
 
-def _prepared(events: Sequence[Mapping[str, Any]], *, task_id: str, handoff_id: str) -> tuple[Mapping[str, Any] | None, str | None]:
-    projection, error = _control_projection(events, task_id=task_id)
-    if error is not None:
-        return None, error
-    pending = projection.get("pending")
-    if not isinstance(pending, Mapping) or pending.get("handoff_id") != handoff_id:
-        return None, "handoff is not currently prepared"
-    return pending, None
-
-
 def _as_utc(value: object) -> datetime | None:
     if not _utc(value):
         return None
