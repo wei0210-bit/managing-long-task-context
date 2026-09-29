@@ -16,8 +16,8 @@ import managing_long_task_context as context
 
 
 def run_example() -> dict[str, object]:
-    with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-        temporary_root = Path(temporary_dir)
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        temporary_root = Path(temporary_dir).resolve()
         workspace = temporary_root / "workspace"
         workspace.mkdir()
         evidence = workspace / "dispatch-proof.txt"

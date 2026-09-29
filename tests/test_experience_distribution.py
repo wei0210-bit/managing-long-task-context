@@ -28,8 +28,8 @@ class ExperienceDistributionTests(unittest.TestCase):
         return destination
 
     def test_lite_package_runs_candidate_cli_test_and_example_outside_repository(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
-            outside = Path(temporary)
+        with tempfile.TemporaryDirectory() as temporary:
+            outside = Path(temporary).resolve()
             package = outside / "context-lite"
             built = subprocess.run(
                 [sys.executable, str(PACKAGER), "build", "--source", str(ROOT / "skills/context-lite"),
@@ -242,8 +242,8 @@ def dispatch_fixture(case):
         actions.write_text(json.dumps(history, sort_keys=True), encoding="utf-8")
     return checker, recover
 
-with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
-    root = Path(temporary)
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary).resolve()
     workspace = root / "workspace"
     workspace.mkdir()
     cases = {
@@ -264,8 +264,8 @@ with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
     print(json.dumps(results, sort_keys=True))
     assert all(not item["rejected"] and item["accepted"] and item["codes"] for item in results.values())
 '''
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
-            outside = Path(temporary)
+        with tempfile.TemporaryDirectory() as temporary:
+            outside = Path(temporary).resolve()
             package = self._build(ROOT / "skills/context-strict", outside / "context-strict", revision="git:ticket-6")
             self.assertTrue((package / "tests" / "test_experience_rule_gate.py").is_file())
             environment = dict(os.environ, PYTHONPATH=str(package / "src"))
@@ -282,8 +282,8 @@ with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
 
     def test_historical_strict_package_rejects_rule_execution_capability(self) -> None:
         historical_revision = "3e954eb"
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
-            outside = Path(temporary)
+        with tempfile.TemporaryDirectory() as temporary:
+            outside = Path(temporary).resolve()
             archive = outside / "historical.tar"
             with archive.open("wb") as stream:
                 archived = subprocess.run(

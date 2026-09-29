@@ -9,7 +9,7 @@ the two skills.
 `main`, and manual dispatch. A single Ubuntu / Python 3.12 job runs every unittest
 (including distribution consistency and historical compatibility), then builds,
 hash-verifies, and fully diagnoses both skill packages outside the checkout.
-It fetches full Git history and prepares `/private/tmp` for existing test fixtures.
+It fetches full Git history so historical compatibility checks can read older revisions.
 No synchronization writer runs before the checks, so source/mirror drift fails CI.
 
 The job has read-only repository permissions, a five-minute timeout and cancellation

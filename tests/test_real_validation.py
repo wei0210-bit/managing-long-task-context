@@ -23,7 +23,7 @@ def observation() -> dict[str, object]:
         "started_at": "2026-09-16T03:00:00Z",
         "sampling": "prospective",
         "project": {
-            "root": "/private/tmp/real-project",
+            "root": "/var/real-project",
             "revision": "git:097c952e37e7f971274e70579c33c2727cc67fb0",
             "dirty": False,
         },

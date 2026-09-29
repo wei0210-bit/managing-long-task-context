@@ -49,7 +49,7 @@ class HostRecordReservationTests(unittest.TestCase):
             {
                 "operation": "resume_child",
                 "argv_sha256": "e" * 64,
-                "cwd": "/private/tmp/not-the-authorized-workspace",
+                "cwd": "/var/not-the-authorized-workspace",
                 "thread_id": "00000000-0000-4000-8000-000000000000",
             }
         )
@@ -105,7 +105,7 @@ class HostRecordReservationTests(unittest.TestCase):
                     "expires_at": as_zulu(now + timedelta(minutes=1)),
                     "observation_ref": {
                         "ref_id": "hostobs",
-                        "uri": "file:///private/tmp/hostobs",
+                        "uri": "file:///var/hostobs",
                         "sha256": "f" * 64,
                     },
                     "request_binding_sha256": canonical_sha256(
@@ -871,7 +871,7 @@ class HostRecordReservationTests(unittest.TestCase):
                     "expires_at": as_zulu(now + timedelta(minutes=1)),
                     "observation_ref": {
                         "ref_id": "hostobs",
-                        "uri": "file:///private/tmp/hostobs",
+                        "uri": "file:///var/hostobs",
                         "sha256": "f" * 64,
                     },
                     "request_binding_sha256": canonical_sha256(
@@ -931,7 +931,7 @@ class HostRecordReservationTests(unittest.TestCase):
                 "host_observed_at": observed_at,
                 "host_observation_ref": {
                     "ref_id": "hostobs",
-                    "uri": "file:///private/tmp/hostobs",
+                    "uri": "file:///var/hostobs",
                     "sha256": "f" * 64,
                 },
                 "stderr_digest": __import__("hashlib").sha256(b"").hexdigest(),

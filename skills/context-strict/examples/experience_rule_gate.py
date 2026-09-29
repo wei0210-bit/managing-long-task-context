@@ -28,8 +28,8 @@ def _cli(*arguments: str) -> None:
 
 
 def run_example() -> dict[str, object]:
-    with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-        root = Path(temporary_dir)
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        root = Path(temporary_dir).resolve()
         workspace = root / "workspace"
         workspace.mkdir()
         store_root = workspace / ".context-experience"

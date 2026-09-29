@@ -136,8 +136,8 @@ class HandoffGateFixture:
         self.truth_sources = truth_sources
         self.rule_execution = rule_execution
         self.independent_validation = independent_validation
-        self.temporary = tempfile.TemporaryDirectory(dir="/private/tmp")
-        root = Path(self.temporary.name)
+        self.temporary = tempfile.TemporaryDirectory()
+        root = Path(self.temporary.name).resolve()
         self.base_dir = root / "context"
         self.workspace = root / "workspace"
         self.package = root / "package"
