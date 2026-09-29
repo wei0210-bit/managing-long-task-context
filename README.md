@@ -79,10 +79,10 @@ supported when both custom capabilities and callable handlers are supplied. See
 
 ## Production context controls
 
-Context Strict 0.5 defaults new contracts to an atomically published read-only file
-guard, blocks release/resume/handoff when mandatory brief content cannot fit, and
-reports every omitted mandatory item. The file mode is an error-prevention layer; the
-sealed digest and gate remain authoritative.
+New contracts use an atomically published read-only file guard, block
+release/resume/handoff when mandatory brief content cannot fit, and report every
+omitted mandatory item. The file mode is an error-prevention layer; the sealed
+digest and gate remain authoritative.
 
 Bind long-running tools to an absolute store before changing directories:
 
@@ -98,7 +98,7 @@ aggregate hop coverage. Detailed failure modes and boundaries live in
 
 ## Runtime identity and diagnostics
 
-Strict 0.6 and Lite 1.2 add `scripts/context_doctor.py` to complete packages. Use
+Complete packages include `scripts/context_doctor.py`. Use
 `check --mode full --package-root <absolute-package>` after installation/update;
 use identity-only checks and checked recovery during tasks. Strict callers must
 explicitly select their Python module path (`PYTHONPATH=<package>/src`); diagnostics
@@ -142,7 +142,7 @@ python3 scripts/context_skill_router.py --input task-characteristics.json
 
 Read the [v1.1 design specification](docs/specs/context-skills-v1.1.md) for the
 full boundary. Both skills are independently installable. The root Strict sources
-remain the compatibility and development source during migration; run
+remain the compatibility and development source; run
 `python3 scripts/sync_context_strict_skill.py` before validating or publishing the
 `skills/context-strict/` distribution. Transfer is not implemented in this MVP.
 

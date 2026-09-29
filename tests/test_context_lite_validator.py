@@ -154,13 +154,6 @@ class ContextLiteValidatorTests(unittest.TestCase):
             self.assertIn("NOW_HEADING_ORDER_INVALID", invalid["codes"])
             self.assertEqual(target.read_text(encoding="utf-8"), original)
 
-    def test_unreadable_path_observation_is_unknown(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            missing = Path(directory) / "missing.json"
-            report = self.run_tool("observe-path", "--state-id", "STATE-01", "--path", str(missing))
-            self.assertEqual(report["status"], "unknown")
-            self.assertEqual(report["code"], "OBSERVATION_UNREADABLE")
-
     def test_refresh_mapping_must_match_each_stable_state_and_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             candidate = Path(directory) / "NOW.md"

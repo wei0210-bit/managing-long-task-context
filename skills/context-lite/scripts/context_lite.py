@@ -51,7 +51,6 @@ MUTATING_COMMANDS = {
     "truncate", "chmod", "chown", "kill", "pkill", "launchctl",
 }
 MUTATING_GIT = {"add", "am", "branch", "checkout", "cherry-pick", "clean", "commit", "merge", "pull", "push", "rebase", "reset", "restore", "revert", "switch", "tag"}
-MUTATING_GH = {"issue edit", "issue close", "issue create", "pr merge", "pr close", "pr create", "run rerun", "workflow run"}
 VAGUE_REFERENCE = re.compile(r"^(?:here|there|above|earlier|previous|当前|这里|那里|上面|刚才|之前)$", re.IGNORECASE)
 MAX_NOW_BYTES = 8_000 * 4
 
@@ -117,8 +116,6 @@ def _reference_is_read_only(reference: str) -> bool:
             return False
     if command == "gh":
         if len(tokens) < 3 or tokens[2] not in {"view", "list", "status"}:
-            return False
-        if f"{tokens[1]} {tokens[2]}" in MUTATING_GH:
             return False
     if command == "curl" and any(token in {"-X", "--request", "-d", "--data", "--upload-file"} for token in tokens[1:]):
         return False
@@ -247,15 +244,40 @@ def _emit(report: Mapping[str, object]) -> None:
 
 
 def _read(path: Path) -> tuple[str | None, dict[str, object] | None]:
+    """Read a candidate or existing NOW file up to the resume byte cap.
+
+    Keep this separate from ``_read_bounded_bytes``. Flush hashes persisted
+    bytes through that function only after source validation. Universal
+    newlines match ``Path.read_text`` so an unchanged CRLF record still
+    compares equal to its LF candidate.
+    """
     try:
-        return path.read_text(encoding="utf-8"), None
-    except (OSError, UnicodeError) as exc:
+        with path.open("rb") as stream:
+            raw = stream.read(MAX_NOW_BYTES + 1)
+    except OSError as exc:
         return None, {
             "status": "invalid",
             "codes": ["NOW_READ_FAILED"],
             "errors": [_error("NOW_READ_FAILED", type(exc).__name__)],
             "stats": {},
         }
+    if len(raw) > MAX_NOW_BYTES:
+        return None, {
+            "status": "invalid",
+            "codes": ["NOW_READ_LIMIT_EXCEEDED"],
+            "errors": [_error("NOW_READ_LIMIT_EXCEEDED", f"more than {MAX_NOW_BYTES} UTF-8 bytes")],
+            "stats": {},
+        }
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError as exc:
+        return None, {
+            "status": "invalid",
+            "codes": ["NOW_READ_FAILED"],
+            "errors": [_error("NOW_READ_FAILED", type(exc).__name__)],
+            "stats": {},
+        }
+    return text.replace("\r\n", "\n").replace("\r", "\n"), None
 
 
 def _read_bounded_bytes(path: Path) -> tuple[bytes | None, dict[str, object] | None]:
@@ -495,9 +517,6 @@ def _parser() -> argparse.ArgumentParser:
     flush.add_argument("--candidate", type=Path, required=True)
     flush.add_argument("--base-dir", type=Path, required=True)
     flush.add_argument("--task-id", required=True)
-    observe = subparsers.add_parser("observe-path")
-    observe.add_argument("--state-id", required=True)
-    observe.add_argument("--path", type=Path, required=True)
     resume = subparsers.add_parser("resume")
     resume.add_argument("--package-root")
     resume.add_argument("--context-root")
@@ -681,17 +700,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         report, code = _flush(args.candidate, args.base_dir.resolve(), args.task_id)
     elif args.command == "resume":
         report, code = _resume(args)
-    elif args.command == "cold-check":
-        report, code = _cold_check(args)
     else:
-        readable = args.path.is_file() and os.access(args.path, os.R_OK)
-        report = {
-            "state_id": args.state_id,
-            "status": "verified" if readable else "unknown",
-            "code": "OBSERVATION_READABLE" if readable else "OBSERVATION_UNREADABLE",
-            "reference": str(args.path.resolve()),
-        }
-        code = 0
+        report, code = _cold_check(args)
     _emit(report)
     return code
 

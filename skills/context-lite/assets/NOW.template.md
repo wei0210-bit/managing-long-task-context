@@ -13,7 +13,6 @@ Phase: <current phase>
 - <decision> | why: <reason> | evidence: <stable reference>
 
 ## In Flight
-<!-- If unused, In Flight is `- none`. -->
 - [RUN-01] <action> | owner: <user/agent> | status: pending/blocked/unknown | started_at: <UTC RFC3339> | correlation_ref: <stable run locator> | recovery_ref: <read-only observation>
 
 ## Blockers
