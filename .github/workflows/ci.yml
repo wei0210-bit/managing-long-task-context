@@ -37,10 +37,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Prepare existing temporary-file fixtures
-        # Existing tests use this macOS-style path; keep their assertions unchanged.
-        run: sudo install -d -m 1777 /private/tmp
-
       - name: Run all tests, including distribution consistency
         run: python -m unittest discover -s tests -v
 
@@ -64,7 +60,7 @@ jobs:
             )
           done
 
-      - name: Run Strict handoff package smoke and integrity counterexamples
+      - name: Run Strict package doctor and handoff example
         run: |
           package="$RUNNER_TEMP/context-strict"
           test -f "$package/skill-manifest.json"
@@ -74,11 +70,6 @@ jobs:
             cd "$RUNNER_TEMP"
             PYTHONPATH="$package/src" python "$package/examples/short_session_handoff.py"
           )
-          status=0
-          output="$(PYTHONPATH="$GITHUB_WORKSPACE/src:$GITHUB_WORKSPACE/tests" python -m unittest test_handoff_distribution -v 2>&1)" || status=$?
-          printf '%s\n' "$output"
-          test "$status" -eq 0
-          grep -Eq '^Ran [1-9][0-9]* tests' <<<"$output"
 
       - name: Run every Strict test from the complete package
         # These fixtures start Python fake CLI processes, never paid Codex tasks.

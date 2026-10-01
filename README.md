@@ -9,7 +9,7 @@ the two skills.
 `main`, and manual dispatch. A single Ubuntu / Python 3.12 job runs every unittest
 (including distribution consistency and historical compatibility), then builds,
 hash-verifies, and fully diagnoses both skill packages outside the checkout.
-It fetches full Git history and prepares `/private/tmp` for existing test fixtures.
+It fetches full Git history so historical compatibility checks can read older revisions.
 No synchronization writer runs before the checks, so source/mirror drift fails CI.
 
 The job has read-only repository permissions, a five-minute timeout and cancellation
@@ -106,9 +106,8 @@ do not silently repair a wrong import. Unknown or conflicting identities return
 no recovery content, and legacy APIs keep their existing behavior.
 
 See [runtime identity](references/runtime-identity.md) for binding initialization,
-CLI/Python examples, limitations and upgrade handling. These checks do not prove
-completion or replace existing evidence gates. [Issue 9 specification](docs/specs/runtime-identity-doctor.md)
-defines the acceptance matrix.
+CLI/Python examples, limitations, upgrade handling, and acceptance checks. These
+checks do not prove completion or replace existing evidence gates.
 
 ## Manual routing
 
@@ -140,8 +139,9 @@ python3 scripts/context_skill_router.py --input task-characteristics.json
 | Lite | One primary agent, low-risk multi-turn recovery, and a compact Markdown checkpoint. | `skills/context-lite/` |
 | Strict | Multi-agent work, external side effects, auditability, frozen acceptance, or independent validation. | `skills/context-strict/` |
 
-Read the [v1.1 design specification](docs/specs/context-skills-v1.1.md) for the
-full boundary. Both skills are independently installable. The root Strict sources
+The live boundary is [Context Lite](skills/context-lite/SKILL.md),
+[Context Strict](skills/context-strict/SKILL.md), and root `references/`.
+Both skills are independently installable. The root Strict sources
 remain the compatibility and development source; run
 `python3 scripts/sync_context_strict_skill.py` before validating or publishing the
 `skills/context-strict/` distribution. Transfer is not implemented in this MVP.

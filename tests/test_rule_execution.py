@@ -89,8 +89,8 @@ class RuleExecutionGateTests(unittest.TestCase):
         self.assertTrue(report["passed"], report)
 
     def test_handoff_blocks_selected_load_bearing_rule_without_execution_runtime(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             base_dir = temporary_root / ".prime" / "context"
@@ -109,8 +109,8 @@ class RuleExecutionGateTests(unittest.TestCase):
         self.assertEqual(report["rules"][0]["codes"], ["RULE_RUNTIME_UNAVAILABLE"])
 
     def test_handoff_allows_selected_rule_with_complete_real_dispatch_evidence(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             evidence = workspace / "dispatch-proof.txt"
@@ -142,8 +142,8 @@ class RuleExecutionGateTests(unittest.TestCase):
             ("unknown", False, "unknown"),
             ("not_applicable", True, "not_applicable"),
         ):
-            with self.subTest(applies_status=applies_status), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(applies_status=applies_status), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 evidence = workspace / "dispatch-proof.txt"
@@ -166,8 +166,8 @@ class RuleExecutionGateTests(unittest.TestCase):
             ("timeout", lambda: (_ for _ in ()).throw(TimeoutError()), "CALLBACK_TIMEOUT"),
         )
         for name, produce, expected_code in cases:
-            with self.subTest(name=name), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 base_dir = temporary_root / ".prime" / "context"
@@ -179,8 +179,8 @@ class RuleExecutionGateTests(unittest.TestCase):
                 self.assertNotIn("sensitive detail", str(report))
 
     def test_handoff_rejects_rule_when_checker_changes_observed_original_before_verdict(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             evidence = workspace / "dispatch-proof.txt"
@@ -205,8 +205,8 @@ class RuleExecutionGateTests(unittest.TestCase):
 
     def test_explicit_dispatch_failure_blocks_but_advisory_failure_does_not_replace_base_verdict(self) -> None:
         for severity, expected_passed in (("load-bearing", False), ("advisory", True)):
-            with self.subTest(severity=severity), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(severity=severity), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 evidence = workspace / "dispatch-proof.txt"
@@ -223,8 +223,8 @@ class RuleExecutionGateTests(unittest.TestCase):
                 self.assertEqual(report["rules"][0]["codes"], ["DISPATCH_MISSING"])
 
     def test_unselected_stage_does_not_call_rule_runtime(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             base_dir = temporary_root / ".prime" / "context"
@@ -236,8 +236,8 @@ class RuleExecutionGateTests(unittest.TestCase):
 
     def test_partial_or_noncanonical_observation_cannot_become_not_applicable(self) -> None:
         for kind in ("partial", "relative", "symlink"):
-            with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 evidence = workspace / "dispatch-proof.txt"
@@ -284,8 +284,8 @@ class RuleExecutionGateTests(unittest.TestCase):
             ("check", "timeout", lambda: (_ for _ in ()).throw(TimeoutError()), "CALLBACK_TIMEOUT"),
         )
         for boundary, name, produce, expected_code in cases:
-            with self.subTest(boundary=boundary, name=name), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(boundary=boundary, name=name), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 evidence = workspace / "dispatch-proof.txt"
@@ -311,8 +311,8 @@ class RuleExecutionGateTests(unittest.TestCase):
             (lambda contract: contract["rule_execution"]["rules"][0].update({"severity": []}), "severity must be advisory or load-bearing"),
             (lambda contract: contract["rule_execution"]["rules"][0].update({"applies_at": [{}]}), "applies_at must be a non-empty unique list"),
         ):
-            with self.subTest(expected=expected), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 contract = _contract(workspace)
@@ -321,8 +321,8 @@ class RuleExecutionGateTests(unittest.TestCase):
                     context.publish_contract(contract, confirmed_by="publisher", base_dir=temporary_root / ".prime" / "context")
 
     def test_checker_cannot_extend_locked_observation_expiry(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             evidence = workspace / "dispatch-proof.txt"
@@ -355,8 +355,8 @@ class RuleExecutionGateTests(unittest.TestCase):
         self.assertEqual(report["rules"][0]["codes"], ["INPUT_CHANGED"])
 
     def test_checker_contract_change_blocks_without_deadlock(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             evidence = workspace / "dispatch-proof.txt"
@@ -381,8 +381,8 @@ class RuleExecutionGateTests(unittest.TestCase):
         self.assertEqual(report["rules"][0]["codes"], ["INPUT_CHANGED"])
 
     def test_all_gate_stages_evaluate_selected_rules_and_keep_existing_verdict(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             evidence = workspace / "dispatch-proof.txt"

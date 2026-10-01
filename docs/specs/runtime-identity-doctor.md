@@ -1,3 +1,5 @@
+> **HISTORICAL:** Issue 9 acceptance notes. Current diagnostics are `references/runtime-identity.md` and `scripts/context_doctor.py`.
+
 # Context Skills：运行身份、工作区绑定与分层自检
 
 ## Context

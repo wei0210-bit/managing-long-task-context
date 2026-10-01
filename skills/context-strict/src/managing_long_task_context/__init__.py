@@ -13,7 +13,6 @@ import json
 import os
 import re
 import stat
-import subprocess
 import tempfile
 import time
 import uuid
@@ -2549,17 +2548,6 @@ def _select_brief_items_plan(
     }
 
 
-def _select_brief_items(
-    items: Sequence[Mapping[str, Any]], *, max_chars: int, max_items: int | None
-) -> list[dict[str, Any]]:
-    """Select ordered items only when the fully rendered candidate still fits."""
-
-    plan = _select_brief_items_plan(items, max_chars=max_chars, max_items=max_items)
-    if plan["overflow"] is not None:
-        raise ContextError(plan["overflow"]["message"])
-    return plan["selected"]
-
-
 def _is_cjk(character: str) -> bool:
     value = ord(character)
     return (
@@ -4807,43 +4795,6 @@ def gate(
     return report
 
 
-def workspace_observation(path: str | Path = ".") -> dict[str, Any]:
-    """Read current Git/filesystem state without trusting a handwritten status file."""
-
-    root = Path(path).expanduser().resolve()
-    result: dict[str, Any] = {
-        "path": str(root),
-        "observed_at": _now(),
-        "exists": root.exists(),
-        "git": None,
-    }
-    if not root.exists():
-        return result
-    try:
-        head = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout.strip()
-        branch = subprocess.run(
-            ["git", "-C", str(root), "branch", "--show-current"],
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout.strip()
-        status = subprocess.run(
-            ["git", "-C", str(root), "status", "--porcelain=v1"],
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout.splitlines()
-        result["git"] = {"head": head, "branch": branch, "status": status, "changed_files": len(status)}
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        result["git"] = None
-    return result
-
-
 def _strict_handoff_json_load(raw: bytes) -> Any:
     """Decode protocol JSON without lossy duplicate-key or constant coercion."""
     def no_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -5666,7 +5617,6 @@ async def run(action: str, **kwargs: Any) -> Any:
         "brief_diagnostics": brief_diagnostics,
         "audit": audit,
         "gate": gate,
-        "workspace_observation": workspace_observation,
         "runtime_identity": runtime_identity,
         "checked_resume": checked_resume,
         "prepare_handoff": prepare_handoff,
@@ -5708,7 +5658,6 @@ __all__ = [
     "validate_handoff",
     "activate_handoff",
     "handoff_status",
-    "workspace_observation",
     "runtime_identity",
     "checked_resume",
     "bind_experience",

@@ -126,42 +126,6 @@ class CodexCliHost:
     def resume_child(self, request: Mapping[str, Any], prompt: str) -> dict[str, Any]:
         return self._launch(request, prompt, operation="resume_child")
 
-    def observe_attempt(self, attempt_id: str) -> dict[str, Any]:
-        if not _identifier(attempt_id):
-            return _unavailable("HOST_ATTEMPT_ID_INVALID")
-        try:
-            observed = self.ledger.observe(attempt_id)
-        except Exception:
-            return _unavailable("HOST_LEDGER_OBSERVE_UNAVAILABLE")
-        if not isinstance(observed, Mapping):
-            return _unavailable("HOST_LEDGER_OBSERVE_MALFORMED")
-        return {
-            "check_status": "unknown",
-            "commit_status": "not_attempted",
-            "launch_status": "observed",
-            "attempt_id": attempt_id,
-            "observation": dict(observed),
-            "real_host_status": "NOT_RUN",
-        }
-
-    def verify_host(self) -> dict[str, Any]:
-        # Configuration is necessary transport input, not proof that the actual
-        # Codex host is controllable, exclusive, or able to create a clean run.
-        return {
-            "check_status": "unknown",
-            "commit_status": "not_attempted",
-            "local_transport_status": "pass",
-            "real_host_status": "NOT_RUN",
-            "capabilities": {
-                "trusted_identity": "unknown",
-                "single_writer": "unknown",
-                "clean_session": "unknown",
-                "automatic_rollover": "unknown",
-                "parent_exit_effect": "unknown",
-            },
-            "reason_code": "HOST_REAL_CAPABILITIES_NOT_RUN",
-        }
-
     def _launch(
         self, raw_request: Mapping[str, Any], prompt: str, *, operation: str
     ) -> dict[str, Any]:
