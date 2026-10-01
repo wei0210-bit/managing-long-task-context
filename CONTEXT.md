@@ -48,7 +48,7 @@ updated_at: 2026-09-19T13:06:07Z
 - NAT-01（授权的 manual fallback 冷恢复）与 EVAL-01（代理行为评估）：NOT_RUN。
 - 真实宿主迁移与可信接管、token/费用/自然项目收益：NOT_RUN/UNKNOWN；远程 CI：PASS。
 - 未授权：v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、NAT-01、EVAL-01、真实宿主迁移，以及后续新的合并、推送或部署。
-- 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）；`RUN-20260917-phase1-0f9fdd1/` 为 HISTORICAL_ONLY。远程 CI：run 35178996161（证据提交）与 PR #26 required check run 35179382768 均 success。
+- 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）。更早的 `RUN-20260917-phase1-0f9fdd1/` 与该重验重复，已删除。远程 CI：run 35178996161（证据提交）与 PR #26 required check run 35179382768 均 success。
 - 合并后状态回读：`docs/superpowers/evidence/context-strict-migration/RUN-20260919-status-correction/`；在 `2026-09-19T09:34:27Z` 回读时，PR #25 已合并为 `f5b5fc1`，PR #26 已合并为 `59604f5`，且当时远程 `main` 指向 `59604f5`。该值是带时间点的历史观察，不冒充实时 `current_head`。
 - 已知风险：`test_truth_sources` 中 3 个既有锁时序测试在高负载主机上曾失败一次，重跑通过，源码未改动。
 - CI 修复：三处 `printf | grep -q` 在 `pipefail` 下的 EPIPE 误报（run 35175710471 attempt 1）已改为 here-string；本地复现、完整重验、证据提交 CI run 35178996161 与 PR #26 required check 均通过；PR #26 已合并。

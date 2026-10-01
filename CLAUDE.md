@@ -29,7 +29,7 @@ Use the five canonical triage labels without aliases. See `docs/agents/triage-la
 
 ### Domain docs
 
-This is a single-context repository using root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+This is a single-context repository using root `CONTEXT.md`. See `docs/agents/domain.md`.
 
 ### Task delegation and verification
 
