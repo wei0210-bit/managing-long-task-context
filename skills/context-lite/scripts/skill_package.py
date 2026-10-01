@@ -236,8 +236,6 @@ def check_source(source: Path) -> dict[str, object]:
 
     for entry in entries:
         name = Path(str(entry["path"])).name
-        if name == ".DS_Store":
-            continue
         if DUPLICATE_COPY_NAME.search(name):
             errors.append({
                 "code": "PACKAGE_DUPLICATE_COPY",

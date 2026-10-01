@@ -20,6 +20,16 @@ python3 scripts/context_lite.py validate --file <candidate> --task-id <task-id>
 python3 scripts/context_lite.py write --candidate <candidate> --base-dir <workspace> --task-id <task-id>
 ```
 
+## Package check
+
+After installing or updating a complete package, run `scripts/context_doctor.py check
+--mode full --package-root <absolute-package>`. Full checks are not per-turn work.
+For identity-bound recovery, use that script's `resume` command with explicit
+`--package-root`, `--workspace-root`, `--context-root` (the `.context-lite`
+directory), and `--task-id`. Initialize the existing task's binding with
+`init-binding` and the trusted build receipt's manifest hash. Missing or mismatched
+identity returns no recovery text; do not silently rebind.
+
 ## Short-session handoff
 
 For an already validated Lite record, `flush` is the `write` path with a printed
@@ -37,14 +47,6 @@ in [references/context-usage.md](references/context-usage.md). It only advises;
 missing usage is unknown. Never scan chats or call a model to generate signals.
 
 ## Use When
-
-After installing/updating a complete package, run `scripts/context_doctor.py check
---mode full --package-root <absolute-package>`. For identity-bound recovery use its
-`resume` command with explicit `--package-root`, `--workspace-root`, `--context-root`
-(the `.context-lite` directory), and `--task-id`. Initialize the existing task's binding
-explicitly with `init-binding` and the trusted build receipt's manifest hash. Missing
-or mismatched identity returns no recovery text; do not silently rebind. Full checks
-are not per-turn work; legacy validate/write semantics are unchanged.
 
 - One primary agent owns a low-risk task that spans turns, context windows, or days.
 - Ordinary review or tests can recover mistakes, and the goal is to avoid repeated
@@ -174,26 +176,25 @@ When the host knows a task needs selected-rule proof, it must pass
 resumable context; select Context Strict. Lite has no review, approval, promotion,
 or automatic experience-library creation path, including at `finish`.
 
-For explicit candidate storage/query only, use `scripts/context_experience.py` with
-`assets/experience-candidate.schema.json`; run `examples/experience_candidates.py`.
-It has no review or approval command.
+For explicit candidate storage or query only, pass `--store <absolute-lite-store>`
+on every `scripts/context_experience.py` `init`, `record`, `get`, and `query`.
+Omitting `--store` writes `<workspace>/.prime/experience`, Strict's experience tree.
+Also use `assets/experience-candidate.schema.json` and run
+`examples/experience_candidates.py`. This path has no review or approval command.
 
 ## finish
 
-**Observations:** verify that the user has selected a completion path and identify
-the exact task directory.
+**Observations:** confirm the user is ending the task, and identify the exact
+`.context-lite/<task-id>/` directory.
 
-**Validation sequence:** use archive by default: atomically move the record to
-`.context-lite/archive/<task-id>-<UTC-timestamp>/`. For deletion, require the user
-to explicitly select `--delete` and reconfirm the exact `.context-lite/<task-id>`
-path after being told it is irreversible.
+**Validation sequence:** archive by hand. Atomically move that directory to
+`.context-lite/archive/<task-id>-<UTC-timestamp>/`.
 
 **Success output:** report the task ID, final phase, refreshed count, unknown count,
-blockers, one first action (or `none` when finished), and whether the record was
-archived or deleted.
+blockers, one first action (or `none` when finished), and the archive path.
 
-**Hard stop:** without the exact deletion confirmation, keep the record and archive
-instead. Neither finish path creates long-term memory or claims audited completion.
+**Hard stop:** if the exact task directory is not confirmed, leave the record in
+place. Archiving does not create long-term memory or claim audited completion.
 
 ## Response Contract
 

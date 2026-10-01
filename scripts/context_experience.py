@@ -236,8 +236,7 @@ def _source_refs_shape(value: object) -> bool:
     return isinstance(value, list) and bool(value) and all(_stored_source_ref_shape(item) for item in value)
 
 
-def _validation_refs_shape(value: object, workspace: Path) -> bool:
-    del workspace
+def _validation_refs_shape(value: object) -> bool:
     if not isinstance(value, dict) or set(value) != VALIDATION_KEYS:
         return False
     expected = {
@@ -379,7 +378,7 @@ def _valid_stored_record(record: dict[str, Any], workspace: Path) -> bool:
         if status not in LIFECYCLE_STATUSES - {"candidate"}:
             return False
         if status == "validated":
-            if not _validation_refs_shape(event.get("validation_refs"), workspace):
+            if not _validation_refs_shape(event.get("validation_refs")):
                 return False
         elif status == "approved":
             snapshot = deepcopy(record)
@@ -495,7 +494,7 @@ def _validation_source_refs(validation_refs: dict[str, Any]) -> list[dict[str, s
 
 
 def _verify_validation_refs(validation_refs: object, workspace: Path, *, require_current: bool) -> dict[str, Any] | None:
-    if not _validation_refs_shape(validation_refs, workspace):
+    if not _validation_refs_shape(validation_refs):
         return report("fail", ["INVALID_INPUT"])
     assert isinstance(validation_refs, dict)
     now = datetime.now(timezone.utc)
