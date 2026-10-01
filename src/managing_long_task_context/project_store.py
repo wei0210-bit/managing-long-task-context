@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -230,30 +229,6 @@ def _walk_absolute(value: object, prefix: str, found: list[str]) -> None:
 
 def _contains_secrets(text: str) -> bool:
     return any(marker in text for marker in SECRET_MARKERS)
-
-
-def _rebuild_snapshot_from_events(task_id: str, lines: list[str]) -> dict[str, Any]:
-    items: dict[str, Any] = {}
-    checkpoint = None
-    for line in lines:
-        if not line.strip():
-            continue
-        event = json.loads(line)
-        if not isinstance(event, dict):
-            continue
-        if event.get("event_type") == "checkpoint":
-            checkpoint = event.get("checkpoint") or event.get("latest_checkpoint")
-        item_id = event.get("item_id")
-        if isinstance(item_id, str) and item_id:
-            items[item_id] = event
-        payload = event.get("payload")
-        if isinstance(payload, Mapping):
-            item = payload.get("item")
-            if isinstance(item, Mapping) and isinstance(item.get("id"), str):
-                items[item["id"]] = item
-            if event.get("event_type") == "checkpoint-recorded" and isinstance(payload.get("checkpoint"), Mapping):
-                checkpoint = payload.get("checkpoint")
-    return {"task_id": task_id, "items": items, "latest_checkpoint": checkpoint}
 
 
 def _rebuilt_snapshot(task_id: str, lines: list[str]) -> dict[str, Any]:
