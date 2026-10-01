@@ -138,8 +138,8 @@ def _runtime(evidence: Path, workspace: Path) -> dict[str, object]:
 
 class ExperienceRuleGateTests(unittest.TestCase):
     def test_handoff_allows_current_approved_same_workspace_exact_experience_reference(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             store_root = workspace / ".context-experience"
@@ -156,8 +156,8 @@ class ExperienceRuleGateTests(unittest.TestCase):
 
     def test_handoff_blocks_unapproved_cross_workspace_missing_or_expired_experience(self) -> None:
         for invalid in ("unapproved", "cross-workspace", "missing-original", "expired"):
-            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 store_root = workspace / ".context-experience"
@@ -187,8 +187,8 @@ class ExperienceRuleGateTests(unittest.TestCase):
 
     def test_next_gate_blocks_disputed_or_superseded_reference_without_deleting_history(self) -> None:
         for change in ("dispute", "revoke", "supersede"):
-            with self.subTest(change=change), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 store_root = workspace / ".context-experience"
@@ -225,8 +225,8 @@ class ExperienceRuleGateTests(unittest.TestCase):
 
     def test_gate_returns_input_changed_when_verify_or_check_changes_experience_material(self) -> None:
         for changed_by in ("verify", "check"):
-            with self.subTest(changed_by=changed_by), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(changed_by=changed_by), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 store_root = workspace / ".context-experience"
@@ -260,8 +260,8 @@ class ExperienceRuleGateTests(unittest.TestCase):
             self.assertEqual(report["rules"][0]["codes"], ["INPUT_CHANGED"])
 
     def test_verify_experience_cannot_mutate_the_selected_reference(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             store_root = workspace / ".context-experience"
@@ -294,8 +294,8 @@ class ExperienceRuleGateTests(unittest.TestCase):
             ("timeout", lambda: (_ for _ in ()).throw(TimeoutError()), "CALLBACK_TIMEOUT"),
         )
         for name, produce, expected_code in cases:
-            with self.subTest(name=name), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 store_root = workspace / ".context-experience"
@@ -315,8 +315,8 @@ class ExperienceRuleGateTests(unittest.TestCase):
 
     def test_symlink_or_relative_store_reference_is_normalized_to_blocking_unknown(self) -> None:
         for kind in ("symlink", "relative"):
-            with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-                temporary_root = Path(temporary_dir)
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir).resolve()
                 workspace = temporary_root / "workspace"
                 workspace.mkdir()
                 store_root = workspace / ".context-experience"
@@ -340,8 +340,8 @@ class ExperienceRuleGateTests(unittest.TestCase):
             self.assertEqual(report["rules"][0]["codes"], ["EXPERIENCE_REFERENCE_UNAVAILABLE"])
 
     def test_selected_experience_rule_ands_with_existing_gate_and_disabled_contract_keeps_legacy_path(self) -> None:
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary_dir:
-            temporary_root = Path(temporary_dir)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_root = Path(temporary_dir).resolve()
             workspace = temporary_root / "workspace"
             workspace.mkdir()
             store_root = workspace / ".context-experience"
