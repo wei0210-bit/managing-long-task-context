@@ -281,6 +281,8 @@ See also `references/bot-pipeline-handoff.md`. For what each role (executor, rep
 executor, independent reviewer, orchestrator recovery) receives, see
 `references/agent-role-handoff.md`.
 
+When Orca dispatches or hands off the work, also read `references/orca.md`.
+
 ## Publish guards
 
 新合同应填写相对工作区 `workspace_root: "."`，并启用 `evidence-handlers/v1`。旧的绝对路径合同用 `migrate_contract` 改成相对路径并重新封印。自由文本证据类型不会被发布拒绝；用 `managing_long_task_context.evidence.contract_compat_report` 检查缺失或不存在的工作区，以及未映射到内置或已声明 handler 的证据类型。证据解析在运行时仍使用调用方传入的绝对工作区。
