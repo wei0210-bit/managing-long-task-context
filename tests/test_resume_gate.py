@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import argparse
+import contextlib
+import io
 import importlib.util
 import json
 import os
@@ -340,6 +343,158 @@ class ResumeGateTests(ResumeFixture):
         self.module.update_item(self.task, 'LOSER', status='superseded', actor='publisher', base_dir=self.base)
         self.module.update_item(self.task, 'WINNER', status='active', actor='publisher', base_dir=self.base)
         self.assertEqual(self.resume()['diagnostic']['status'], 'pass')
+
+
+class StatusIsolationTests(ResumeFixture):
+    keys = ['identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief']
+    titles = ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文']
+
+    def sections(self, output, json_output):
+        if json_output:
+            result = json.loads(output)
+        else:
+            result = {}
+            for index, (key, title) in enumerate(zip(self.keys, self.titles)):
+                prefix = '## ' + title + '\n'
+                self.assertTrue(output.startswith(prefix), output)
+                output = output[len(prefix):]
+                if index < 4:
+                    payload, output = output.split('## ' + self.titles[index + 1] + '\n', 1)
+                    result[key] = json.loads(payload)
+                    output = '## ' + self.titles[index + 1] + '\n' + output
+                else:
+                    result[key] = {'markdown': output.rstrip('\n')}
+        self.assertEqual(set(result), set(self.keys))
+        return result
+
+    def inputs(self):
+        return ['--package-root', str(self.package), '--context-root', str(self.base),
+                '--workspace-root', str(self.workspace), '--task-id', self.task]
+
+    def assert_real_case(self, *, metadata=None, dispatch=None, mixed=False, ledger=None):
+        if ledger is not None:
+            with (self.base / self.task / 'events.jsonl').open('a') as stream:
+                stream.write(ledger + '\n')
+        elif dispatch is not None:
+            self.record('BAD', metadata={'orca_dispatch_id': dispatch})
+            if mixed:
+                self.record('GOOD', metadata={'orca_dispatch_id': 'ctx-good'})
+        else:
+            self.record('BAD')
+            path = self.base / self.task / 'events.jsonl'
+            events = [json.loads(line) for line in path.read_text().splitlines()]
+            events[-1]['payload']['item']['metadata'] = metadata
+            path.write_text(''.join(json.dumps(event) + '\n' for event in events))
+            (self.base / self.task / 'snapshot.json').write_text(
+                json.dumps(self.module._rebuild_snapshot(self.task, events)))
+        env = {**os.environ, 'PYTHONPATH': str(self.package / 'src')}
+        before = {str(p): p.read_bytes() for p in self.base.rglob('*') if p.is_file()}
+        doctor = subprocess.run([sys.executable, str(self.package / 'scripts/context_doctor.py'),
+                                 'resume', *self.inputs()], env=env, capture_output=True, text=True)
+        diagnostic = json.loads(doctor.stdout)['diagnostic']
+        for json_output in (False, True):
+            with self.subTest(json_output=json_output):
+                proc = subprocess.run([sys.executable, str(self.package / 'scripts/context_status.py'),
+                                       *self.inputs(), *(['--json'] if json_output else [])],
+                                      env=env, capture_output=True, text=True)
+                sections = self.sections(proc.stdout, json_output)
+                self.assertEqual(proc.returncode, doctor.returncode, proc.stderr)
+                self.assertEqual(sections['identity']['status'], diagnostic['status'])
+                self.assertEqual(sections['identity']['codes'], diagnostic['codes'])
+                self.assertEqual(sections['resume_gate']['report'], json.loads(doctor.stdout)['resume_gate'])
+                self.assertEqual(sections['brief']['markdown'].rstrip('\n'),
+                                 json.loads(doctor.stdout)['context']['prompt'].rstrip('\n'))
+                self.assertEqual(sections['dispatches']['status'], 'unavailable')
+                self.assertIn('不可用', sections['dispatches']['message'])
+                if ledger is not None:
+                    self.assertEqual(sections['checkpoint']['status'], 'unavailable')
+                    self.assertEqual(sections['checkpoint']['exception_type'],
+                                     'RecursionError' if ledger.startswith('[[[') else 'AttributeError')
+                else:
+                    self.assertEqual(sections['dispatches']['skipped_count'], 1)
+                    self.assertNotEqual(sections['checkpoint'].get('status'), 'unavailable')
+                    self.assertEqual(sections['dispatches']['data'],
+                                     [{'orca_dispatch_id': 'ctx-good', 'main_item_ids': ['GOOD'],
+                                       'suggestion_count': 0}] if mixed else [])
+        self.assertEqual(before, {str(p): p.read_bytes() for p in self.base.rglob('*') if p.is_file()})
+
+    def test_f003_dispatch_list(self):
+        self.assert_real_case(dispatch=['ctx-bad'])
+
+    def test_f004_dispatch_dict(self):
+        self.assert_real_case(dispatch={'id': 'ctx-bad'})
+
+    def test_f005_dispatch_mixed_types(self):
+        self.assert_real_case(dispatch=7, mixed=True)
+
+    def test_f006_metadata_null(self):
+        self.assert_real_case(metadata=None)
+
+    def test_f007_metadata_list(self):
+        self.assert_real_case(metadata=[])
+
+    def test_f008_metadata_string(self):
+        self.assert_real_case(metadata='wrong')
+
+    def test_f009_metadata_integer(self):
+        self.assert_real_case(metadata=7)
+
+    def test_f010_metadata_boolean(self):
+        self.assert_real_case(metadata=True)
+
+    def test_f011_ledger_array_fields(self):
+        self.assert_real_case(ledger=json.dumps(
+            ['schema', 'event_id', 'task_id', 'event_type', 'actor', 'created_at', 'payload']))
+
+    def test_f012_deep_ledger_json(self):
+        self.assert_real_case(ledger='[' * 1100 + '0' + ']' * 1100)
+
+    def status_module(self):
+        with patch.dict(sys.modules):
+            sys.path.insert(0, str(ROOT / 'scripts'))
+            try:
+                spec = importlib.util.spec_from_file_location('isolated_status', ROOT / 'scripts/context_status.py')
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+            finally:
+                sys.path.pop(0)
+
+    def assert_stub(self, result=None, exception=None, expected=2):
+        module = self.status_module()
+        for json_output in (False, True):
+            with self.subTest(json_output=json_output), patch.object(
+                    module, 'resume', return_value=result, side_effect=exception):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    code = module.main([*self.inputs(), *(['--json'] if json_output else [])])
+                sections = self.sections(output.getvalue(), json_output)
+                self.assertEqual(code, expected)
+                if expected == 2:
+                    self.assertEqual(sections['identity']['status'], 'unavailable')
+                    self.assertIn('身份诊断不可用', sections['identity']['message'])
+                return_sections = sections
+        return return_sections
+
+    def test_resume_raises_keeps_snapshot_sections(self):
+        for error in (OSError, RuntimeError, AttributeError, RecursionError, TypeError, ValueError):
+            with self.subTest(error=error):
+                sections = self.assert_stub(exception=error('probe'))
+                self.assertEqual(sections['identity']['exception_type'], error.__name__)
+                self.assertNotEqual(sections['checkpoint'].get('status'), 'unavailable')
+
+    def test_resume_missing_diagnostic_is_unknown(self):
+        self.assert_stub(result={'context': None})
+
+    def test_nonserializable_resume_values_keep_json(self):
+        result = self.command()
+        result['resume_gate']['unsupported'] = Path('/probe')
+        circular = []
+        circular.append(circular)
+        result['resume_gate']['circular'] = circular
+        sections = self.assert_stub(result=result, expected=0)
+        self.assertIn('unavailable', sections['resume_gate']['report']['unsupported'])
+        self.assertIn('unavailable', sections['resume_gate']['report']['circular'][0])
 
 
 class ReadOnlyEntryTests(ResumeFixture):
