@@ -168,3 +168,33 @@ Pass: `OK`. The suite asserts that `scripts/dispatch_spec.py` copies every accep
 criterion byte for byte, attaches the contract path and seal digest, keeps the literal
 `<dispatch-id>` and `<worker-workspace-root>` placeholders, and emits a version-proof
 command that runs against the given package root.
+
+### R-013 恢复门禁不通过时仍返回 context 且总状态非 pass
+
+Added: #45.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_resume_gate.ResumeGateTests
+```
+
+Pass: `OK`.
+
+### R-014 只读入口不写任务库
+
+Added: #45.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_resume_gate.ReadOnlyEntryTests
+```
+
+Pass: `OK`.
+
+### R-015 SKILL.md 发布流程含 init-binding
+
+Added: #45 (absorbs #55).
+
+```sh
+sed -n '/### 1. Bind storage/,/### 2\./p' SKILL.md | grep -c init-binding
+```
+
+Pass: output ≥ 1.

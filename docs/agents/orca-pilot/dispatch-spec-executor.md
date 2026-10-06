@@ -1,3 +1,4 @@
+试点历史模板，入口规则以 references/orca.md 为准。
 # Executor dispatch spec
 
 ## Objective, change, constraints, ownership
