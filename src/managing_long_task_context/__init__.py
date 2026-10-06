@@ -2007,8 +2007,8 @@ def update_item(
         if updated.get("type") == "verified-fact":
             if updated.get("status") not in {"conflicted", "superseded"}:
                 updated["status"] = "active"
-            updated["verified_at"] = now
-        updated["actor"] = actor
+            if evidence is not None or verification_method is not None:
+                updated["verified_at"] = now
         updated["updated_at"] = now
         errors, _ = _item_errors(updated)
         if errors:
