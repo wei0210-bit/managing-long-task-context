@@ -27,7 +27,7 @@ Pass: no output (exit code 1). Then read every remaining line from
 marking, settling, or storing a Task as accepted.
 
 ### R-002 The three "copy acceptance criteria verbatim" rules agree
-Retired (PILOT-A, superseded by R-008: section renamed)
+Retired (#42, superseded by R-008: section renamed)
 
 Added: #39.
 
