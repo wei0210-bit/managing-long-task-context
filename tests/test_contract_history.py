@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
 import stat
 import sys
 import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -124,6 +127,64 @@ class ContractHistoryTests(unittest.TestCase):
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.path.parent.iterdir()}
         self.assertEqual(self.diff(1, 1)['changes'], {})
         self.assertEqual({p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.path.parent.iterdir()}, before)
+
+    def assert_policy_change(self, before, after):
+        self.publish(audit_policy=before)
+        self.publish(2, audit_policy=after)
+        changes = self.diff()['changes']
+        self.assertIn('audit_policy', changes)
+        self.assertEqual(changes['audit_policy'], {'from': before, 'to': after})
+
+    def test_diff_distinguishes_true_from_one(self):
+        self.assert_policy_change(True, 1)
+
+    def test_diff_distinguishes_false_from_zero(self):
+        self.assert_policy_change(False, 0)
+
+    def test_diff_distinguishes_boolean_from_number_in_object(self):
+        self.assert_policy_change({'required': True}, {'required': 1})
+
+    def test_diff_distinguishes_boolean_from_number_in_array(self):
+        self.assert_policy_change([True], [1])
+
+    def test_diff_distinguishes_null_from_missing_in_both_directions(self):
+        self.publish(audit_policy=None)
+        self.publish(2)
+        self.assertEqual(self.diff()['changes']['audit_policy'], {'from': None})
+        self.assertEqual(self.diff(2, 1)['changes']['audit_policy'], {'to': None})
+
+    def test_fdopen_failure_closes_descriptor_and_preserves_contract(self):
+        self.publish()
+        data = self.path.read_bytes()
+        descriptors = []
+        mkstemp = tempfile.mkstemp
+
+        def track_descriptor(*args, **kwargs):
+            descriptor, name = mkstemp(*args, **kwargs)
+            descriptors.append(descriptor)
+            return descriptor, name
+
+        def close_if_open():
+            for descriptor in descriptors:
+                try:
+                    os.close(descriptor)
+                except OSError as exc:
+                    if exc.errno != errno.EBADF:
+                        raise
+
+        self.addCleanup(close_if_open)
+        with patch('managing_long_task_context.contract_history.tempfile.mkstemp',
+                   side_effect=track_descriptor), patch(
+                       'managing_long_task_context.contract_history.os.fdopen',
+                       side_effect=OSError('injected fdopen failure')):
+            with self.assertRaises(context.ContextError):
+                self.publish(2)
+        self.assertEqual(self.path.read_bytes(), data)
+        self.assertEqual(list(self.history.iterdir()), [])
+        self.assertEqual(len(descriptors), 1)
+        with self.assertRaises(OSError) as raised:
+            os.fstat(descriptors[0])
+        self.assertEqual(raised.exception.errno, errno.EBADF)
 
     def test_missing_from_version_is_reported(self):
         self.publish(2)

@@ -42,7 +42,13 @@ def retain_contract(contract_path: Path) -> Path | None:
         # linking fails on an existing destination, unlike an overwriting rename.
         descriptor, name = tempfile.mkstemp(prefix='.contract-', dir=history)
         temporary = Path(name)
-        with os.fdopen(descriptor, 'wb') as handle:
+        try:
+            handle = os.fdopen(descriptor, 'wb')
+        except BaseException:
+            # fdopen takes ownership only after it constructs the file object.
+            os.close(descriptor)
+            raise
+        with handle:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
@@ -72,6 +78,22 @@ def _read_contract(path: Path, *, history: bool = False) -> dict[str, Any]:
         return value
     except (OSError, ValueError) as exc:
         raise ContextError(f"cannot read contract version: {path}: {exc}") from exc
+
+
+def _json_equal(before: Any, after: Any) -> bool:
+    """Compare JSON types recursively; bool is distinct from a JSON number."""
+    if type(before) is not type(after):
+        # int and float represent the same JSON number type, unlike bool.
+        return type(before) in (int, float) and type(after) in (int, float) and before == after
+    if isinstance(before, dict):
+        return before.keys() == after.keys() and all(
+            _json_equal(value, after[key]) for key, value in before.items()
+        )
+    if isinstance(before, list):
+        return len(before) == len(after) and all(
+            _json_equal(left, right) for left, right in zip(before, after)
+        )
+    return before == after
 
 
 def contract_diff(
@@ -105,7 +127,7 @@ def contract_diff(
     before, after = versions[from_version], versions[to_version]
     changes = {}
     for field in sorted(before.keys() | after.keys()):
-        if field in before and field in after and before[field] == after[field]:
+        if field in before and field in after and _json_equal(before[field], after[field]):
             continue
         changes[field] = {}
         if field in before:
