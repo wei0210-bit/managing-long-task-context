@@ -2294,7 +2294,7 @@ def _brief_priority(item: Mapping[str, Any]) -> int:
         return 0
     if item.get("status") == "conflicted":
         return 1
-    if metadata.get("blocker") is True:
+    if metadata.get("blocker") is True or metadata.get("blocking") is True:
         return 2
     return {
         "decision": 3,
@@ -2667,6 +2667,8 @@ def _plan_brief_from_view(
 
     selected = selection_plan["selected"]
     packet = _build_brief_packet(task_id, contract, snapshot, phase, selected, truth_evaluation)
+    if selection_plan["omitted"]:
+        packet["omitted_ids"] = [str(item.get("id", "")) for item in selection_plan["omitted"]]
     selected_prompt = _brief_to_markdown(packet)
     brief_overflow = selection_plan["overflow"]
     if brief_overflow is None and len(selected_prompt) > max_chars:
@@ -2961,6 +2963,16 @@ def _brief_markdown_lines(packet: Mapping[str, Any]) -> Iterable[str]:
                     yield _brief_item_to_markdown(value)
             else:
                 yield f"- {value}"
+    stale_items = packet.get("stale_items") or []
+    if stale_items:
+        yield ""
+        yield "## 已过期，需重新观察"
+        for identifier in stale_items:
+            yield f"- {identifier}"
+    omitted_ids = packet.get("omitted_ids") or []
+    if omitted_ids:
+        yield ""
+        yield f"因预算省略了 {len(omitted_ids)} 条非必需条目"
     checkpoint_value = packet.get("latest_checkpoint")
     yield ""
     yield "## Latest Checkpoint"
