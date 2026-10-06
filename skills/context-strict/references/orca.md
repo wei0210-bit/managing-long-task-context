@@ -29,6 +29,11 @@ conclusion on the Strict side: a worker's `--outcome succeeded` is a lifecycle f
 and a lead, never evidence that a criterion is met. The coordinator reports the
 completion gate result (`pass`, `fail`, or `unknown`) whatever outcome the worker sent.
 
+For a Task whose worker was stopped with `worker-stop`, ingest the worker's report
+first, then use `task-update --status completed --result` to record the Task's
+conclusion. The result must explicitly say "lifecycle conclusion, not acceptance"
+and state the Strict acceptance result separately.
+
 ## Where a worker reads the task store
 
 The coordinator is the only writer of the task store and the experience store.
@@ -63,6 +68,12 @@ Every dispatch spec is self-contained and contains:
 6. The pinned package path, its expected manifest digest, and the version-proof command.
 
 Choose any further context from the role whitelist in `agent-role-handoff.md`.
+
+Immediately after publishing a contract, run `context_doctor.py init-binding` for
+that task. Publishing does not initialize the binding; without this step,
+`checked_resume()` returns `BINDING_MISSING`. See
+[#55](https://github.com/wei0210-bit/managing-long-task-context/issues/55); this is
+a procedure requirement only.
 
 ## Worker report contract
 
@@ -152,6 +163,11 @@ This is a manual procedure for the coordinator, not enforced by code.
 4. If the main item exists but there are fewer suggestion items than the report has,
    record only the missing sequence numbers. If all are present, write nothing.
 
+When a review report covers multiple tasks, record each suggestion under the
+`task_id` marked for that entry in the report. If an entry has no `task_id`, record
+it under the coordinator's current task and add `{"report_task_unspecified": true}`
+to its metadata.
+
 Pass condition: each dispatch id has exactly one main item, and its number of
 suggestion items equals the number in the report.
 
@@ -165,6 +181,10 @@ If the coordinator exits mid-run, a new session rebinds the Run with Orca's `run
 coordinator), then runs `checked_resume()` for the task. Only the session bound to the
 Run may write to the task store. This is a convention, not enforced by code. Then apply
 the ingest procedure above; it does not re-dispatch work that already has a report.
+
+After `run-use`, do not acknowledge a delivery batch id copied from the takeover
+document. Run `check` after takeover and use the delivery batch id it returns for
+the acknowledgment; rebinding the Run can change that id.
 
 ## Unsupervised handoff (orca-cli)
 
