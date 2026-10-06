@@ -36,6 +36,7 @@
     "references/handoff.md",
     "references/bot-pipeline-handoff.md",
     "references/agent-role-handoff.md",
+    "references/orca.md",
     "references/host-codex-cli.md",
     "references/host-native.md",
     "src/managing_long_task_context/host_codex_native.py",

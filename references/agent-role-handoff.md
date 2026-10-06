@@ -13,8 +13,10 @@ repair loops, escalation) belongs to the orchestration skill (for example
 
 ## Rules
 
-1. Handoff messages carry paths and hashes, never session history or a retelling of the
-   acceptance criteria.
+1. Handoff messages carry paths and hashes, never session history. Acceptance criteria
+   are copied verbatim from the sealed contract, with the contract path and seal digest
+   attached; the contract remains authoritative. Never paraphrase, summarize, or weaken
+   them. This matches item 5 of the handoff pack in `SKILL.md`.
 2. The receiver reads the original contract first. A missing, unsealed, or
    hash-mismatched contract stops the handoff and returns to the publisher.
 3. Any agent's natural-language summary is a lead, not evidence. Load-bearing
