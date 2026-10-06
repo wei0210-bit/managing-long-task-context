@@ -125,3 +125,9 @@ Orca Run：run_0c67c912bb84（协调者终端 term_1cce21fa-a872-4144-afd0-9a82d
 |---|---|---|---|---|---|---|
 | 01:57 | 审核者 ctx_bec4cb3a7729：`worker-release` → released，transcript 归档 captured；`check --ack delivery_b4cbd31a6461` → acknowledged，收件箱 0 条。A 已在 01:40 release + ack | - | 2 | 0 | 否 | 0 |
 | 01:58 | PILOT-B Task task_0855b6dccb9f 原为 blocked（执行者在中断一被 stop，从未发 worker_done）。`task-update --status completed --result "<生命周期结论，非验收；gate=unknown，审核 AC-02/约束[2] fail>"` 成功。`worker-list --terminal-state reclaimable` = 0。工作树 pilot-a-regression-r008、pilot-b-skill-api-table 均保留未删 | 被 stop 的 Task 没有标准的结论动作，只能手工 task-update | 2 | 0 | 否 | 0 |
+
+### 第 8 步：提交、PR 与 issue
+| 时间 | 事项 | 遗漏的上下文 | 协调者手工操作 | 证据收集步骤 | 恢复失败 | 人传话 |
+|---|---|---|---|---|---|---|
+| 01:59 | 提交 c2bc4fc（只 add 两份试点文档）。R-005：同步后 `git status --short` 仍列 .gitattributes、.githooks/、.prime/（任务库副作用），已跟踪文件 0 变化 → **字面 fail**。全量测试复跑 704 OK (skipped=1) | - | 2 | 2 | 否 | 0 |
+| 02:01 | 推送 wei0210-bit/pilot-integration，开 PR #50（正文标明审核 fail、gate unknown，不应直接合并）。在 #42 评论证据；**未关闭 #42**：其验收中「David 在本票里同意」（票内 0 评论）、「通用检查通过」（R-005、R-008 fail）未满足，执行者也不是票里写的 Claude。关闭留给 David 决定 | 接手文档要求关闭 #42，但 #42 的验收未满足 | 3 | 0 | 否 | 0 |
