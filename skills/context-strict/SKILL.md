@@ -5,6 +5,27 @@ description: Use when work spans multiple turns, sessions, or agents (including 
 
 # Managing Long-Task Context
 
+## First step by role
+
+Find your role below, do its first step, then continue in the section it points to.
+
+- **Publisher / coordinator**: publish the contract and pass the release gate before any
+  worker starts; see "1. Bind storage, publish, then release". When dispatching through
+  Orca, also read `references/orca.md`.
+- **Executor taking over a task**: open and read the sealed contract at the path in your
+  handoff pack before writing anything; see "Multi-bot / assistant pipeline handoff". A
+  missing, unsealed, or stale contract stops you; return to the publisher.
+- **Independent reviewer**: read the sealed contract and the base commit, then re-check
+  the executor's claims against originals (Git state, test logs, files at the report
+  path); the executor's self-report is a lead, not evidence. See
+  `references/agent-role-handoff.md` for what a reviewer receives.
+- **Session resuming a task**: call `checked_resume()` so identity is checked before any
+  context is returned; see "Workflow". Before creating a new session, record
+  `migration_mode` first; see "Session migration: one mode, three separate results".
+
+Whatever the role, a suggestion outside the sealed scope is reported as deferred and never
+enters this round's acceptance; see "Deferred suggestions (outside the sealed scope)".
+
 ## Principle and identity
 
 上下文管理的敌人不是忘记，而是**记错且不自知**。承重上下文从严，过程上下文从简；在保持有效的前提下尽量经济，不能因为经济而失效。
@@ -282,6 +303,15 @@ executor, independent reviewer, orchestrator recovery) receives, see
 `references/agent-role-handoff.md`.
 
 When Orca dispatches or hands off the work, also read `references/orca.md`.
+
+### Deferred suggestions (outside the sealed scope)
+
+A suggestion that an executor or reviewer finds outside the sealed scope is not a defect
+of this round and does not enter this round's acceptance. The finder lists it in its
+report under `deferred_suggestions` and does not act on it or widen the scope to cover
+it. The coordinator records each one in the task store as
+`record(item_type="observation", metadata={"deferred": true})` and decides later whether
+it becomes a new task with its own contract.
 
 ## Publish guards
 
