@@ -283,6 +283,53 @@ class ResumeGateTests(ResumeFixture):
         self.assertIn('checked-resume-gate/v1', self.resume()['diagnostic']['identity']['capabilities'])
         self.assertIn('checked-resume-gate/v1', json.loads((ROOT/'skill-package.json').read_text())['capabilities'])
 
+    def assert_status_keeps_diagnostics_with_invalid_event(self, *, json_output):
+        # F-002: a selected default store must retain resume diagnostics even
+        # when rebuilding its snapshot fails on an invalid event envelope.
+        self.record('BEFORE-CORRUPTION')
+        with (self.base / self.task / 'events.jsonl').open('a', encoding='utf-8') as events:
+            events.write('{}\n')
+        doctor = self.command(expected=1)
+        self.assertIsNotNone(doctor['context'])
+        self.assertEqual(doctor['diagnostic']['status'], 'fail')
+        self.assertIn('RESUME_GATE_FAILED', doctor['diagnostic']['codes'])
+        output = self.command('context_status.py', expected=1, text=not json_output)
+        titles = ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文']
+        keys = ['identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief']
+        if json_output:
+            sections = output
+        else:
+            self.assertTrue(output.startswith('## 身份\n'), output)
+            sections = {}
+            remaining = output
+            for index, (title, key) in enumerate(zip(titles, keys)):
+                prefix = '## ' + title + '\n'
+                self.assertTrue(remaining.startswith(prefix), remaining)
+                remaining = remaining[len(prefix):]
+                if index < 4:
+                    payload, remaining = remaining.split('## ' + titles[index + 1] + '\n', 1)
+                    sections[key] = json.loads(payload)
+                    remaining = '## ' + titles[index + 1] + '\n' + remaining
+                else:
+                    sections[key] = {'markdown': remaining.rstrip('\n')}
+        self.assertEqual(set(sections), set(keys))
+        for key in ('checkpoint', 'dispatches'):
+            self.assertIsNone(sections[key]['data'])
+            self.assertIn('快照不可用', sections[key]['message'])
+            self.assertTrue(sections[key]['identity_verified'])
+        for field in ('status', 'codes', 'next_action'):
+            self.assertEqual(sections['identity'][field], doctor['diagnostic'][field])
+        self.assertEqual(sections['resume_gate']['status'], 'fail')
+        self.assertEqual(sections['resume_gate']['report'], doctor['resume_gate'])
+        self.assertEqual(sections['resume_gate']['next_action'], doctor['diagnostic']['next_action'])
+        self.assertEqual(sections['brief']['markdown'].rstrip('\n'), doctor['context']['prompt'].rstrip('\n'))
+
+    def test_status_invalid_default_event_keeps_five_json_sections(self):
+        self.assert_status_keeps_diagnostics_with_invalid_event(json_output=True)
+
+    def test_status_invalid_default_event_keeps_five_text_sections(self):
+        self.assert_status_keeps_diagnostics_with_invalid_event(json_output=False)
+
     def test_conflict_winner_reactivated_then_passes(self):
         self.record('WINNER'); self.record('LOSER')
         self.module.update_item(self.task, 'WINNER', status='conflicted', conflict_reason='Probe disagreement', actor='publisher', base_dir=self.base)

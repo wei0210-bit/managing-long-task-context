@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 from context_doctor import resume
+from managing_long_task_context import ContextError
 from managing_long_task_context.project_store import (
     StoreNotWritable, context_root, read_task, resolve_worktree_root,
 )
@@ -50,7 +51,11 @@ def status(args: argparse.Namespace) -> tuple[dict, int]:
             data = {'snapshot': None, 'latest_checkpoint': None}
             unavailable = '快照不可用（context root 不是工作区默认位置）'
         else:
-            data = read_task(args.task_id, workspace)
+            try:
+                data = read_task(args.task_id, workspace)
+            except (ContextError, OSError, ValueError, TypeError):
+                # An unreadable snapshot must not discard resume diagnostics.
+                data = {'snapshot': None, 'latest_checkpoint': None}
     snapshot = data['snapshot']
     checkpoint = {'identity_verified': verified, 'data': None, 'message': unavailable}
     dispatches = {'identity_verified': verified, 'data': None, 'message': unavailable}
