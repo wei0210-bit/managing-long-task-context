@@ -221,6 +221,8 @@ red?** Do not load that reference for routine execution.
 | `runtime_identity(...)` | Observe the calling process's package identity |
 | `checked_resume(...)` | Check explicit task/workspace identity before recovery |
 | `publish_contract(...)` | Validate, seal, and atomically publish a contract |
+| `mark_truth_sources_dirty(...)` | Record a declared change that invalidates matching truth sources |
+| `observe_truth_source(...)` | Bind an owner readback to the current sealed source generation |
 | `record(...)` / `update_item(...)` | Append facts and state transitions |
 | `externalize_item(...)` | Shrink wording without changing fact identity or controls |
 | `restore_externalization_controls(...)` | Narrow migration for legacy lost required/severity controls |
@@ -231,6 +233,7 @@ red?** Do not load that reference for routine execution.
 | `publish_context(task_id)` | Secret-check, then force-add and push only `CONTEXT_PATHS` |
 | `align_context(task_id)` | Restore tracked `.prime` from HEAD; stop if local events are ahead |
 | `check_store(task_id)` / `read_task(task_id)` | Inspect the project store without uploading |
+| `migrate_contract(...)` | Relativize legacy contract paths and reseal the contract |
 | `prepare_handoff(...)` / `validate_handoff(...)` / `activate_handoff(...)` / `cancel_handoff(...)` / `handoff_status(...)` | Explicit host-verified short-session handoff; only when the capability is sealed in the contract |
 
 ## Verified experience and rule execution
