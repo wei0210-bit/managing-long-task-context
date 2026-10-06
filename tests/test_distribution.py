@@ -40,6 +40,8 @@ COPIED_FILES = (
     Path("references/host-native.md"),
     Path("scripts/handoff_preflight.py"),
     Path("scripts/dispatch_spec.py"), Path("tests/test_dispatch_spec.py"),
+    Path("tests/test_update_item_verified_at.py"),
+    Path("tests/test_brief_rendering.py"),
     Path("scripts/package_lineage.py"),
     Path("src/managing_long_task_context/__init__.py"),
     Path("src/managing_long_task_context/evidence.py"),
