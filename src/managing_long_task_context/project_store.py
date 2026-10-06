@@ -360,6 +360,12 @@ def _relativize(value: Any, worktree: Path) -> Any:
 
 
 def migrate_contract(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
+    """Relativize legacy absolute workspace_root to ".", increment and reseal.
+
+    沿用旧合同的 confirmed_by，不要求新的授权确认；调用前应由发布者确认。
+    This compatibility migration differs from the fresh authorized confirmation
+    required for controlled contract changes in SKILL.md; it does not enforce it.
+    """
     root = assert_writable(worktree)
     directory = task_dir(task_id, root)
     contract_path = directory / "task-contract.json"

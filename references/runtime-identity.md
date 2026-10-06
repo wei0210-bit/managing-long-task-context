@@ -82,6 +82,69 @@ This captures both roots; later `chdir()` does not redirect the client. Legacy
 implicit protection. `runtime_identity(package_root=...)` inspects the caller
 without claiming task binding or completion.
 
+## Strict resume gate (0.9.0)
+
+`checked-resume-gate/v1` is listed by `runtime_identity()`, `checked_resume()`,
+and the package capabilities. Older global installations have no resume gate
+until the explicit global synchronization step; check the capability, not just pass.
+
+Strict returns `diagnostic`, `context`, and the unmodified `resume_gate` report.
+Identity failure still returns null. When Strict identity passes but the resume
+gate fails or is unknown, it still returns context for diagnosis: **nonempty
+context does not authorize continuing; require `diagnostic.status == "pass"`.**
+Lite resume is unchanged: a failed resume returns null. Tampered contracts and
+brief overflow still raise `ContextError` in Python / `RESUME_BLOCKED` in the CLI.
+
+Module-level signature:
+
+```python
+checked_resume(task_id, *, package_root, workspace_root, base_dir,
+               resolvers=None, verifiers=None, rule_runtime=None)
+```
+
+It reads `brief()` first, then calls `gate(stage="resume", emit=False)` with the
+same base_dir and all non-superseded items. Only when neither resolver nor verifier
+was supplied, exact errors from `runtime_evidence_handler_errors` containing
+`capability unavailable: expected ` become `resume_handlers=not_run`; completion
+needs host handlers. Capability mismatch and explicit missing handlers remain
+`resume_gate=fail`. `RULE_RUNTIME_UNAVAILABLE` becomes `resume_rules=unknown`;
+other errors fail with `RESUME_GATE_FAILED`. Warnings stay in the raw gate report.
+
+Compare brief `context_version` with gate `stats.events`: a difference adds a
+separate `resume_race=unknown/RESUME_GATE_RACE`; missing counts are
+`RESUME_RACE_UNCHECKED`. Handler classification checks the read contract version
+against the gate's version. Race never changes a real gate failure to unknown.
+Gate exceptions yield unknown / `RESUME_GATE_UNAVAILABLE` and preserve context.
+CLI stdout remains one JSON object; fail exits 1, unknown exits 2, pass exits 0.
+
+Recovery actions: stale facts with `ttl_hours` need re-observation and
+`update_item`; those without TTL need `record(..., supersedes=<old id>)` with TTL.
+Resolve conflicts by superseding losers and `update_item(status="active")` on a
+conflicted winner. Dispatch may target 解除该阻塞; other new execution waits for
+pass. Missing rule runtime needs a Python host with `rule_runtime`. Races and gate
+exceptions allow one rerun; handle persistent errors, do not retry indefinitely.
+
+Known limitations: `BoundContext.gate` injects `independent_validation_required`
+but `BoundContext.checked_resume` does not, so policy conclusions may differ.
+The bound resume API does not forward host handlers; use the module-level API.
+Experience-stage unknowns such as `STORE_NOT_INITIALIZED` lack
+`RULE_RUNTIME_UNAVAILABLE` and conservatively remain gate failures.
+
+## Read task status
+
+```sh
+PYTHONPATH=PACKAGE/src python3 PACKAGE/scripts/context_status.py --package-root PACKAGE --context-root CONTEXT --workspace-root WORKSPACE --task-id TASK --json
+```
+
+This read-only command shows identity, resume gate, latest checkpoint, all recorded
+Orca dispatch IDs, and brief markdown. Identity/gate/brief come from checked
+recovery; checkpoint/dispatches come from `read_task`'s snapshot and are marked
+unverified when identity did not pass. Missing/inconsistent snapshots are unavailable.
+A nondefault context root makes snapshot sections unavailable. Missing binding
+shows a complete init-binding command with an independent-digest placeholder;
+only the coordinator executes it after checking that digest. It never connects
+to Orca or reads worker reports. Exit codes match doctor resume.
+
 ## Interpret the report
 
 `pass`, `fail`, `unknown` map to exit codes 0, 1, 2. Missing/unreadable observations

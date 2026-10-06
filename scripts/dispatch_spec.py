@@ -117,8 +117,8 @@ def render_spec(args: argparse.Namespace) -> str:
 - Baseline commit: {args.baseline_commit}
 
 Keep the coordinator workspace read-only. The coordinator alone writes the task
-and experience stores. Do not call checked_resume(), depend on brief(), or write
-either store. An owned path never expands the sealed scope.
+and experience stores. 可调用 `brief()`、`checked_resume()` 与状态命令只读查看，
+不得写任务库与经验库。 An owned path never expands the sealed scope.
 
 ## Task and acceptance
 

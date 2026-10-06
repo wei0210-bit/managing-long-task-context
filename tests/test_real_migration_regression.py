@@ -299,7 +299,9 @@ class RealMigrationRegressionTests(unittest.TestCase):
     def test_reg_06_v1_runtime_shared_doctor_and_lite_are_unchanged_since_097c952(self) -> None:
         protected = [
             "src/managing_long_task_context/handoff.py",
-            "src/managing_long_task_context/runtime_identity.py", "src/managing_long_task_context/host_codex_native.py",
+            # #45 approved design r3: David confirmed runtime_identity.py unfreeze
+            # also covers removing that path from this protected list (2026-10-06).
+            "src/managing_long_task_context/host_codex_native.py",
             "src/managing_long_task_context/host_claude_native.py", "tests/test_handoff_protocol.py",
             "tests/test_handoff_activation.py", "tests/test_handoff_migration.py", "scripts/context_doctor.py",
             "skills/context-lite",

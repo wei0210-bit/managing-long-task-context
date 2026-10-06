@@ -77,6 +77,12 @@ class DispatchSpecTests(unittest.TestCase):
                      *self.contract["constraints"], *self.contract["out_of_scope"], "fce3c53"):
             self.assertIn(item, output)
 
+    def test_readonly_entry_text_replaces_old_prohibition(self) -> None:
+        output = self.output().decode()
+        self.assertIn("可调用 `brief()`、`checked_resume()` 与状态命令只读查看", output)
+        self.assertIn("不得写任务库与经验库", output)
+        self.assertNotIn("Do not call checked_resume(), depend on brief()", output)
+
     def test_acceptance_id_and_criterion_bytes_are_verbatim(self) -> None:
         output = self.output()
         expected = "\n".join(f"- {item['id']}: {item['criterion']}"

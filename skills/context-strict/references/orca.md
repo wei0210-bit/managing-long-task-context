@@ -42,12 +42,24 @@ Workers and reviewers only read.
 | Placement | How the worker reads |
 |---|---|
 | Same workspace (Orca `--worktree current`) | Read the task store and the sealed contract file directly in that workspace. |
-| New worktree on the same machine (Orca `new-child`) | The new checkout has no task store, because `.prime/context/` is gitignored. The dispatch spec gives the absolute path of the coordinator's workspace. Read the sealed contract file under that path, and call `read_task(task_id, Path("<coordinator workspace>"))` with that path as the root. Do not call `checked_resume()` and do not write to the task store. |
+| New worktree on the same machine (Orca `new-child`) | The new checkout has no task store, because `.prime/context/` is gitignored. The dispatch spec gives the absolute path of the coordinator's workspace. Read the sealed contract file under that path, and call `read_task(task_id, Path("<coordinator workspace>"))` with that path as the root. Read-only entries below may use the coordinator workspace and context root; do not write to either store. |
 | Remote host | Not supported. |
 
-Read-only roles may use only these entry points: the dispatch spec, the sealed
-contract file, and `read_task`. Whether `brief()` is available to read-only roles is
-an open design question; do not rely on it.
+Read-only roles (workers, reviewers, and cold readers) may use:
+
+| Entry | Writes files? | Basis |
+|---|---|---|
+| Dispatch spec and sealed contract file | No | Direct read |
+| `read_task(task_id, Path(<coordinator workspace>))` | No | Existing project-store read |
+| `brief(task_id, base_dir=<coordinator workspace>/.prime/context)` / `brief_diagnostics(...)` | No | Shared lock on the existing `.lock`; read-only tests |
+| `checked_resume(...)`, with coordinator workspace/context root and no handlers | No | Includes read-only resume gate; hash and permission tests |
+| `scripts/context_status.py` | No | Five-section read-only wrapper |
+
+Do not call writing entries: `record`, `update_item`, `checkpoint`,
+`publish_contract`, `init-binding`, `publish_context`, `align_context`, or
+`record_acceptance` (#46). `gate()` is not a separate entry for read-only roles.
+Acceptance conclusions are read through `brief()` and the status command;
+#46 defines their presentation, and is outside this implementation scope.
 
 ## Dispatch spec
 
@@ -74,6 +86,12 @@ that task. Publishing does not initialize the binding; without this step,
 `checked_resume()` returns `BINDING_MISSING`. See
 [#55](https://github.com/wei0210-bit/managing-long-task-context/issues/55); this is
 a procedure requirement only.
+
+Follow the complete `init-binding` command in SKILL.md section 1, immediately
+between publication and release. Use the independently retained manifest digest
+from the dispatch or handoff material, never an automatically derived expected
+value. Only the coordinator initializes binding; without it recovery returns
+`BINDING_MISSING` and null context.
 
 ## Worker report contract
 
@@ -181,6 +199,17 @@ If the coordinator exits mid-run, a new session rebinds the Run with Orca's `run
 coordinator), then runs `checked_resume()` for the task. Only the session bound to the
 Run may write to the task store. This is a convention, not enforced by code. Then apply
 the ingest procedure above; it does not re-dispatch work that already has a report.
+
+When `checked_resume()` or the status command reports a non-pass resume gate,
+keep the returned context for diagnosis and use `diagnostic.status`, not its
+presence, to decide whether to continue. Re-observe expired facts with `ttl_hours`
+and refresh via `update_item`; facts without a TTL need
+`record(..., supersedes=<old id>)` with `ttl_hours`. Resolve conflicts by
+superseding the losing side and reactivating any conflicted winner with
+`update_item(status="active")`. Blocking items allow dispatch only of work to
+解除该阻塞; other new execution waits for the gate to pass. Supply `rule_runtime`
+in the Python host when unavailable. For a read race or gate exception, rerun
+once; a persistent discrepancy is handled as a gate error, never repeated blindly.
 
 After `run-use`, do not acknowledge a delivery batch id copied from the takeover
 document. Run `check` after takeover and use the delivery batch id it returns for

@@ -46,6 +46,16 @@ context. Missing/mismatched identity stops recovery without silently rebinding. 
 diagnosis is not a per-turn step. See `references/runtime-identity.md` when configuring
 binding or diagnosing an error; legacy direct APIs remain outside this identity check.
 
+Strict 0.9.0 advertises `checked-resume-gate/v1`: after identity passes,
+`checked_resume()` reads the brief and runs `gate(stage="resume", emit=False)`.
+It returns context even when that gate fails or is unknown; nonempty context does
+not authorize continuation. Continue only when `diagnostic.status == "pass"`.
+Identity failure still returns null; brief `ContextError` still blocks recovery.
+Lite resume is unchanged (failure returns null). Module-level `checked_resume`
+accepts optional host `resolvers`, `verifiers`, and `rule_runtime`; bound clients
+do not forward them. See `references/runtime-identity.md` for classification,
+known limitations, and concrete recovery actions.
+
 For an explicitly enabled `short-session-handoff/v1` contract, use only the
 on-demand handoff calls and read `references/handoff.md`. They do not provide
 verified native takeover, automatic switching, or a resident scheduler. Native
@@ -84,8 +94,20 @@ import managing_long_task_context as context
 
 ctx = context.bind("/absolute/project/.prime/context")
 ctx.publish_contract(contract, confirmed_by="task-publisher")
+# Immediately initialize task identity with the command below before release.
 release = ctx.gate("TASK-001", stage="release", verifiers=runtime_verifiers)
 ```
+
+Immediately after `publish_contract`, initialize the binding before releasing work:
+
+```sh
+PYTHONPATH=/absolute/package/src python3 /absolute/package/scripts/context_doctor.py init-binding --package-root /absolute/package --expected-manifest-sha256 <independently-retained-manifest-sha256> --context-root /absolute/project/.prime/context --workspace-root /absolute/project --task-id TASK-001
+```
+
+Only the coordinator runs this write, after checking the independently retained
+manifest digest from the dispatch/handoff material. Without `init-binding`, a
+new receiver gets `BINDING_MISSING` and null context. The command belongs between
+contract publication and release; publishing alone does not initialize identity.
 
 The publisher owns objective, scope, constraints, and acceptance criteria. Executors
 and validators may not weaken or reinterpret them. New contracts are atomically

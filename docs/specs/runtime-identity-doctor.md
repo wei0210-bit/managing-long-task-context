@@ -158,6 +158,8 @@ checked_resume(task_id, *, package_root, workspace_root, base_dir)
 
 runtime_identity 返回同一报告格式（scope=runtime，mode=identity，binding=null）；它只验证本进程，不需要任务绑定。checked_resume 返回 {"diagnostic": report, "context": brief_or_null}；所有诊断未通过时 context=null。brief 的原始 ContextError 仍向 Python 调用者传播，CLI 转换成 fail/RESUME_BLOCKED 且 context=null，不绕过原规则。
 
+勘误（Strict 0.9.0，批准设计 #45 r3 第 2.1–2.2 节）：上句「所有诊断未通过时 context=null」仅保留为历史规格。Strict 身份通过后读 brief 并运行 resume 门禁；门禁 fail/unknown 仍返回非空 context 与原样 resume_gate，只有 diagnostic.status == "pass" 才可继续。身份未通过仍为 null；ContextError / RESUME_BLOCKED 不变。Lite resume 不变（失败返回 null）。模块级 checked_resume 新增 resolvers=None、verifiers=None、rule_runtime=None；能力登记 checked-resume-gate/v1。未传处理器的精确 capability unavailable 错误为 not_run，mismatch 为 fail，RULE_RUNTIME_UNAVAILABLE 为 unknown；竞态检查单列且不降级真正的 fail。详情与已知限制见 references/runtime-identity.md。
+
 扩展 bind(base_dir, *, workspace_root=None, package_root=None)，两个新参数必须同时提供才能调用 bound.checked_resume(task_id)。两者均缺省保留全部旧语义；仅提供一个报 ValueError。新绑定客户端在创建时捕获真实路径，之后不读 cwd 推断工作区，也不允许 bound.checked_resume 覆盖捕获参数。未提供新参数调用 bound.checked_resume 返回 unknown/BINDING_MISSING。
 
 Lite 在现有 scripts/context_lite.py 增加 resume 子命令，参数与 doctor resume 相同。doctor 的 Lite resume 必须通过该 validator 实际执行，返回相同 diagnostic/context 包装；context 为校验通过的 NOW 文本，失败 null。已核实 _write 使用旧 --base-dir/.context-lite/TASK/NOW.md；新 --context-root 明确指向 .context-lite 本身，故 CONTEXT/TASK/NOW.md 与旧布局相同，禁止再重复拼接 .context-lite。复用 validate_text，不改变旧 write 参数语义。
