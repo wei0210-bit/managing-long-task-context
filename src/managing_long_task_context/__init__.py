@@ -2966,13 +2966,13 @@ def _brief_markdown_lines(packet: Mapping[str, Any]) -> Iterable[str]:
     stale_items = packet.get("stale_items") or []
     if stale_items:
         yield ""
-        yield "## 已过期，需重新观察"
+        yield "## Stale items: re-observe before use"
         for identifier in stale_items:
             yield f"- {identifier}"
     omitted_ids = packet.get("omitted_ids") or []
     if omitted_ids:
         yield ""
-        yield f"因预算省略了 {len(omitted_ids)} 条非必需条目"
+        yield f"{len(omitted_ids)} non-mandatory items omitted for budget"
     checkpoint_value = packet.get("latest_checkpoint")
     yield ""
     yield "## Latest Checkpoint"
