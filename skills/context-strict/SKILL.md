@@ -292,6 +292,8 @@ stale, stop and ask the publisher to fix it — do not invent acceptance criteri
 3. Task id
 4. Goal (short; contract remains authoritative)
 5. Verification / acceptance criteria (copy from sealed contract; do not weaken)
+Attach the contract path and seal digest to the verbatim criteria; the contract remains
+authoritative (see `references/agent-role-handoff.md`, rule 1).
 6. Artifact pointers (branch, PR, diff) when they exist
 7. Self-check commands/results when they exist
 
