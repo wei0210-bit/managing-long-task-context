@@ -198,6 +198,80 @@ class ContractHistoryTests(unittest.TestCase):
         self.assertEqual(self.diff(), {'status': 'missing', 'version': 1})
         self.assertFalse(self.base.exists())
 
+    def assert_unreadable_history_raises(self, mode):
+        self.publish()
+        original = self.path.read_bytes()
+        self.publish(2)
+        current = self.path.read_bytes()
+        self.history.chmod(mode)
+        self.addCleanup(self.history.chmod, 0o755)
+        # Establish the real filesystem failure independently of contract_diff.
+        with self.assertRaises(PermissionError):
+            list(self.history.iterdir())
+        with self.assertRaises(context.ContextError):
+            self.diff()
+        self.history.chmod(0o755)
+        self.assertEqual(self.archived_path(original).read_bytes(), original)
+        self.assertEqual(self.path.read_bytes(), current)
+        self.assertEqual(self.diff()['status'], 'ok')
+        self.assertEqual(self.diff(99, 2), {'status': 'missing', 'version': 99})
+
+    def test_diff_execute_only_history_directory_raises(self):
+        self.assert_unreadable_history_raises(0o111)
+
+    def test_diff_no_permission_history_directory_raises(self):
+        self.assert_unreadable_history_raises(0o000)
+
+    def test_diff_history_file_instead_of_directory_raises(self):
+        self.publish()
+        self.history.write_bytes(b'not a directory')
+        with self.assertRaises(context.ContextError):
+            self.diff()
+
+    def test_diff_non_directory_task_root_raises(self):
+        self.base.mkdir()
+        self.path.parent.write_bytes(b'not a directory')
+        with self.assertRaises(context.ContextError):
+            self.diff()
+
+    def test_diff_unsearchable_task_root_raises_context_error(self):
+        self.publish()
+        self.publish(2)
+        self.path.parent.chmod(0o000)
+        self.addCleanup(self.path.parent.chmod, 0o755)
+        with self.assertRaises(context.ContextError):
+            self.diff()
+
+    def test_diff_unreadable_current_contract_raises(self):
+        self.publish()
+        self.path.chmod(0o000)
+        self.addCleanup(self.path.chmod, 0o444)
+        with self.assertRaises(context.ContextError):
+            self.diff(1, 1)
+
+    def test_diff_unreadable_archived_contract_raises(self):
+        self.publish()
+        archived = self.archived_path(self.path.read_bytes())
+        self.publish(2)
+        archived.chmod(0o000)
+        self.addCleanup(archived.chmod, 0o444)
+        with self.assertRaises(context.ContextError):
+            self.diff()
+
+    def test_retain_non_directory_contract_parent_raises(self):
+        from managing_long_task_context.contract_history import retain_contract
+
+        self.base.mkdir()
+        self.path.parent.write_bytes(b'not a directory')
+        with self.assertRaises(context.ContextError):
+            retain_contract(self.path)
+
+    def test_retain_truly_missing_contract_does_not_create_history(self):
+        from managing_long_task_context.contract_history import retain_contract
+
+        self.assertIsNone(retain_contract(self.path))
+        self.assertFalse(self.base.exists())
+
     def test_diff_can_compare_two_archived_versions(self):
         self.publish()
         self.publish(2)

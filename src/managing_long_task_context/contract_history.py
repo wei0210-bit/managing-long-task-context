@@ -27,9 +27,10 @@ def retain_contract(contract_path: Path) -> Path | None:
 
     temporary: Path | None = None
     try:
-        if not contract_path.exists():
+        try:
+            data = contract_path.read_bytes()
+        except FileNotFoundError:
             return None
-        data = contract_path.read_bytes()
         history = contract_path.parent / 'contract-history'
         if history.is_symlink():
             raise ContextError(f"contract history directory is a symlink: {history}")
@@ -110,12 +111,26 @@ def contract_diff(
 
     paths = _paths(task_id, base_dir)
     history = paths['root'] / 'contract-history'
-    if history.is_symlink():
-        raise ContextError(f"contract history directory is a symlink: {history}")
     versions: dict[int, dict[str, Any]] = {}
-    candidates = [(path, True) for path in sorted(history.glob('*.json'))]
-    if paths['contract'].exists():
-        candidates.append((paths['contract'], False))
+    try:
+        if history.is_symlink():
+            raise ContextError(f"contract history directory is a symlink: {history}")
+        try:
+            # glob silently skips scan errors, turning inaccessible history into
+            # a false missing version. Only ENOENT means no history directory.
+            candidates = [(path, True) for path in sorted(history.iterdir())
+                          if path.name.endswith('.json')]
+        except FileNotFoundError:
+            candidates = []
+        try:
+            # exists() also suppresses ENOTDIR; do not mistake that for absence.
+            paths['contract'].stat()
+        except FileNotFoundError:
+            pass
+        else:
+            candidates.append((paths['contract'], False))
+    except OSError as exc:
+        raise ContextError(f"cannot enumerate contract versions: {exc}") from exc
     for path, archived in candidates:
         value = _read_contract(path, history=archived)
         version = value.get('version')
