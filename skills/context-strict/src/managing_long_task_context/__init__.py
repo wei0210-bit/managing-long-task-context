@@ -51,6 +51,7 @@ from . import experience as _experience_module
 from . import _experience_store as _experience_store_module
 from .experience import bind_experience
 from .worker_report import worker_report_handlers
+from .acceptance import record_acceptance, latest_acceptance, acceptance_status
 from .evidence import (
     BUILTIN_RESOLVER_CAPABILITIES,
     MAX_CLOCK_SKEW_SECONDS,
@@ -2802,14 +2803,24 @@ def brief(
             if truth_sources_enabled(view["contract"])
             else None
         )
+        from .acceptance import _latest_from_paths, _summary_markdown
+        acceptance = _latest_from_paths(paths, view["contract"])
+        acceptance_section = _summary_markdown(acceptance)
+        if acceptance_section:
+            _validate_brief_limits(max_chars=max_chars, max_items=max_items)
+            if max_chars <= len(acceptance_section):
+                raise ContextError("BRIEF_REQUIRED_OVERFLOW: fixed acceptance content exceeds max_chars")
         plan = _plan_brief_from_view(
             task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=evaluation,
-            phase=phase, include=include, max_items=max_items, max_chars=max_chars,
+            phase=phase, include=include, max_items=max_items, max_chars=max_chars - len(acceptance_section),
         )
     diagnostics = _brief_diagnostics_from_plan(plan)
     overflow = diagnostics["overflow"]
     if overflow is not None:
         raise ContextError(overflow["message"])
+    if acceptance is not None:
+        plan["packet"]["latest_acceptance"] = acceptance
+        plan["packet"]["prompt"] += acceptance_section
     return plan["packet"]
 
 
@@ -5658,6 +5669,9 @@ from .contract_history import contract_diff
 
 
 __all__ = [
+    "record_acceptance",
+    "latest_acceptance",
+    "acceptance_status",
     "worker_report_handlers",
     "ContextError",
     "publish_contract",

@@ -75,7 +75,8 @@ def _report_shape(report):
     for item in report["checks"]:
         if (not isinstance(item, Mapping) or not _text(item.get("command"))
                 or type(item.get("exit_code")) is not int or not _text(item.get("output_file"))
-                or not _text(item.get("output_sha256")) or not isinstance(item.get("output_summary"), str)):
+                or not isinstance(item.get("output_sha256"), str)
+                or not _HEX.fullmatch(item["output_sha256"]) or not isinstance(item.get("output_summary"), str)):
             return False
     return True
 

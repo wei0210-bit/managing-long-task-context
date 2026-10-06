@@ -177,6 +177,15 @@ class WorkerReportTests(unittest.TestCase):
             self.write_report()
             self.assertNotEqual(self.evaluate()["status"], "pass")
 
+    def test_f01_every_check_hash_requires_64_lowercase_hex_even_unsealed(self):
+        for value in ('bad', 'A' * 64, 'g' * 64, 'a' * 63, 'a' * 65, 'a' * 64 + '\n'):
+            with self.subTest(value=value):
+                report = copy.deepcopy(self.report)
+                report['checks'].append({**report['checks'][0], 'command': 'unsealed command',
+                                         'output_sha256': value})
+                self.write_report(report)
+                self.assertNotEqual(self.evaluate()['status'], 'pass')
+
     def test_boolean_exit_code_not_success(self):
         self.report["checks"][0]["exit_code"] = False
         self.write_report()
