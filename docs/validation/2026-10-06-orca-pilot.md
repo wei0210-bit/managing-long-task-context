@@ -163,3 +163,9 @@ Orca Run：run_0c67c912bb84（协调者终端 term_1cce21fa-a872-4144-afd0-9a82d
 | 时间 | 事项 | 遗漏的上下文 | 协调者手工操作 | 证据收集步骤 | 恢复失败 | 人传话 |
 |---|---|---|---|---|---|---|
 | 07:10 | David **豁免**回归 R-005、R-008 和 completion gate unknown（基线既有缺陷，非本 PR 引入），授权合并 PR #50；合并后关闭 #42。已开后续票：#51 R-008 判据、#52 R-005 冲突、#53 verifier、#54 合同旧版留存、#55 init-binding 与 docstring。豁免已记入两个任务库（role=waiver）。注意：这是豁免，不是 gate pass；两个任务的 Strict 结论仍为 unknown | - | 3 | 0 | 否 | 0 |
+
+## 更正（#52）
+
+07:10 的豁免行记载：「David **豁免**回归 R-005、R-008 和 completion gate unknown（基线既有缺陷，非本 PR 引入）」。R-005 在干净克隆里通过，只在写过任务库的工作区因未跟踪的设计产物 `.gitattributes`、`.githooks/`、`.prime/` 误报，所以当时对 R-005 的豁免是多余的；R-008 与 completion gate unknown 的豁免不变。
+
+David 于 2026-10-06 批准将 R-005 标为 Retired，并追加只检查已跟踪文件的 R-011（#52）。本条仅追加更正，07:10 原行保留不变。
