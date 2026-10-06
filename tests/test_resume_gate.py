@@ -172,7 +172,8 @@ class ResumeGateTests(ResumeFixture):
         self.assertEqual(self.check_status(r, 'resume_gate'), 'fail')
 
     def test_missing_rule_runtime_is_unknown_and_cli_two(self):
-        self.contract.update(version=2, required_capabilities=['rule-execution/v1'], rule_execution={
+        self.contract.update(version=2, workspace_root=str(self.workspace.resolve()),
+            required_capabilities=['rule-execution/v1'], rule_execution={
             'schema': 1, 'rules': [{'rule_id': 'dispatch-required', 'experience_ref': None,
             'severity': 'load-bearing', 'applies_at': ['resume'], 'trigger_id': 'modification',
             'checker_id': 'proof', 'checker_version': '1', 'observation_source_id': 'observer'}]})
