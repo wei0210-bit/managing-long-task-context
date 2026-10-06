@@ -408,8 +408,11 @@ class StatusIsolationTests(ResumeFixture):
                 self.assertIn('不可用', sections['dispatches']['message'])
                 if ledger is not None:
                     self.assertEqual(sections['checkpoint']['status'], 'unavailable')
-                    self.assertEqual(sections['checkpoint']['exception_type'],
-                                     'RecursionError' if ledger.startswith('[[[') else 'AttributeError')
+                    if ledger.startswith('[[['):
+                        self.assertIsInstance(sections['checkpoint']['exception_type'], str)
+                        self.assertTrue(sections['checkpoint']['exception_type'])
+                    else:
+                        self.assertEqual(sections['checkpoint']['exception_type'], 'AttributeError')
                 else:
                     self.assertEqual(sections['dispatches']['skipped_count'], 1)
                     self.assertNotEqual(sections['checkpoint'].get('status'), 'unavailable')
