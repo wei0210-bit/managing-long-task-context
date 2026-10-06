@@ -198,3 +198,13 @@ sed -n '/### 1. Bind storage/,/### 2\./p' SKILL.md | grep -c init-binding
 ```
 
 Pass: output ≥ 1.
+
+### R-017 合同改版保留旧版全文
+
+Added: #54 (absorbed by #46), approved design section 14.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_contract_history
+```
+
+Pass: `OK`.

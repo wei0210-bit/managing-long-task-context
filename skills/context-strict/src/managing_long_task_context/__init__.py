@@ -1653,6 +1653,8 @@ def publish_contract(
             "file_protection": CONTRACT_FILE_PROTECTION if protect_contract else "none",
         }
         value["seal"]["integrity_digest"] = _contract_digest(value)
+        from .contract_history import retain_contract
+        retain_contract(paths["contract"])
         _atomic_write_json(
             paths["contract"],
             value,
@@ -5651,9 +5653,13 @@ async def run(action: str, **kwargs: Any) -> Any:
     return result
 
 
+from .contract_history import contract_diff
+
+
 __all__ = [
     "ContextError",
     "publish_contract",
+    "contract_diff",
     "mark_truth_sources_dirty",
     "observe_truth_source",
     "record",

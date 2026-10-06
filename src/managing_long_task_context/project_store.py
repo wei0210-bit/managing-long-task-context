@@ -365,6 +365,7 @@ def migrate_contract(task_id: str, worktree: Path | None = None) -> dict[str, An
     沿用旧合同的 confirmed_by，不要求新的授权确认；调用前应由发布者确认。
     This compatibility migration differs from the fresh authorized confirmation
     required for controlled contract changes in SKILL.md; it does not enforce it.
+    Contract retention and replacement are not protected by the task lock.
     """
     root = assert_writable(worktree)
     directory = task_dir(task_id, root)
@@ -396,6 +397,8 @@ def migrate_contract(task_id: str, worktree: Path | None = None) -> dict[str, An
         "file_protection": previous_seal.get("file_protection") or "read-only-advisory-v1",
     }
     updated["seal"]["integrity_digest"] = _contract_digest(updated)
+    from .contract_history import retain_contract
+    retain_contract(contract_path)
     if contract_path.exists():
         contract_path.chmod(stat.S_IWUSR | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     contract_path.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
