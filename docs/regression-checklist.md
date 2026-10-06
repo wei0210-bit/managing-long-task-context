@@ -116,3 +116,16 @@ Pass: all three say the same thing: the acceptance criteria are copied verbatim 
 the sealed contract, together with the contract path and seal digest, and the contract
 remains authoritative. Fail if any one of them forbids copying the criteria, allows a
 paraphrase or summary, or omits the path or digest.
+
+### R-009 `update_item` keeps verification provenance
+
+Added: #43.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_update_item_verified_at
+```
+
+Pass: `OK`. The suite asserts that a metadata-only or status-only update of a
+`verified-fact` keeps `verified_at` and the item's original `actor`, that only a new
+`evidence` or `verification_method` refreshes `verified_at`, and that the `item-updated`
+event envelope records the modifier as `actor`.
