@@ -155,3 +155,16 @@ python3 scripts/sync_context_strict_skill.py && git status --short --untracked-f
 
 Pass: after the round's commit, the command prints nothing. Untracked design artifacts
 `.gitattributes`, `.githooks/`, and `.prime/` do not count.
+
+### R-012 Dispatch spec generator reproduces the sealed contract
+
+Added: #58.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_dispatch_spec
+```
+
+Pass: `OK`. The suite asserts that `scripts/dispatch_spec.py` copies every acceptance
+criterion byte for byte, attaches the contract path and seal digest, keeps the literal
+`<dispatch-id>` and `<worker-workspace-root>` placeholders, and emits a version-proof
+command that runs against the given package root.
