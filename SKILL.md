@@ -243,6 +243,7 @@ red?** Do not load that reference for routine execution.
 | `runtime_identity(...)` | Observe the calling process's package identity |
 | `checked_resume(...)` | Check explicit task/workspace identity before recovery |
 | `publish_contract(...)` | Validate, seal, and atomically publish a contract |
+| `contract_diff(task_id, from_version, to_version, *, base_dir)` | Compare top-level fields in retained and current contract versions; report missing versions |
 | `mark_truth_sources_dirty(...)` | Record a declared change that invalidates matching truth sources |
 | `observe_truth_source(...)` | Bind an owner readback to the current sealed source generation |
 | `record(...)` / `update_item(...)` | Append facts and state transitions |
@@ -360,3 +361,16 @@ it becomes a new task with its own contract.
 - A summary without a stable path to the original is unverified; read the original.
 - New machinery without a realistic dynamic scenario is candidate-only, not proven.
 - Missing migration mode, a single migration-success claim, or an archive request: stop; report the three results separately and keep the source session.
+
+## Contract history (Strict 0.10.0)
+
+Before replacing a contract, `publish_contract` and `migrate_contract` retain its exact
+bytes in `<task>/contract-history/<sha256>.json` with mode `0444`. Retention failure
+blocks replacement; an existing digest filename must contain identical bytes. The
+migration entry retains and replaces without holding the task lock. `contract_diff`
+checks history file digests on read, since Git does not preserve `0444` across checkouts.
+Only nonnegative integer versions participate in lookup. It returns `status: "ok"`
+and `changes` keyed by top-level field with `from`/`to` values (an absent key means
+the field was absent), or `{"status": "missing", "version": n}`. Older sessions do
+not retain overwritten versions; already lost contracts, including PILOT-B v1,
+remain missing and cannot be reconstructed.

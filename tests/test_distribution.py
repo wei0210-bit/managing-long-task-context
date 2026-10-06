@@ -48,6 +48,8 @@ COPIED_FILES = (
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/usage_freshness.py"),
     Path("src/managing_long_task_context/project_store.py"),
+    Path("src/managing_long_task_context/contract_history.py"),
+    Path("tests/test_contract_history.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
     Path("src/managing_long_task_context/runtime_identity.py"),
     Path("src/managing_long_task_context/handoff.py"),
