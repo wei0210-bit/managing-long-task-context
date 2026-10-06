@@ -27,6 +27,7 @@ Pass: no output (exit code 1). Then read every remaining line from
 marking, settling, or storing a Task as accepted.
 
 ### R-002 The three "copy acceptance criteria verbatim" rules agree
+Retired (#42, superseded by R-008: section renamed)
 
 Added: #39.
 
@@ -98,3 +99,20 @@ grep -c "generated installable package" CLAUDE.md AGENTS.md
 
 Pass: the first command prints nothing (exit code 1), and each of the other three
 reports a count of at least 1 for both files.
+
+### R-008 The three "copy acceptance criteria verbatim" rules agree
+
+Added: PILOT-A.
+
+Walkthrough:
+
+1. Read item 5 of "Recommended handoff pack" in `SKILL.md`
+   (`grep -n -A9 "Recommended handoff pack" SKILL.md`).
+2. Read rule 1 under "Rules" in `references/agent-role-handoff.md`.
+3. Read the dispatch instructions in `references/orca.md`
+   ("Dispatch spec", item 3).
+
+Pass: all three say the same thing: the acceptance criteria are copied verbatim from
+the sealed contract, together with the contract path and seal digest, and the contract
+remains authoritative. Fail if any one of them forbids copying the criteria, allows a
+paraphrase or summary, or omits the path or digest.
