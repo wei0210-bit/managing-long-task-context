@@ -21,3 +21,6 @@ dist/
 
 # Local agent work maps and issue packets.
 .scratch/
+
+# Orca worker reports; local evidence, never committed.
+.context-reports/

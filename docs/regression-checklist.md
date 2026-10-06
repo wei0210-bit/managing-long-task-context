@@ -1,0 +1,100 @@
+# Regression checklist
+
+## Rule: append only (只增不删)
+
+- Entries are never deleted, weakened, or rewritten to make a failing result pass.
+- Each fix round adds its own entries at the end, with the next free ID and the issue
+  that introduced them. An obsolete entry stays and is marked `Retired (#issue, reason)`;
+  retiring one needs the same approval as relaxing a quality bar.
+- Every entry has a command or walkthrough step and an explicit pass criterion.
+- Run every non-retired entry from the repository root. A round passes only when all of
+  them pass; report each entry's result separately.
+
+## Entries
+
+### R-001 `references/orca.md` never settles an Orca Task as accepted
+
+Added: #39. Orca settles a Task as soon as a valid `worker_done` arrives and has no
+accepted state.
+
+```sh
+grep -n -i -E "settle[^.]*accepted|as accepted|accepted state" \
+  references/orca.md skills/context-strict/references/orca.md
+```
+
+Pass: no output (exit code 1). Then read every remaining line from
+`grep -n -i accepted references/orca.md`; pass only if none of them describes Orca
+marking, settling, or storing a Task as accepted.
+
+### R-002 The three "copy acceptance criteria verbatim" rules agree
+
+Added: #39.
+
+Walkthrough:
+
+1. Read item 5 of "Recommended handoff pack" in `SKILL.md`
+   (`grep -n -A9 "Recommended handoff pack" SKILL.md`).
+2. Read rule 1 under "Rules" in `references/agent-role-handoff.md`.
+3. Read the dispatch instructions in `references/orca.md`
+   ("Supervised dispatch", coordinator step 3).
+
+Pass: all three say the same thing: the acceptance criteria are copied verbatim from
+the sealed contract, together with the contract path and seal digest, and the contract
+remains authoritative. Fail if any one of them forbids copying the criteria, allows a
+paraphrase or summary, or omits the path or digest.
+
+### R-003 `SKILL.md` deletes no lines relative to `main`
+
+Added: #39.
+
+```sh
+git fetch origin main
+git diff --numstat origin/main -- SKILL.md
+```
+
+Pass: the second column (deleted lines) is `0`, or there is no output.
+
+### R-004 Full test suite passes
+
+Added: #39.
+
+```sh
+python3 -m unittest discover -s tests
+```
+
+Pass: the run ends with `OK`, and the test count is at least the count recorded by the
+previous round (704 at #39).
+
+### R-005 The generated Strict package has no drift
+
+Added: #39.
+
+```sh
+python3 scripts/sync_context_strict_skill.py && git status --short
+```
+
+Pass: after the round's commit, `git status --short` prints nothing.
+
+### R-006 Worker report directory is ignored by Git
+
+Added: #39.
+
+```sh
+git check-ignore -v .context-reports/issue-0/example.json
+```
+
+Pass: exit code 0 and the matching rule is `.context-reports/` in `.gitignore`.
+
+### R-007 Entry files point to the maintained root sources
+
+Added: #39.
+
+```sh
+grep -n "skills/context-strict/SKILL.md\|skills/context-strict/references/orca.md" CLAUDE.md AGENTS.md
+grep -c "repository-root \`SKILL.md\`" CLAUDE.md AGENTS.md
+grep -c "repository-root \`references/orca.md\`" CLAUDE.md AGENTS.md
+grep -c "generated installable package" CLAUDE.md AGENTS.md
+```
+
+Pass: the first command prints nothing (exit code 1), and each of the other three
+reports a count of at least 1 for both files.
