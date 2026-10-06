@@ -166,6 +166,7 @@ from pathlib import Path
 root=Path(sys.argv[1]);base=root/'.prime/context';task='ACCEPT'
 r={'audit':m.audit(task,base_dir=base,emit=False), 'brief':m.brief(task,base_dir=base),
 'gate':m.gate(task,stage='completion',base_dir=base,emit=False),
+'brief_diagnostics':m.brief_diagnostics(task,base_dir=base),
 'check_store':m.check_store(task,root), 'read_task':m.read_task(task,root)}
 print(json.dumps(r,sort_keys=True))'''
         def probe():
@@ -952,6 +953,44 @@ class PresentationTests(AcceptanceFixture):
         self.assertEqual(before, tree_bytes(self.task_root))
         with self.assertRaisesRegex(context.ContextError, 'BRIEF_REQUIRED_OVERFLOW'):
             context.brief(self.task, base_dir=self.base, max_chars=len(packet['prompt']) - 1)
+
+    def test_brief_and_diagnostics_share_acceptance_fixed_budget(self):
+        old = context.brief(self.task, base_dir=self.base)
+        self.record()
+        baseline_budget = len(old['prompt'])
+        diagnostics = context.brief_diagnostics(self.task, base_dir=self.base, max_chars=baseline_budget)
+        self.assertFalse(diagnostics['fits'])
+        self.assertFalse(diagnostics['usable'])
+        self.assertEqual(diagnostics['overflow']['code'], 'BRIEF_REQUIRED_OVERFLOW')
+        self.assertEqual(diagnostics['budget']['max_chars'], baseline_budget)
+        self.assertGreater(diagnostics['budget']['fixed_prompt_chars'], baseline_budget)
+        with self.assertRaisesRegex(context.ContextError, 'BRIEF_REQUIRED_OVERFLOW'):
+            context.brief(self.task, base_dir=self.base, max_chars=baseline_budget)
+        packet = context.brief(self.task, base_dir=self.base)
+        exact = len(packet['prompt'])
+        for budget, wanted in ((exact - 1, False), (exact, True), (exact + 1, True), (10, False)):
+            with self.subTest(budget=budget):
+                diagnostics = context.brief_diagnostics(self.task, base_dir=self.base, max_chars=budget)
+                self.assertEqual(diagnostics['fits'], wanted)
+                self.assertEqual(diagnostics['usable'], wanted)
+                if wanted:
+                    current = context.brief(self.task, base_dir=self.base, max_chars=budget)
+                    self.assertEqual(diagnostics['budget']['prompt_chars'], len(current['prompt']))
+                else:
+                    with self.assertRaisesRegex(context.ContextError, 'BRIEF_REQUIRED_OVERFLOW'):
+                        context.brief(self.task, base_dir=self.base, max_chars=budget)
+
+    def test_acceptance_budget_includes_mandatory_render_metrics(self):
+        context.record(self.task, statement='mandatory ' + 'x' * 2000, item_type='observation',
+            actor='coordinator', source={'kind': 'tool', 'ref': 'required'}, metadata={'required': True}, base_dir=self.base)
+        self.record()
+        full = context.brief(self.task, base_dir=self.base, max_chars=10000)
+        diagnostics = context.brief_diagnostics(self.task, base_dir=self.base, max_chars=len(full['prompt']) - 50)
+        self.assertFalse(diagnostics['usable'])
+        self.assertNotEqual(diagnostics['overflow']['kind'], 'fixed')
+        self.assertEqual(diagnostics['budget']['mandatory_prompt_chars'], len(full['prompt']))
+        self.assertEqual(sum(diagnostics['text'][key] for key in ('ascii_chars', 'cjk_chars', 'other_chars')),
+                         len(full['prompt']))
 
     def test_acceptance_fixed_section_overflow_for_tiny_budget(self):
         self.record()
