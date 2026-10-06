@@ -48,6 +48,8 @@ COPIED_FILES = (
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/usage_freshness.py"),
     Path("src/managing_long_task_context/project_store.py"),
+    Path("src/managing_long_task_context/worker_report.py"),
+    Path("tests/test_worker_report.py"),
     Path("src/managing_long_task_context/contract_history.py"),
     Path("tests/test_contract_history.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
@@ -185,6 +187,18 @@ class ContextStrictDistributionTests(unittest.TestCase):
             Path("tests/test_independent_validation.py"),
         ):
             self.assertEqual(COPIED_FILES.count(relative), 1)
+
+    def test_worker_report_registration_version_and_export(self) -> None:
+        declaration = json.loads((ROOT / "skill-package.json").read_bytes())
+        copied = run_path(ROOT / "scripts/sync_context_strict_skill.py")["COPIED_FILES"]
+        for relative in (Path("src/managing_long_task_context/worker_report.py"), Path("tests/test_worker_report.py")):
+            self.assertEqual(COPIED_FILES.count(relative), 1)
+            self.assertEqual(copied.count(relative), 1)
+            self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
+            self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
+        self.assertEqual(declaration["skill_version"], "0.11.0")
+        self.assertEqual(declaration["package_version"], "0.11.0")
+        self.assertIn('version = "0.11.0"', (ROOT / "pyproject.toml").read_text())
 
     def test_distributed_truth_source_example_executes(self) -> None:
         result = subprocess.run(

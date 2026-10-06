@@ -50,6 +50,7 @@ from . import rule_execution as _rule_execution_module
 from . import experience as _experience_module
 from . import _experience_store as _experience_store_module
 from .experience import bind_experience
+from .worker_report import worker_report_handlers
 from .evidence import (
     BUILTIN_RESOLVER_CAPABILITIES,
     MAX_CLOCK_SKEW_SECONDS,
@@ -5657,6 +5658,7 @@ from .contract_history import contract_diff
 
 
 __all__ = [
+    "worker_report_handlers",
     "ContextError",
     "publish_contract",
     "contract_diff",

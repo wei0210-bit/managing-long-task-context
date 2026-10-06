@@ -208,3 +208,13 @@ PYTHONPATH=src:tests python3 -m unittest tests.test_contract_history
 ```
 
 Pass: `OK`.
+
+### R-018 `worker-report` 只依据封印命令与协调者复跑报告
+
+Added: #53 (absorbed by #46), approved design section 14.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_worker_report
+```
+
+Pass: `OK`.

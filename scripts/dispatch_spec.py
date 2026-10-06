@@ -99,7 +99,9 @@ def render_spec(args: argparse.Namespace) -> str:
     constraints = "\n".join(f"  - {item}" for item in contract.get("constraints", []))
     excluded = "\n".join(f"  - {item}" for item in contract.get("out_of_scope", []))
     # Do not strip, normalize, escape, or paraphrase either criterion field.
-    criteria = "\n".join(f"- {item['id']}: {item['criterion']}"
+    criteria = "\n".join(f"- {item['id']}: {item['criterion']}" +
+                         ("\n  worker_report_claim: " + json.dumps(item["worker_report_claim"], ensure_ascii=False)
+                          if "worker_report_claim" in item else "")
                          for item in contract["acceptance_criteria"])
     report_root = f"{worker}/.context-reports/{args.task_id}"
     return f"""# {args.role.capitalize()} dispatch spec
@@ -163,7 +165,8 @@ Write the JSON report immediately after checks and before worker_done; keep it
 out of Git. Required fields: schema, task_id, orca_task_id, orca_dispatch_id,
 contract_digest, loaded_module_file, loaded_manifest_sha256, code_revision,
 checks, files_modified, deferred_suggestions, outcome_claim, written_at (UTC).
-Each check records its command, exit code, output file, and output summary.
+Each check records its command, exit code, output file, output_sha256 (64 lowercase
+hex characters), and output summary. output_file is relative to the worker workspace.
 Report actual observations and unrun checks; deferred suggestions stay outside
 this acceptance. A reviewer also records findings. Follow the live preamble's
 heartbeat/check/worker_done commands and send worker_done exactly once with the

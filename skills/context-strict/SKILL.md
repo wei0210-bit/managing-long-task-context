@@ -237,9 +237,23 @@ red?** Do not load that reference for routine execution.
 
 ## API
 
+`worker-report` is a project evidence kind: trusted host code explicitly calls
+`worker_report_handlers(absolute_workspace_root)` and supplies both returned maps
+to the gate. The resolver map includes all built-in resolvers. Declare
+`project:worker-report/v1` and `project:worker-report-claim/v1` in the contract,
+seal each criterion's `worker_report_claim.commands`, and bind the report bytes
+with an envelope `artifact_digest`. See `references/orca.md` for the report fields.
+The completion evidence is the coordinator's rerun report on the integration
+commit in the bound workspace. It proves coverage of all sealed commands, zero
+exit codes, current clean HEAD and existing output files whose SHA-256 matches;
+it does not prove actual execution or replace `independent_validation_required`.
+Existing contracts requiring other project verifiers still return unknown unless
+the host supplies those handlers. No executable handlers are loaded from JSON.
+
 | Call | Purpose |
 |---|---|
 | `bind(base_dir)` | Bind all operations to one absolute context store |
+| `worker_report_handlers(workspace_root)` | Construct host-bound worker-report handlers and merge built-in resolvers |
 | `runtime_identity(...)` | Observe the calling process's package identity |
 | `checked_resume(...)` | Check explicit task/workspace identity before recovery |
 | `publish_contract(...)` | Validate, seal, and atomically publish a contract |
