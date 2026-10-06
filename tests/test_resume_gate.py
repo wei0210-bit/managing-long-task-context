@@ -244,6 +244,40 @@ class ResumeGateTests(ResumeFixture):
         for section in ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文']:
             self.assertIn(section, text)
 
+    def test_status_nondefault_root_ignores_malformed_default_task(self):
+        default_task = self.base / self.task
+        self.base = self.workspace / 'other-context'
+        self.publish(); self.bind()
+        (default_task / 'events.jsonl').write_text('{}\n', encoding='utf-8')
+        inputs = ['--package-root', str(self.package), '--context-root', str(self.base),
+                  '--workspace-root', str(self.workspace), '--task-id', self.task]
+        env = {**os.environ, 'PYTHONPATH': str(self.package / 'src')}
+        doctor = subprocess.run(
+            [sys.executable, str(self.package / 'scripts/context_doctor.py'), 'resume', *inputs],
+            env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
+        self.assertEqual(json.loads(doctor.stdout)['diagnostic']['status'], 'pass')
+        unavailable = '快照不可用（context root 不是工作区默认位置）'
+        for json_output in (True, False):
+            with self.subTest(json_output=json_output):
+                result = subprocess.run(
+                    [sys.executable, str(self.package / 'scripts/context_status.py'), *inputs,
+                     *(['--json'] if json_output else [])],
+                    env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, doctor.returncode, result.stdout + result.stderr)
+                if json_output:
+                    sections = json.loads(result.stdout)
+                    self.assertEqual(set(sections),
+                                     {'identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief'})
+                    for key in ('checkpoint', 'dispatches'):
+                        self.assertIsNone(sections[key]['data'])
+                        self.assertEqual(sections[key]['message'], unavailable)
+                else:
+                    self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('## ')][:5],
+                                     ['## 身份', '## 恢复门禁', '## 最近检查点',
+                                      '## 已入账的 Orca 派单', '## brief 正文'])
+                    self.assertEqual(result.stdout.count(unavailable), 2)
+
     def test_capability_registered_in_identity_resume_and_package(self):
         self.assertIn('checked-resume-gate/v1', self.module.runtime_identity(package_root=self.package)['identity']['capabilities'])
         self.assertIn('checked-resume-gate/v1', self.resume()['diagnostic']['identity']['capabilities'])

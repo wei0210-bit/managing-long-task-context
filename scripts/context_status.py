@@ -45,11 +45,12 @@ def status(args: argparse.Namespace) -> tuple[dict, int]:
         data = {'snapshot': None, 'latest_checkpoint': None}
         unavailable = '快照不可用'
     else:
-        data = read_task(args.task_id, workspace)
         unavailable = '快照不可用'
         if Path(args.context_root).resolve() != context_root(workspace):
             data = {'snapshot': None, 'latest_checkpoint': None}
             unavailable = '快照不可用（context root 不是工作区默认位置）'
+        else:
+            data = read_task(args.task_id, workspace)
     snapshot = data['snapshot']
     checkpoint = {'identity_verified': verified, 'data': None, 'message': unavailable}
     dispatches = {'identity_verified': verified, 'data': None, 'message': unavailable}
