@@ -129,3 +129,17 @@ Pass: `OK`. The suite asserts that a metadata-only or status-only update of a
 `verified-fact` keeps `verified_at` and the item's original `actor`, that only a new
 `evidence` or `verification_method` refreshes `verified_at`, and that the `item-updated`
 event envelope records the modifier as `actor`.
+
+### R-010 `brief()` renders stale items, omission count, and `blocking` ordering
+
+Added: #44.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_brief_rendering
+```
+
+Pass: `OK`. The suite asserts that an expired mutable `verified-fact` appears in a
+"needs re-observation" section of the brief markdown, that the number of non-mandatory
+items dropped for budget is shown and equals `brief_diagnostics().omitted_ids`, and that
+`metadata.blocking` sorts like `metadata.blocker`. Packets with no stale or omitted
+items keep their previous shape byte for byte.
