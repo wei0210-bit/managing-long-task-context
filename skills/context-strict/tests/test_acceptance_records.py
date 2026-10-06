@@ -487,6 +487,14 @@ class RecordStorageTests(PreservationChecks, AcceptanceFixture):
             self.assertEqual(caught.exception.code, 'LOCAL_AHEAD')
             self.assertEqual(before, tree_bytes(self.base))
 
+    def test_align_refuses_first_unpublished_record_when_head_has_no_context(self):
+        self.record()
+        before = tree_bytes(self.base)
+        with self.assertRaises(context.StoreNotWritable) as caught:
+            context.align_context(self.task, self.root)
+        self.assertEqual(caught.exception.code, 'LOCAL_AHEAD')
+        self.assertEqual(before, tree_bytes(self.base))
+
     def test_align_accepts_published_record(self):
         self.record()
         context.publish_context(self.task, self.root)
