@@ -60,6 +60,8 @@
     "scripts/context_identity_core.py",
     "scripts/skill_package.py",
     "scripts/handoff_preflight.py",
+    "scripts/dispatch_spec.py",
+    "tests/test_dispatch_spec.py",
     "src/managing_long_task_context/runtime_identity.py",
     "src/managing_long_task_context/_identity_core.py",
     "src/managing_long_task_context/_experience_store.py",
