@@ -67,6 +67,7 @@ Pass: the run ends with `OK`, and the test count is at least the count recorded 
 previous round (704 at #39).
 
 ### R-005 The generated Strict package has no drift
+Retired (#52, superseded by R-011: untracked task-store design artifacts cause false failures)
 
 Added: #39.
 
@@ -143,3 +144,14 @@ Pass: `OK`. The suite asserts that an expired mutable `verified-fact` appears in
 items dropped for budget is shown and equals `brief_diagnostics().omitted_ids`, and that
 `metadata.blocking` sorts like `metadata.blocker`. Packets with no stale or omitted
 items keep their previous shape byte for byte.
+
+### R-011 The generated Strict package has no tracked-file drift
+
+Added: #52.
+
+```sh
+python3 scripts/sync_context_strict_skill.py && git status --short --untracked-files=no
+```
+
+Pass: after the round's commit, the command prints nothing. Untracked design artifacts
+`.gitattributes`, `.githooks/`, and `.prime/` do not count.
