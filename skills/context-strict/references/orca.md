@@ -121,11 +121,33 @@ Pass the same path as `worker_done --report-path`.
 | `loaded_module_file` | From the version proof below |
 | `loaded_manifest_sha256` | From the version proof below |
 | `code_revision` | Commit id and whether the tree had uncommitted changes |
-| `checks` | Per check: command, exit code, output file path, and output summary |
+| `checks` | Per check: command, integer exit_code, workspace-relative output_file, output_sha256, and string output_summary |
+| `checks[].output_sha256` | SHA-256 of the output file bytes, 64 lowercase hex characters |
 | `files_modified` | Files the worker changed |
 | `deferred_suggestions` | Out-of-scope findings, one entry each; not acted on |
 | `outcome_claim` | The worker's own claim; a lead, not a verdict |
 | `written_at` | UTC timestamp |
+
+For `worker-report` evidence, the host explicitly constructs
+`resolvers, verifiers = worker_report_handlers(absolute_workspace_root)` and passes
+them to the gate. The envelope binds the report bytes with `artifact_digest`
+(`sha256:<64 lowercase hex>`), and the report's `contract_digest` matches the seal.
+Paths for the report locator and every output_file are relative to the bound root;
+absolute paths, parent traversal, and symlinks are rejected. code_revision is
+`{"commit": "<40-character HEAD>", "dirty": false}`. Required fields are typed as
+strings (including a 64-character loaded_manifest_sha256), arrays for checks,
+files_modified and deferred_suggestions, and a positive integer or nonempty string
+schema version; written_at is a UTC RFC3339 timestamp.
+
+The completion gate's evidence must be a report produced by the coordinator
+rerunning the sealed worker_report_claim.commands in its own workspace on the
+integration commit. The coordinator binds that workspace, and the verifier checks
+the current HEAD and computes dirty itself, excluding .prime/,
+.githooks/pre-commit, .prime/scripts/merge-events.py and .gitattributes. Untracked,
+unignored files count as dirty. A worker's own report remains a review lead.
+This verifies sealed-command coverage, zero exit codes and intact local output
+files; it does not prove the commands actually executed or replace independent
+validation.
 
 **Version proof:** run this with the same `PYTHONPATH` the checks use, so it reports
 the module that process actually imports:

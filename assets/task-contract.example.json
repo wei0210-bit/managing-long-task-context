@@ -12,9 +12,9 @@
   "evidence_handlers": {
     "schema": "evidence-handlers/v1",
     "types": {
-      "test-report": {
-        "resolver_capability": "builtin:test-report/v1",
-        "verifier_capability": "project:test-report-claim/v1"
+      "worker-report": {
+        "resolver_capability": "project:worker-report/v1",
+        "verifier_capability": "project:worker-report-claim/v1"
       }
     }
   },
@@ -34,7 +34,7 @@
       "id": "AC-01",
       "criterion": "同一支付回调重复发送时，只生成一笔扣款记录",
       "required_evidence_types": [
-        "test-report"
+        "worker-report"
       ],
       "required_hops": [
         "callback-entry",
@@ -42,18 +42,38 @@
         "transaction-write"
       ],
       "required_hops_mode": "single-evidence-ordered",
-      "required_scope": {"module": "payment-callback", "environment": "test"},
+      "required_scope": {
+        "module": "payment-callback",
+        "environment": "test"
+      },
       "required_delivery_types": [],
-      "independent_validation_required": false
+      "independent_validation_required": false,
+      "worker_report_claim": {
+        "commands": [
+          "python3 -m unittest discover -s tests"
+        ]
+      }
     },
     {
       "id": "AC-02",
       "criterion": "现有支付回归测试全部通过",
-      "required_evidence_types": ["test-report"],
-      "required_hops": ["regression-suite"],
-      "required_scope": {"module": "payment-callback", "environment": "test"},
+      "required_evidence_types": [
+        "worker-report"
+      ],
+      "required_hops": [
+        "regression-suite"
+      ],
+      "required_scope": {
+        "module": "payment-callback",
+        "environment": "test"
+      },
       "required_delivery_types": [],
-      "independent_validation_required": false
+      "independent_validation_required": false,
+      "worker_report_claim": {
+        "commands": [
+          "python3 -m unittest discover -s tests"
+        ]
+      }
     }
   ]
 }

@@ -83,6 +83,17 @@ class DispatchSpecTests(unittest.TestCase):
         self.assertIn("不得写任务库与经验库", output)
         self.assertNotIn("Do not call checked_resume(), depend on brief()", output)
 
+    def test_sealed_worker_report_claim_is_copied_without_command_changes(self) -> None:
+        claim = {"commands": ["  PYTHONPATH=src:tests python3 -m unittest tests.test_worker_report  ",
+                              "printf '原文\\n'", "echo \"$literal\""], "extra": "preserved"}
+        self.contract["acceptance_criteria"][0]["worker_report_claim"] = claim
+        self.write_contract()
+        for role in ("executor", "reviewer"):
+            output = self.output(role=role).decode()
+            self.assertIn(json.dumps(claim, ensure_ascii=False), output)
+            observed = output.split("worker_report_claim: ", 1)[1].split("\n", 1)[0]
+            self.assertEqual(json.loads(observed), claim)
+
     def test_acceptance_id_and_criterion_bytes_are_verbatim(self) -> None:
         output = self.output()
         expected = "\n".join(f"- {item['id']}: {item['criterion']}"

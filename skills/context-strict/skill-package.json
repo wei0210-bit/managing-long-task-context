@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "skill_name": "context-strict",
-  "skill_version": "0.10.0",
+  "skill_version": "0.11.0",
   "package_name": "managing-long-task-context",
-  "package_version": "0.10.0",
+  "package_version": "0.11.0",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",
@@ -93,7 +93,9 @@
     "scripts/context_status.py",
     "tests/test_resume_gate.py",
     "src/managing_long_task_context/contract_history.py",
-    "tests/test_contract_history.py"
+    "tests/test_contract_history.py",
+    "src/managing_long_task_context/worker_report.py",
+    "tests/test_worker_report.py"
   ],
   "capabilities": {
     "native-host-capability-report/v1": {
