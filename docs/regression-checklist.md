@@ -263,3 +263,15 @@ Pass: `OK`. Existing assertions remain unchanged; schema 1 keeps byte-identical
 binding/storage, repeated init, and rule execution blocks relative `store_root`.
 Schema 2 rejects moved stores, unrelated projects, unavailable identity, and mixed
 reference forms without relaxing the previous source validity checks.
+
+### R-023 状态命令第 4 段不把普通条目计为派单跳过
+
+Added: closing validation CLOSE-A (#45 review M-001).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_resume_gate
+```
+
+Pass: `OK`. Items whose metadata is a dict without an `orca_dispatch_id` key are not
+counted as skipped and leave the dispatch section available; malformed metadata and
+invalid dispatch ids are still counted as skipped, and the valid dispatch list is unchanged.
