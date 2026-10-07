@@ -199,9 +199,9 @@ class ContextStrictDistributionTests(unittest.TestCase):
             self.assertEqual(copied.count(relative), 1)
             self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
             self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
-        self.assertEqual(declaration["skill_version"], "0.13.2")
-        self.assertEqual(declaration["package_version"], "0.13.2")
-        self.assertIn('version = "0.13.2"', (ROOT / "pyproject.toml").read_text())
+        self.assertEqual(declaration["skill_version"], "0.13.3")
+        self.assertEqual(declaration["package_version"], "0.13.3")
+        self.assertIn('version = "0.13.3"', (ROOT / "pyproject.toml").read_text())
 
     def test_acceptance_registration_version_and_exports(self) -> None:
         declaration = json.loads((ROOT / "skill-package.json").read_bytes())
@@ -211,8 +211,8 @@ class ContextStrictDistributionTests(unittest.TestCase):
             self.assertEqual(copied.count(relative), 1)
             self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
             self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
-        self.assertEqual(declaration["skill_version"], "0.13.2")
-        self.assertEqual(declaration["package_version"], "0.13.2")
+        self.assertEqual(declaration["skill_version"], "0.13.3")
+        self.assertEqual(declaration["package_version"], "0.13.3")
         result = subprocess.run([sys.executable, "-c", "import managing_long_task_context as m; "
                                 "assert all(callable(getattr(m, n, None)) for n in "
                                 "('record_acceptance', 'latest_acceptance', 'acceptance_status'))"],

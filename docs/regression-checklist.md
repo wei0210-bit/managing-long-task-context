@@ -288,3 +288,17 @@ Pass: `OK`. publish_contract rejects string, float, bool, zero and negative vers
 and writes nothing; directly sealed legacy contracts with non-integer versions still
 load for brief, audit and gate; the fixtures that need such contracts build them by
 writing and sealing directly, with every original assertion kept.
+
+### R-025 PERF-04 按相对空载基线判定，过期用例不依赖真实时间
+
+Added: STEP8-TESTFIX (contract v3, David authorized the quality-floor change on 2026-10-07).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_handoff_preflight.PreflightPerformanceTests tests.test_experience_rule_gate
+```
+
+Pass: `OK` under both `python3` and `/opt/homebrew/bin/python3.12`. PERF-04 checks the
+preflight peak memory against an import-only baseline measured in the same run (delta at
+most 32 MiB for small and grown inputs, growth at most 8 MiB); its git-call and CPU
+assertions are unchanged. The expired-rule case controls the clock with a mock and does
+not sleep.

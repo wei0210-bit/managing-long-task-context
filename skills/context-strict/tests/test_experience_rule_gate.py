@@ -5,8 +5,8 @@ import json
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -173,14 +173,18 @@ class ExperienceRuleGateTests(unittest.TestCase):
                     _approved_experience(workspace, store_root)
                     (workspace / "original.txt").unlink()
                 else:
-                    _approved_experience(workspace, store_root, validity_seconds=1)
-                    time.sleep(1.2)
+                    _approved_experience(workspace, store_root)
                 evidence = workspace / "execution.txt"
                 evidence.write_text("checked current original\n", encoding="utf-8")
                 base_dir = temporary_root / ".prime" / "context"
                 context.publish_contract(_contract(workspace, store_root), confirmed_by="publisher", base_dir=base_dir)
                 context.checkpoint("EXPERIENCE-RULE-001", phase="handoff", completed=[], evidence_added=[], next_action="review", actor="publisher", base_dir=base_dir)
-                report = context.gate("EXPERIENCE-RULE-001", stage="handoff", base_dir=base_dir, emit=False, rule_runtime=_runtime(evidence, workspace))
+                if invalid == "expired":
+                    with unittest.mock.patch("managing_long_task_context._experience_store.datetime", wraps=datetime) as clock:
+                        clock.now.return_value = datetime.now(timezone.utc) + timedelta(days=2)
+                        report = context.gate("EXPERIENCE-RULE-001", stage="handoff", base_dir=base_dir, emit=False, rule_runtime=_runtime(evidence, workspace))
+                else:
+                    report = context.gate("EXPERIENCE-RULE-001", stage="handoff", base_dir=base_dir, emit=False, rule_runtime=_runtime(evidence, workspace))
 
             self.assertFalse(report["passed"], report)
             self.assertIn(report["rules"][0]["status"], {"fail", "unknown"})

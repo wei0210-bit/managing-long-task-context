@@ -1289,6 +1289,20 @@ class PreflightPerformanceTests(unittest.TestCase):
         self.assertEqual((worktree["status"], worktree["code"]), ("unknown", "PREFLIGHT_GIT_OUTPUT_LIMIT"))
 
     def test_perf_04_git_calls_cpu_time_and_peak_rss_stay_bounded_as_inputs_grow(self) -> None:
+        package = shared_package()
+        baseline_runs = []
+        for _ in range(3):
+            completed = subprocess.run(
+                [sys.executable, "-c", METRIC_WRAPPER, sys.executable, "-c",
+                 "import managing_long_task_context; print('{}')"],
+                cwd=package.parent, env={**os.environ, "PYTHONPATH": str(package / "src"), "PYTHONDONTWRITEBYTECODE": "1"},
+                text=True, capture_output=True, timeout=180,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            baseline = json.loads(completed.stdout)
+            self.assertEqual(baseline["exit"], 0, baseline)
+            baseline_runs.append(baseline)
+        baseline_peak_rss = max(run["peak_rss_bytes"] for run in baseline_runs)
         metrics: dict[str, dict[str, object]] = {}
         for label, extra_links, extra_files in (("small", 0, 0), ("grown", 40, 300)):
             workspace = Workspace(resolved_temporary(self), shared_package())
@@ -1319,13 +1333,19 @@ class PreflightPerformanceTests(unittest.TestCase):
                 "median_cpu_seconds": round(cpu, 3), "median_wall_seconds": round(wall, 3),
                 "peak_rss_bytes": max(run["peak_rss_bytes"] for run in runs), "links": extra_links + 2, "files": extra_files,
             }
-        print("PERF-04 metrics: " + json.dumps(metrics, sort_keys=True), file=sys.stderr)
+            metrics[label]["peak_rss_increment_bytes"] = int(metrics[label]["peak_rss_bytes"]) - baseline_peak_rss
+        grown_minus_small = int(metrics["grown"]["peak_rss_bytes"]) - int(metrics["small"]["peak_rss_bytes"])
+        print("PERF-04 metrics: " + json.dumps({
+            "baseline": {"peak_rss_bytes": baseline_peak_rss}, **metrics,
+            "grown_minus_small_peak_rss_bytes": grown_minus_small,
+        }, sort_keys=True), file=sys.stderr)
         self.assertEqual(metrics["small"]["git_calls"], metrics["grown"]["git_calls"])
         self.assertLessEqual(int(metrics["grown"]["git_calls"]), 7)
         for label, values in metrics.items():
             with self.subTest(workspace=label):
                 self.assertLess(float(values["median_cpu_seconds"]), 2.0)
-                self.assertLess(int(values["peak_rss_bytes"]), 64 * 1024 * 1024)
+                self.assertLessEqual(int(values["peak_rss_increment_bytes"]), 32 * 1024 * 1024)
+        self.assertLessEqual(grown_minus_small, 8 * 1024 * 1024)
 
 
 if __name__ == "__main__":
