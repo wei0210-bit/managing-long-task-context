@@ -146,6 +146,8 @@ def _dispatches(args, verified):
         raise TypeError('snapshot items must be a dict')
     for identifier, item in items.items():
         metadata = item.get('metadata') if isinstance(item, dict) else None
+        if isinstance(metadata, dict) and 'orca_dispatch_id' not in metadata:
+            continue
         dispatch_id = metadata.get('orca_dispatch_id') if isinstance(metadata, dict) else None
         if not isinstance(dispatch_id, str) or not dispatch_id:
             skipped += 1
