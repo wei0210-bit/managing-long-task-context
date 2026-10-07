@@ -548,3 +548,43 @@ class ReadOnlyEntryTests(ResumeFixture):
             self.assertEqual(before, self.hashes())
         finally:
             for p, mode in modes.items(): p.chmod(mode)
+
+
+class DispatchOrdinaryItemTests(ResumeFixture):
+    def test_only_ordinary_items_leave_dispatches_available_without_skips(self):
+        self.record('ORDINARY')
+        self.record('OTHER', metadata={'role': 'observation', 'report_item': 0})
+        section = self.command('context_status.py')['dispatches']
+        self.assertEqual(section['skipped_count'], 0)
+        self.assertEqual(section['status'], 'available')
+        self.assertEqual(section['data'], [])
+        self.assertEqual(section['message'], '')
+
+    def test_invalid_dispatch_ids_are_skipped_without_counting_ordinary_items(self):
+        self.record('ORDINARY', metadata={'role': 'observation'})
+        for index, value in enumerate((None, '', [], {}, 7, True)):
+            self.record('INVALID-' + str(index), metadata={'orca_dispatch_id': value})
+        self.record('MAIN', metadata={'orca_dispatch_id': 'ctx-a'})
+        self.record('SUGGESTION', metadata={'orca_dispatch_id': 'ctx-a', 'report_item': 0})
+        self.record('OTHER-MAIN', metadata={'orca_dispatch_id': 'ctx-b'})
+        section = self.command('context_status.py')['dispatches']
+        self.assertEqual(section['skipped_count'], 6)
+        self.assertEqual(section['status'], 'unavailable')
+        self.assertIn('跳过 6 个', section['message'])
+        self.assertEqual(section['data'], [
+            {'orca_dispatch_id': 'ctx-a', 'main_item_ids': ['MAIN'], 'suggestion_count': 1},
+            {'orca_dispatch_id': 'ctx-b', 'main_item_ids': ['OTHER-MAIN'], 'suggestion_count': 0},
+        ])
+
+    def test_valid_dispatch_list_is_unchanged_by_ordinary_items(self):
+        self.record('MAIN-Z', metadata={'orca_dispatch_id': 'ctx-a'})
+        self.record('MAIN-A', metadata={'orca_dispatch_id': 'ctx-a'})
+        self.record('SUGGESTION', metadata={'orca_dispatch_id': 'ctx-a', 'report_item': 0})
+        before = self.command('context_status.py')['dispatches']
+        self.record('ORDINARY')
+        self.record('OTHER', metadata={'report_item': 1})
+        after = self.command('context_status.py')['dispatches']
+        self.assertEqual(after, before)
+        self.assertEqual(after['data'], [
+            {'orca_dispatch_id': 'ctx-a', 'main_item_ids': ['MAIN-A', 'MAIN-Z'], 'suggestion_count': 1},
+        ])
