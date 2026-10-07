@@ -310,6 +310,8 @@ class RealMigrationRegressionTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         # Synced toolchain copies, plus Lite surfaces edited after the v1 freeze.
         allowed_lite_copies = {
+            "skills/context-lite/skill-package.json",
+            "skills/context-lite/tests/test_context_experience_cli.py",
             "skills/context-lite/scripts/skill_package.py",
             "skills/context-lite/scripts/context_experience.py",
             "skills/context-lite/scripts/context_identity_core.py",

@@ -75,6 +75,7 @@ COPIED_FILES = (
     Path("tests/test_project_store.py"),
     Path("tests/test_context_experience_cli.py"),
     Path("tests/test_experience_review.py"),
+    Path("tests/test_experience_cross_checkout.py"),
     Path("tests/test_rule_execution.py"),
     Path("tests/test_experience_rule_gate.py"),
     Path("tests/test_independent_validation.py"),
@@ -198,9 +199,9 @@ class ContextStrictDistributionTests(unittest.TestCase):
             self.assertEqual(copied.count(relative), 1)
             self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
             self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
-        self.assertEqual(declaration["skill_version"], "0.12.0")
-        self.assertEqual(declaration["package_version"], "0.12.0")
-        self.assertIn('version = "0.12.0"', (ROOT / "pyproject.toml").read_text())
+        self.assertEqual(declaration["skill_version"], "0.13.0")
+        self.assertEqual(declaration["package_version"], "0.13.0")
+        self.assertIn('version = "0.13.0"', (ROOT / "pyproject.toml").read_text())
 
     def test_acceptance_registration_version_and_exports(self) -> None:
         declaration = json.loads((ROOT / "skill-package.json").read_bytes())
@@ -210,8 +211,8 @@ class ContextStrictDistributionTests(unittest.TestCase):
             self.assertEqual(copied.count(relative), 1)
             self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
             self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
-        self.assertEqual(declaration["skill_version"], "0.12.0")
-        self.assertEqual(declaration["package_version"], "0.12.0")
+        self.assertEqual(declaration["skill_version"], "0.13.0")
+        self.assertEqual(declaration["package_version"], "0.13.0")
         result = subprocess.run([sys.executable, "-c", "import managing_long_task_context as m; "
                                 "assert all(callable(getattr(m, n, None)) for n in "
                                 "('record_acceptance', 'latest_acceptance', 'acceptance_status'))"],

@@ -73,6 +73,7 @@ COPIED_FILES = (
     Path("tests/test_project_store.py"),
     Path("tests/test_context_experience_cli.py"),
     Path("tests/test_experience_review.py"),
+    Path("tests/test_experience_cross_checkout.py"),
     Path("tests/test_rule_execution.py"),
     Path("tests/test_experience_rule_gate.py"),
     Path("tests/test_independent_validation.py"),
