@@ -275,3 +275,16 @@ PYTHONPATH=src:tests python3 -m unittest tests.test_resume_gate
 Pass: `OK`. Items whose metadata is a dict without an `orca_dispatch_id` key are not
 counted as skipped and leave the dispatch section available; malformed metadata and
 invalid dispatch ids are still counted as skipped, and the valid dispatch list is unchanged.
+
+### R-024 publish_contract 只接受正整数 version，已封印的旧合同照常可读
+
+Added: closing validation CLOSE-B (contract v2, David authorized the fixture change on 2026-10-07).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_context tests.test_contract_history tests.test_truth_sources
+```
+
+Pass: `OK`. publish_contract rejects string, float, bool, zero and negative versions
+and writes nothing; directly sealed legacy contracts with non-integer versions still
+load for brief, audit and gate; the fixtures that need such contracts build them by
+writing and sealing directly, with every original assertion kept.
