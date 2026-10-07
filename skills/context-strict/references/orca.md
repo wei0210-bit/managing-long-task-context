@@ -292,3 +292,23 @@ reads acceptance records; publish before aligning, and do not run old-package
 alignment in the same checkout because it may overwrite unpublished sidecars.
 Secret checks use six known markers; secrets outside that list can still be copied
 and pushed under the existing publication authorization.
+
+## Schema 2 experience sharing (Strict 0.13.0 / Lite 1.5.0)
+
+The coordinator is the single experience writer. Receivers must not initialize
+local libraries: fetch/merge of published context can silently overwrite an
+existing ignored `.prime/experience/` library. In a temporary test repository,
+exercise `publish_context` -> receiver fetch/merge -> configure
+`core.hooksPath=.githooks` -> `align_context`. Real publication requires David's
+separate authorization.
+
+Before global synchronization, never use the new package to `init` an experience
+store in a real repository; use temporary stores for implementation and validation.
+Old packages report `WORKSPACE_MISMATCH` for schema 2 bindings: check the loaded
+version first. Forks and other projects with shared root commits are admitted;
+no common history and relocated stores remain blocked. Orphan branches can lose
+that intersection until restored. Unavailable Git metadata or shallow history
+returns `PROJECT_IDENTITY_UNAVAILABLE`. Existing schema 1 stores remain unchanged;
+no migration is provided. Source paths are relative on disk and absolute in
+outputs/callbacks; `record_digest` must not be recomputed from restored output.
+Rule execution keeps its absolute `store_root` restriction.

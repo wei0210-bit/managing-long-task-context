@@ -238,3 +238,28 @@ PYTHONPATH=src:tests python3 -m unittest tests.test_acceptance_records.Reaccepta
 ```
 
 Pass: `OK`.
+
+### R-021 经验库跨检出可读且误用保护不变
+
+Added: #47, approved design r4.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_experience_cross_checkout
+```
+
+Pass: `OK`. Schema 2 publication to a second checkout preserves approval and the
+stored-form digest, restores current absolute paths, and checks source drift.
+Shared-root forks are admitted; receiver overwrite is a preservation test.
+
+### R-022 旧格式经验库与规则执行行为不变
+
+Added: #47, approved design r4.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_context_experience_cli tests.test_experience_rule_gate
+```
+
+Pass: `OK`. Existing assertions remain unchanged; schema 1 keeps byte-identical
+binding/storage, repeated init, and rule execution blocks relative `store_root`.
+Schema 2 rejects moved stores, unrelated projects, unavailable identity, and mixed
+reference forms without relaxing the previous source validity checks.

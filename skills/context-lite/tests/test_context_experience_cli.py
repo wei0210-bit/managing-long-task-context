@@ -419,5 +419,295 @@ class ContextExperienceCliTests(unittest.TestCase):
             self.assertEqual(old["data"]["claim"], "Hash the local evidence before recording its candidate.")
 
 
+class PortableExperienceCliTests(unittest.TestCase):
+    run_cli = ContextExperienceCliTests.run_cli
+    write_candidate = ContextExperienceCliTests.write_candidate
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.workspace = self.root / "workspace"
+        self.workspace.mkdir()
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "user.name", "Test")
+        self.git("commit", "-q", "--allow-empty", "-m", "root")
+        self.store = self.workspace / ".prime" / "experience"
+
+    def git(self, *args, workspace=None):
+        result = subprocess.run(["git", "-C", str(workspace or self.workspace), *args], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def cli(self, command, *args, workspace=None, store=None):
+        return self.run_cli(command, "--workspace", str(workspace or self.workspace), "--store", str(store or self.store), *args)
+
+    def binding(self):
+        return json.loads((self.store / "binding.json").read_text())
+
+    def test_schema2_git_roots_preserve_trailing_space_and_tab_across_checkouts(self):
+        import shutil
+        for suffix in (" ", "\t"):
+            with self.subTest(suffix=repr(suffix)):
+                sender = self.root / ("sender" + suffix)
+                receiver = self.root / ("receiver" + suffix)
+                self.git("clone", "-q", str(self.workspace), str(sender))
+                source = self.write_candidate(sender)
+                self.git("add", "evidence.txt", workspace=sender)
+                self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                         "-c", "commit.gpgsign=false", "commit", "-q", "-m", "source", workspace=sender)
+                sender_store = sender / ".prime/experience"
+                self.assertEqual(self.cli("init", workspace=sender, store=sender_store)[0], 0)
+                self.assertEqual(json.loads((sender_store / "binding.json").read_text())["schema"], 2)
+                self.assertEqual(self.cli("record", "--input", str(source), workspace=sender, store=sender_store)[0], 0)
+                self.git("clone", "-q", str(sender), str(receiver))
+                receiver_store = receiver / ".prime/experience"
+                shutil.copytree(sender_store, receiver_store)
+                code, result = self.cli("get", "--id", "safe-read-001", "--revision", "1",
+                                        workspace=receiver, store=receiver_store)
+                self.assertEqual((code, result["status"]), (0, "pass"), result)
+                self.assertEqual(result["data"]["source_refs"][0]["path"], str(receiver / "evidence.txt"))
+
+    def test_schema2_init_and_concurrent_reinit_keep_one_identity(self):
+        self.assertEqual(self.cli("init")[0], 0)
+        binding = self.binding()
+        self.assertEqual(set(binding), {"schema", "store_id", "store_relpath", "project_roots"})
+        self.assertEqual(binding["schema"], 2)
+        self.assertRegex(binding["store_id"], r"\A[0-9a-f]{64}\Z")
+        self.assertEqual(binding["store_relpath"], ".prime/experience")
+        self.assertEqual(binding["project_roots"], [self.git("rev-parse", "HEAD")])
+        self.assertEqual((self.store / "records.json").read_bytes(), b'{"schema":2,"records":[]}')
+        self.assertEqual(self.cli("init")[0], 0)
+        self.assertEqual(self.binding(), binding)
+        fresh = self.workspace / "concurrent"
+        command = [sys.executable, str(SCRIPT), "init", "--workspace", str(self.workspace), "--store", str(fresh)]
+        processes = [subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(6)]
+        for process in processes:
+            stdout, stderr = process.communicate()
+            self.assertEqual((process.returncode, stderr), (0, ""), stdout)
+        concurrent = json.loads((fresh / "binding.json").read_text())
+        self.assertEqual(concurrent["schema"], 2)
+        self.assertNotEqual(concurrent["store_id"], binding["store_id"])
+        self.assertEqual(self.cli("init", store=fresh)[0], 0)
+        self.assertEqual(json.loads((fresh / "binding.json").read_text()), concurrent)
+
+
+    def test_schema2_candidate_paths_are_relative_in_storage_absolute_in_output(self):
+        self.assertEqual(self.cli("init")[0], 0)
+        candidate = self.write_candidate(self.workspace)
+        self.assertEqual(self.cli("record", "--input", str(candidate))[0], 0)
+        loaded = json.loads((self.store / "records.json").read_text())
+        self.assertEqual(loaded["schema"], 2)
+        record = loaded["records"][0]
+        self.assertEqual(record["workspace_id"], self.binding()["store_id"])
+        self.assertEqual(record["source_refs"][0]["path"], "evidence.txt")
+        self.assertEqual(self.cli("record", "--input", str(candidate))[0], 0)
+        for command, args in (("get", ("--id", "safe-read-001", "--revision", "1")),
+                              ("query", ("--tags", "storage", "--include-candidates"))):
+            code, result = self.cli(command, *args)
+            self.assertEqual(code, 0, result)
+            item = result["data"] if command == "get" else result["data"]["items"][0]
+            self.assertEqual(item["source_refs"][0]["path"], str(self.workspace / "evidence.txt"))
+        raw = json.loads(candidate.read_text())
+        raw["source_refs"][0]["path"] = "evidence.txt"
+        candidate.write_text(json.dumps(raw))
+        self.assertEqual(self.cli("record", "--input", str(candidate))[1]["codes"], ["SOURCE_UNSAFE_PATH"])
+        (self.workspace / "evidence.txt").write_text("changed")
+        self.assertEqual(self.cli("get", "--id", "safe-read-001", "--revision", "1")[1]["codes"], ["SOURCE_DIGEST_MISMATCH"])
+
+    def test_schema2_rejects_mixed_forms_and_wrong_record_identity(self):
+        import copy
+        self.assertEqual(self.cli("init")[0], 0)
+        candidate = self.write_candidate(self.workspace)
+        self.assertEqual(self.cli("record", "--input", str(candidate))[0], 0)
+        baseline = json.loads((self.store / "records.json").read_text())
+        self.assertEqual(baseline["records"][0]["source_refs"][0]["path"], "evidence.txt")
+        for field, value in (("workspace_id", "0" * 64), ("path", str(self.workspace / "evidence.txt")),
+                             ("path", "../evidence.txt"), ("path", "./evidence.txt"), ("path", "."),
+                             ("path", "evidence.txt\x00")):
+            with self.subTest(field=field, value=value):
+                changed = copy.deepcopy(baseline)
+                record = changed["records"][0]
+                if field == "path":
+                    record["source_refs"][0]["path"] = value
+                else:
+                    record[field] = value
+                (self.store / "records.json").write_text(json.dumps(changed))
+                self.assertEqual(self.cli("get", "--id", "safe-read-001", "--revision", "1")[1]["codes"], ["STORE_CORRUPT"])
+
+
+    def test_preservation_schema1_fallback_bytes_and_existing_git_library(self):
+        plain = self.root / "plain"
+        plain.mkdir()
+        unborn = self.root / "unborn"
+        unborn.mkdir()
+        self.git("init", "-q", workspace=unborn)
+        nested = self.workspace / "nested"
+        nested.mkdir()
+        self.git("commit", "-q", "--allow-empty", "-m", "second")
+        shallow = self.root / "shallow"
+        self.git("clone", "-q", "--depth=1", self.workspace.as_uri(), str(shallow))
+        cases = [(plain, plain / "store"), (unborn, unborn / "store"), (nested, nested / "store"),
+                 (shallow, shallow / "store"), (self.workspace, self.root / "external")]
+        for workspace, store in cases:
+            with self.subTest(workspace=workspace, store=store):
+                self.assertEqual(self.cli("init", workspace=workspace, store=store)[0], 0)
+                expected = json.dumps({"schema": 1, "workspace": str(workspace)}, separators=(",", ":")).encode()
+                self.assertEqual((store / "binding.json").read_bytes(), expected)
+                self.assertEqual((store / "records.json").read_bytes(), b'{"schema":1,"records":[]}')
+        self.store.mkdir(parents=True)
+        before = json.dumps({"schema": 1, "workspace": str(self.workspace)}, separators=(",", ":")).encode()
+        (self.store / "binding.json").write_bytes(before)
+        (self.store / "records.json").write_bytes(b'{"schema":1,"records":[]}')
+        self.assertEqual(self.cli("init")[0], 0)
+        self.assertEqual((self.store / "binding.json").read_bytes(), before)
+        candidate = self.write_candidate(self.workspace)
+        self.assertEqual(self.cli("record", "--input", str(candidate))[0], 0)
+        loaded = json.loads((self.store / "records.json").read_text())
+        self.assertEqual(loaded["records"][0]["source_refs"][0]["path"], str(self.workspace / "evidence.txt"))
+        loaded["records"][0]["source_refs"][0]["path"] = "evidence.txt"
+        (self.store / "records.json").write_text(json.dumps(loaded))
+        self.assertEqual(self.cli("get", "--id", "safe-read-001", "--revision", "1")[1]["codes"], ["STORE_CORRUPT"])
+
+    def test_schema2_binding_rejects_other_project_position_and_unavailable_identity(self):
+        import shutil
+        self.assertEqual(self.cli("init")[0], 0)
+        moved = self.workspace / "moved"
+        shutil.copytree(self.store, moved)
+        self.assertEqual(self.cli("init", store=moved)[1]["codes"], ["WORKSPACE_MISMATCH"])
+        other = self.root / "other"
+        other.mkdir()
+        self.git("init", "-q", "-b", "main", workspace=other)
+        self.git("config", "user.name", "Other", workspace=other)
+        self.git("config", "user.email", "other@example.invalid", workspace=other)
+        self.git("commit", "-q", "--allow-empty", "-m", "unrelated root", workspace=other)
+        other_store = other / ".prime/experience"
+        shutil.copytree(self.store, other_store)
+        self.assertEqual(self.cli("init", workspace=other, store=other_store)[1]["codes"], ["WORKSPACE_MISMATCH"])
+        self.git("commit", "-q", "--allow-empty", "-m", "second")
+        shallow = self.root / "shallow"
+        self.git("clone", "-q", "--depth=1", self.workspace.as_uri(), str(shallow))
+        shallow_store = shallow / ".prime/experience"
+        shutil.copytree(self.store, shallow_store)
+        self.assertEqual(self.cli("query", "--tags", "storage", workspace=shallow, store=shallow_store)[1]["codes"], ["PROJECT_IDENTITY_UNAVAILABLE"])
+        self.git("checkout", "-q", "--orphan", "orphan")
+        self.git("commit", "-q", "--allow-empty", "-m", "orphan root")
+        self.assertEqual(self.cli("init")[1]["codes"], ["WORKSPACE_MISMATCH"])
+        self.git("checkout", "-q", "main")
+        self.assertEqual(self.cli("init")[0], 0)
+        (self.workspace / ".git").rename(self.workspace / "git-offline")
+        self.assertEqual(self.cli("init")[1]["codes"], ["PROJECT_IDENTITY_UNAVAILABLE"])
+
+    def test_schema2_binding_and_records_corruption_are_not_empty_libraries(self):
+        import copy
+        self.assertEqual(self.cli("init")[0], 0)
+        binding = self.binding()
+        for key, value in (("store_id", "bad"), ("store_relpath", "../escape"), ("store_relpath", "/absolute"),
+                           ("store_relpath", "./.prime/experience"), ("project_roots", []),
+                           ("project_roots", ["bad"]), ("project_roots", [None]),
+                           ("project_roots", binding["project_roots"] * 2)):
+            with self.subTest(key=key, value=value):
+                changed = copy.deepcopy(binding)
+                changed[key] = value
+                (self.store / "binding.json").write_text(json.dumps(changed))
+                self.assertEqual(self.cli("init")[1]["codes"], ["STORE_CORRUPT"])
+        (self.store / "binding.json").write_text(json.dumps(binding))
+        for content in ('{"schema":1,"records":[]}', '{"schema":true,"records":[]}', '{"schema":2,"records":[{}]}', 'broken'):
+            (self.store / "records.json").write_text(content)
+            self.assertEqual(self.cli("init")[1]["codes"], ["STORE_CORRUPT"])
+        (self.store / "records.json").unlink()
+        self.assertEqual(self.cli("init")[0], 2)
+
+
+    def test_schema2_git_failures_fall_back_only_for_new_libraries(self):
+        self.assertEqual(self.cli("init")[0], 0)
+        injections = [
+            "FileNotFoundError('git unavailable')",
+            "subprocess.TimeoutExpired('git', 10)",
+            "subprocess.CalledProcessError(128, 'git')",
+        ]
+        for index, error in enumerate(injections):
+            for command, store, expected in (("init", self.workspace / f"fallback-{index}", 0),
+                                             ("query", self.store, 2)):
+                with self.subTest(error=error, command=command):
+                    program = ("import runpy,sys,subprocess; from unittest.mock import patch; "
+                               "m=runpy.run_path(sys.argv[1]); "
+                               f"patch('subprocess.run',side_effect={error}).start(); "
+                               "raise SystemExit(m['main'](sys.argv[2:]))")
+                    args = [command, "--workspace", str(self.workspace), "--store", str(store)]
+                    if command == "query":
+                        args += ["--tags", "storage"]
+                    result = subprocess.run([sys.executable, "-c", program, str(SCRIPT), *args], text=True, capture_output=True)
+                    self.assertEqual((result.returncode, result.stderr), (expected, ""), result.stdout)
+                    if command == "init":
+                        self.assertEqual(json.loads((store / "binding.json").read_text())["schema"], 1)
+                    else:
+                        self.assertEqual(json.loads(result.stdout)["codes"], ["PROJECT_IDENTITY_UNAVAILABLE"])
+
+    def test_schema2_linked_worktree_and_store_at_workspace_root(self):
+        linked = self.root / "linked"
+        self.git("worktree", "add", "-q", "-b", "linked", str(linked))
+        store = linked / ".prime/experience"
+        self.assertEqual(self.cli("init", workspace=linked, store=store)[0], 0)
+        binding = json.loads((store / "binding.json").read_text())
+        self.assertEqual(binding["schema"], 2)
+        self.assertEqual(binding["project_roots"], [self.git("rev-parse", "HEAD")])
+        self.assertEqual(self.cli("init", store=self.workspace)[0], 0)
+        self.assertEqual(json.loads((self.workspace / "binding.json").read_text())["store_relpath"], ".")
+        self.assertEqual(self.cli("init", store=self.workspace)[0], 0)
+
+    def test_schema2_source_drift_missing_and_symlink_are_checked_after_restore(self):
+        self.assertEqual(self.cli("init")[0], 0)
+        candidate = self.write_candidate(self.workspace)
+        self.assertEqual(self.cli("record", "--input", str(candidate))[0], 0)
+        source = self.workspace / "evidence.txt"
+        source.rename(self.workspace / "evidence-backup.txt")
+        self.assertEqual(self.cli("get", "--id", "safe-read-001", "--revision", "1")[1]["codes"], ["SOURCE_UNAVAILABLE"])
+        source.symlink_to(self.workspace / "evidence-backup.txt")
+        self.assertEqual(self.cli("get", "--id", "safe-read-001", "--revision", "1")[1]["codes"], ["SOURCE_UNSAFE_PATH"])
+
+
+    def test_schema2_git_malformed_identity_outputs_are_unavailable(self):
+        self.assertEqual(self.cli("init")[0], 0)
+        valid_root = self.git("rev-parse", "HEAD")
+        for index, outputs in enumerate(([str(self.workspace), "true"], [str(self.workspace), "unexpected"],
+                                         [str(self.root), "false", valid_root], [str(self.workspace), "false", ""],
+                                         [str(self.workspace), "false", "invalid-root"])):
+            for command, store, expected in (("init", self.workspace / f"malformed-{index}", 0),
+                                             ("query", self.store, 2)):
+                with self.subTest(outputs=outputs, command=command):
+                    program = ("import runpy,sys; from types import SimpleNamespace; from unittest.mock import patch; "
+                               "m=runpy.run_path(sys.argv[1]); "
+                               f"patch('subprocess.run',side_effect=[SimpleNamespace(stdout=s) for s in {outputs!r}]).start(); "
+                               "raise SystemExit(m['main'](sys.argv[2:]))")
+                    args = [command, "--workspace", str(self.workspace), "--store", str(store)]
+                    if command == "query":
+                        args += ["--tags", "storage"]
+                    result = subprocess.run([sys.executable, "-c", program, str(SCRIPT), *args], capture_output=True, text=True)
+                    self.assertEqual((result.returncode, result.stderr), (expected, ""), result.stdout)
+                    if command == "init":
+                        self.assertEqual(json.loads((store / "binding.json").read_text())["schema"], 1)
+                    else:
+                        self.assertEqual(json.loads(result.stdout)["codes"], ["PROJECT_IDENTITY_UNAVAILABLE"])
+
+    def test_schema2_concurrent_record_and_atomic_write_failure_preserve_storage(self):
+        self.assertEqual(self.cli("init")[0], 0)
+        candidate = self.write_candidate(self.workspace)
+        command = [sys.executable, str(SCRIPT), "record", "--workspace", str(self.workspace),
+                   "--store", str(self.store), "--input", str(candidate)]
+        processes = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(6)]
+        for process in processes:
+            stdout, stderr = process.communicate()
+            self.assertEqual((process.returncode, stderr), (0, ""), stdout)
+        original = (self.store / "records.json").read_bytes()
+        self.assertEqual(len(json.loads(original)["records"]), 1)
+        candidate = self.write_candidate(self.workspace, revision=2)
+        code, result = self.run_cli("record", "--workspace", str(self.workspace), "--store", str(self.store),
+                                    "--input", str(candidate), fail_atomic_replace=True)
+        self.assertEqual((code, result["codes"]), (1, ["STORE_UNAVAILABLE"]))
+        self.assertEqual((self.store / "records.json").read_bytes(), original)
+
+
 if __name__ == "__main__":
     unittest.main()

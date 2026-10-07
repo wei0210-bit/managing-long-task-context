@@ -10,6 +10,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -221,22 +222,22 @@ def _parse_utc(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _stored_source_ref_shape(value: object) -> bool:
+def _stored_source_ref_shape(value: object, *, schema: int = 1, form: str = "stored") -> bool:
     return (
         isinstance(value, dict)
         and set(value) == {"path", "sha256"}
         and isinstance(value.get("path"), str)
-        and Path(value["path"]).is_absolute()
+        and (Path(value["path"]).is_absolute() if schema == 1 or form == "input" else _relative_path_shape(value["path"]))
         and isinstance(value.get("sha256"), str)
         and SHA256_RE.fullmatch(value["sha256"]) is not None
     )
 
 
-def _source_refs_shape(value: object) -> bool:
-    return isinstance(value, list) and bool(value) and all(_stored_source_ref_shape(item) for item in value)
+def _source_refs_shape(value: object, *, schema: int = 1, form: str = "stored") -> bool:
+    return isinstance(value, list) and bool(value) and all(_stored_source_ref_shape(item, schema=schema, form=form) for item in value)
 
 
-def _validation_refs_shape(value: object) -> bool:
+def _validation_refs_shape(value: object, *, schema: int = 1, form: str = "stored") -> bool:
     if not isinstance(value, dict) or set(value) != VALIDATION_KEYS:
         return False
     expected = {
@@ -247,7 +248,7 @@ def _validation_refs_shape(value: object) -> bool:
     for name, item in value.items():
         if not isinstance(item, dict) or set(item) != expected[name]:
             return False
-        if not _source_refs_shape(item.get("source_refs")) or not isinstance(item.get("checker_id"), str) or not item["checker_id"] or not isinstance(item.get("checker_version"), str) or not item["checker_version"]:
+        if not _source_refs_shape(item.get("source_refs"), schema=schema, form=form) or not isinstance(item.get("checker_id"), str) or not item["checker_id"] or not isinstance(item.get("checker_version"), str) or not item["checker_version"]:
             return False
         validated_at, expires_at = _parse_utc(item.get("validated_at")), _parse_utc(item.get("expires_at"))
         if validated_at is None or expires_at is None or expires_at <= validated_at:
@@ -257,7 +258,7 @@ def _validation_refs_shape(value: object) -> bool:
                 return False
         else:
             ref_keys = expected[name] - VALIDATION_COMMON_KEYS
-            if not all(_stored_source_ref_shape(item.get(key)) for key in ref_keys):
+            if not all(_stored_source_ref_shape(item.get(key), schema=schema, form=form) for key in ref_keys):
                 return False
     return True
 
@@ -272,7 +273,7 @@ def _record_digest(record: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def _approval_ref_shape(value: object, record: dict[str, Any]) -> bool:
+def _approval_ref_shape(value: object, record: dict[str, Any], *, schema: int = 1, form: str = "stored") -> bool:
     return (
         isinstance(value, dict)
         and set(value) == {"workspace_id", "experience_id", "revision", "record_digest", "source_ref"}
@@ -281,7 +282,7 @@ def _approval_ref_shape(value: object, record: dict[str, Any]) -> bool:
         and type(value.get("revision")) is int
         and value.get("revision") == record.get("revision")
         and value.get("record_digest") == _record_digest(record)
-        and _stored_source_ref_shape(value.get("source_ref"))
+        and _stored_source_ref_shape(value.get("source_ref"), schema=schema, form=form)
     )
 
 
@@ -330,6 +331,72 @@ def _validate_candidate(raw: object, workspace: Path) -> tuple[dict[str, Any] | 
     }, None
 
 
+def _project_roots(workspace: Path) -> list[str] | None:
+    """Identity is available only for a complete repository rooted here."""
+    def git(*arguments: str) -> str:
+        result = subprocess.run(["git", "-C", str(workspace), *arguments],
+                                capture_output=True, text=True, check=True, timeout=10)
+        return result.stdout.removesuffix("\n")
+
+    try:
+        if Path(git("rev-parse", "--show-toplevel")).resolve() != workspace:
+            return None
+        if git("rev-parse", "--is-shallow-repository") != "false":
+            return None
+        roots = sorted(set(git("rev-list", "--max-parents=0", "HEAD").splitlines()))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if not roots or any(re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", root) is None for root in roots):
+        return None
+    return roots
+
+
+def _relative_path_shape(value: object, *, allow_root: bool = False) -> bool:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return False
+    path = Path(value)
+    return (not path.is_absolute() and str(path) == value and ".." not in path.parts
+            and (bool(path.parts) or allow_root))
+
+
+def _workspace_id(binding: dict[str, Any], workspace: Path) -> str:
+    return binding["store_id"] if binding["schema"] == 2 else hashlib.sha256(str(workspace).encode("utf-8")).hexdigest()
+
+
+def _map_source_refs(value: Any, transform: Any) -> Any:
+    """Copy the complete reference tree, including lifecycle provenance."""
+    if isinstance(value, dict):
+        if set(value) == {"path", "sha256"}:
+            return {"path": transform(value["path"]), "sha256": value["sha256"]}
+        return {key: _map_source_refs(item, transform) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_map_source_refs(item, transform) for item in value]
+    return deepcopy(value)
+
+
+def _refs_for_storage(value: Any, workspace: Path, *, schema: int, form: str) -> Any:
+    if form not in {"input", "stored"}:
+        raise ValueError("invalid reference form")
+    if schema == 2 and form == "input":
+        return _map_source_refs(value, lambda path: str(Path(path).relative_to(workspace)))
+    return deepcopy(value)
+
+
+def _refs_for_output(value: Any, workspace: Path, *, schema: int) -> Any:
+    if schema == 2:
+        return _map_source_refs(value, lambda path: str(workspace / path))
+    return deepcopy(value)
+
+
+def _new_binding(store: Path, workspace: Path) -> dict[str, Any]:
+    if store.is_relative_to(workspace):
+        roots = _project_roots(workspace)
+        if roots is not None:
+            return {"schema": 2, "store_id": hashlib.sha256(os.urandom(32)).hexdigest(),
+                    "store_relpath": str(store.relative_to(workspace)), "project_roots": roots}
+    return {"schema": 1, "workspace": str(workspace)}
+
+
 def _read_binding(store: Path, workspace: Path) -> dict[str, Any]:
     binding_path = store / STORE_BINDING
     try:
@@ -338,12 +405,31 @@ def _read_binding(store: Path, workspace: Path) -> dict[str, Any]:
         raise InputError("STORE_NOT_INITIALIZED") from error
     except (OSError, ValueError, UnicodeError) as error:
         raise InputError("STORE_CORRUPT") from error
-    if binding != {"schema": 1, "workspace": str(workspace)}:
+    if isinstance(binding, dict) and type(binding.get("schema")) is int and binding["schema"] == 2:
+        if (set(binding) != {"schema", "store_id", "store_relpath", "project_roots"}
+                or not isinstance(binding.get("store_id"), str)
+                or SHA256_RE.fullmatch(binding["store_id"]) is None
+                or not _relative_path_shape(binding.get("store_relpath"), allow_root=True)
+                or not isinstance(binding.get("project_roots"), list)
+                or not binding["project_roots"]
+                or any(not isinstance(root, str) or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", root) is None for root in binding["project_roots"])
+                or binding["project_roots"] != sorted(set(binding["project_roots"]))):
+            raise InputError("STORE_CORRUPT")
+        if (workspace / binding["store_relpath"]).resolve() != store:
+            raise InputError("WORKSPACE_MISMATCH")
+        roots = _project_roots(workspace)
+        if roots is None:
+            raise InputError("PROJECT_IDENTITY_UNAVAILABLE", "unknown")
+        if not set(roots).intersection(binding["project_roots"]):
+            raise InputError("WORKSPACE_MISMATCH")
+    elif binding != {"schema": 1, "workspace": str(workspace)}:
         raise InputError("WORKSPACE_MISMATCH")
     return binding
 
 
-def _valid_stored_record(record: dict[str, Any], workspace: Path) -> bool:
+def _valid_stored_record(record: dict[str, Any], workspace: Path, binding: dict[str, Any] | None = None) -> bool:
+    binding = binding or {"schema": 1, "workspace": str(workspace)}
+    schema = binding["schema"]
     expected = CANDIDATE_FIELDS | {"candidate_digest", "created_at", "workspace_id", "status", "lifecycle"}
     if set(record) != expected or type(record.get("schema")) is not int or record.get("schema") != 1:
         return False
@@ -363,7 +449,7 @@ def _valid_stored_record(record: dict[str, Any], workspace: Path) -> bool:
     if not isinstance(source_refs, list) or not source_refs:
         return False
     for source_ref in source_refs:
-        if not isinstance(source_ref, dict) or set(source_ref) != {"path", "sha256"} or not isinstance(source_ref.get("path"), str) or not Path(source_ref["path"]).is_absolute() or not isinstance(source_ref.get("sha256"), str) or SHA256_RE.fullmatch(source_ref["sha256"]) is None:
+        if not _stored_source_ref_shape(source_ref, schema=schema, form="stored"):
             return False
     candidate = {field: record[field] for field in CANDIDATE_FIELDS}
     digest = hashlib.sha256(json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -377,23 +463,33 @@ def _valid_stored_record(record: dict[str, Any], workspace: Path) -> bool:
         status = event.get("status")
         if status not in LIFECYCLE_STATUSES - {"candidate"}:
             return False
+        if schema == 2:
+            # Optional event fields are still stored references, regardless of status.
+            if "validation_refs" in event and not _validation_refs_shape(event["validation_refs"], schema=schema, form="stored"):
+                return False
+            if "source_ref" in event and not _stored_source_ref_shape(event["source_ref"], schema=schema, form="stored"):
+                return False
+            if "approval_ref" in event:
+                approval = event["approval_ref"]
+                if not isinstance(approval, dict) or not _stored_source_ref_shape(approval.get("source_ref"), schema=schema, form="stored"):
+                    return False
         if status == "validated":
-            if not _validation_refs_shape(event.get("validation_refs")):
+            if not _validation_refs_shape(event.get("validation_refs"), schema=schema, form="stored"):
                 return False
         elif status == "approved":
             snapshot = deepcopy(record)
             snapshot["lifecycle"] = lifecycle[:index]
             snapshot["status"] = prior
-            if not _approval_ref_shape(event.get("approval_ref"), snapshot):
+            if not _approval_ref_shape(event.get("approval_ref"), snapshot, schema=schema, form="stored"):
                 return False
         elif status == "disputed":
-            if not _reason_shape(event.get("reason")) or not _stored_source_ref_shape(event.get("source_ref")):
+            if not _reason_shape(event.get("reason")) or not _stored_source_ref_shape(event.get("source_ref"), schema=schema, form="stored"):
                 return False
         elif status == "revoked":
             snapshot = deepcopy(record)
             snapshot["lifecycle"] = lifecycle[:index]
             snapshot["status"] = prior
-            if not _reason_shape(event.get("reason")) or not _approval_ref_shape(event.get("approval_ref"), snapshot):
+            if not _reason_shape(event.get("reason")) or not _approval_ref_shape(event.get("approval_ref"), snapshot, schema=schema, form="stored"):
                 return False
         else:
             return False
@@ -408,12 +504,13 @@ def _valid_stored_record(record: dict[str, Any], workspace: Path) -> bool:
         record.get("candidate_digest") == digest
         and isinstance(record.get("created_at"), str)
         and UTC_RE.fullmatch(record["created_at"]) is not None
-        and record.get("workspace_id") == hashlib.sha256(str(workspace).encode("utf-8")).hexdigest()
+        and record.get("workspace_id") == _workspace_id(binding, workspace)
         and record.get("status") == prior
     )
 
 
 def _read_records(store: Path, workspace: Path) -> list[dict[str, Any]]:
+    binding = _read_binding(store, workspace)
     path = store / STORE_RECORDS
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -421,7 +518,7 @@ def _read_records(store: Path, workspace: Path) -> list[dict[str, Any]]:
         raise InputError("STORE_UNAVAILABLE", "unknown") from error
     except (OSError, ValueError, UnicodeError) as error:
         raise InputError("STORE_CORRUPT") from error
-    if not isinstance(loaded, dict) or type(loaded.get("schema")) is not int or loaded.get("schema") != 1 or not isinstance(loaded.get("records"), list) or set(loaded) != {"schema", "records"} or not all(isinstance(item, dict) and _valid_stored_record(item, workspace) for item in loaded["records"]):
+    if not isinstance(loaded, dict) or type(loaded.get("schema")) is not int or loaded.get("schema") != binding["schema"] or not isinstance(loaded.get("records"), list) or set(loaded) != {"schema", "records"} or not all(isinstance(item, dict) and _valid_stored_record(item, workspace, binding) for item in loaded["records"]):
         raise InputError("STORE_CORRUPT")
     return loaded["records"]
 
@@ -440,7 +537,7 @@ def _store_lock(store: Path):
 
 
 def record_candidate(workspace: Path, store: Path, input_path: str) -> dict[str, Any]:
-    _read_binding(store, workspace)
+    binding = _read_binding(store, workspace)
     try:
         raw = json.loads(Path(input_path).read_text(encoding="utf-8"))
     except (OSError, ValueError, UnicodeError) as error:
@@ -449,6 +546,7 @@ def record_candidate(workspace: Path, store: Path, input_path: str) -> dict[str,
     if failure is not None:
         return failure
     assert candidate is not None
+    candidate = _refs_for_storage(candidate, workspace, schema=binding["schema"], form="input")
     canonical = json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     candidate_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     with _store_lock(store):
@@ -465,19 +563,23 @@ def record_candidate(workspace: Path, store: Path, input_path: str) -> dict[str,
         record.update({
             "candidate_digest": candidate_digest,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-            "workspace_id": hashlib.sha256(str(workspace).encode("utf-8")).hexdigest(),
+            "workspace_id": _workspace_id(binding, workspace),
             "status": "candidate",
             "lifecycle": [],
         })
         records.append(record)
         try:
-            _atomic_json_write(store / STORE_RECORDS, {"schema": 1, "records": records})
+            _atomic_json_write(store / STORE_RECORDS, {"schema": binding["schema"], "records": records})
         except OSError as error:
             raise InputError("STORE_UNAVAILABLE") from error
     return report("pass", [], {"experience_id": candidate["experience_id"], "revision": candidate["revision"], "status": "candidate"})
 
 
-def _verify_source_ref(source_ref: object, workspace: Path) -> dict[str, Any] | None:
+def _verify_source_ref(source_ref: object, workspace: Path, *, schema: int = 1, form: str = "input") -> dict[str, Any] | None:
+    if form == "stored" and schema == 2:
+        if not _stored_source_ref_shape(source_ref, schema=schema, form=form):
+            return report("fail", ["STORE_CORRUPT"])
+        source_ref = _refs_for_output(source_ref, workspace, schema=schema)
     _, failure = _valid_source_ref(source_ref, workspace)
     return failure
 
@@ -493,8 +595,8 @@ def _validation_source_refs(validation_refs: dict[str, Any]) -> list[dict[str, s
     return references
 
 
-def _verify_validation_refs(validation_refs: object, workspace: Path, *, require_current: bool) -> dict[str, Any] | None:
-    if not _validation_refs_shape(validation_refs):
+def _verify_validation_refs(validation_refs: object, workspace: Path, *, require_current: bool, schema: int = 1, form: str = "input") -> dict[str, Any] | None:
+    if not _validation_refs_shape(validation_refs, schema=schema, form=form):
         return report("fail", ["INVALID_INPUT"])
     assert isinstance(validation_refs, dict)
     now = datetime.now(timezone.utc)
@@ -504,7 +606,7 @@ def _verify_validation_refs(validation_refs: object, workspace: Path, *, require
         if validated_at > now or (require_current and expires_at <= now):
             return report("unknown", ["VALIDATION_EXPIRED"])
     for source_ref in _validation_source_refs(validation_refs):
-        failure = _verify_source_ref(source_ref, workspace)
+        failure = _verify_source_ref(source_ref, workspace, schema=schema, form=form)
         if failure is not None:
             return failure
     return None
@@ -515,26 +617,26 @@ def _latest_lifecycle_event(record: dict[str, Any], status: str) -> dict[str, An
     return next((event for event in reversed(events) if event.get("status") == status), None)
 
 
-def _record_validity(record: dict[str, Any], workspace: Path, records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _record_validity(record: dict[str, Any], workspace: Path, records: list[dict[str, Any]] | None = None, *, schema: int = 1) -> dict[str, Any]:
     if records is not None and any(item["experience_id"] == record["experience_id"] and item["revision"] > record["revision"] for item in records):
         return {"status": "unknown", "codes": ["RULE_VERSION_SUPERSEDED"]}
-    source_failure = _verify_record_sources(record, workspace)
+    source_failure = _verify_record_sources(record, workspace, schema=schema)
     if source_failure is not None:
         return {"status": source_failure["status"], "codes": source_failure["codes"]}
     validated = _latest_lifecycle_event(record, "validated")
     if validated is not None:
-        failure = _verify_validation_refs(validated["validation_refs"], workspace, require_current=True)
+        failure = _verify_validation_refs(validated["validation_refs"], workspace, require_current=True, schema=schema, form="stored")
         if failure is not None:
             return {"status": failure["status"], "codes": failure["codes"]}
     for event in record.get("lifecycle", []):
         approval_ref = event.get("approval_ref")
         if approval_ref is not None:
-            failure = _verify_source_ref(approval_ref["source_ref"], workspace)
+            failure = _verify_source_ref(approval_ref["source_ref"], workspace, schema=schema, form="stored")
             if failure is not None:
                 return {"status": failure["status"], "codes": failure["codes"]}
         source_ref = event.get("source_ref")
         if source_ref is not None:
-            failure = _verify_source_ref(source_ref, workspace)
+            failure = _verify_source_ref(source_ref, workspace, schema=schema, form="stored")
             if failure is not None:
                 return {"status": failure["status"], "codes": failure["codes"]}
     return {"status": "pass", "codes": []}
@@ -567,14 +669,14 @@ def _get_data(record: dict[str, Any], validity: dict[str, Any], latest_revision:
 def get_record(workspace: Path, store: Path, experience_id: str, revision: int) -> dict[str, Any]:
     if not isinstance(experience_id, str) or ID_RE.fullmatch(experience_id) is None or type(revision) is not int or revision <= 0:
         return report("fail", ["INVALID_INPUT"])
-    _read_binding(store, workspace)
+    binding = _read_binding(store, workspace)
     records = _read_records(store, workspace)
     record = next((item for item in records if item.get("experience_id") == experience_id and item.get("revision") == revision), None)
     if record is None:
         return report("fail", ["EXPERIENCE_NOT_FOUND"])
     latest_revision = max(item["revision"] for item in records if item["experience_id"] == experience_id)
-    validity = _record_validity(record, workspace, records)
-    return report(validity["status"], validity["codes"], _get_data(record, validity, latest_revision))
+    validity = _record_validity(record, workspace, records, schema=binding["schema"])
+    return report(validity["status"], validity["codes"], _refs_for_output(_get_data(record, validity, latest_revision), workspace, schema=binding["schema"]))
 
 
 def _query_item(record: dict[str, Any]) -> dict[str, Any]:
@@ -604,13 +706,11 @@ def _current_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(latest.values())
 
 
-def _verify_record_sources(record: dict[str, Any], workspace: Path) -> dict[str, Any] | None:
+def _verify_record_sources(record: dict[str, Any], workspace: Path, *, schema: int = 1) -> dict[str, Any] | None:
     for source_ref in record["source_refs"]:
-        status, code, digest = _hash_source(workspace, source_ref["path"])
-        if status != "pass":
-            return report(status, [code])
-        if digest != source_ref["sha256"]:
-            return report("fail", ["SOURCE_DIGEST_MISMATCH"])
+        failure = _verify_source_ref(source_ref, workspace, schema=schema, form="stored")
+        if failure is not None:
+            return failure
     return None
 
 
@@ -618,7 +718,7 @@ def query_records(workspace: Path, store: Path, tags_value: str, include_candida
     tags = tags_value.split(",") if isinstance(tags_value, str) else []
     if not tags or any(not tag for tag in tags) or len(set(tags)) != len(tags) or type(limit) is not int or limit <= 0 or type(max_chars) is not int or max_chars <= 0:
         return report("fail", ["INVALID_INPUT"])
-    _read_binding(store, workspace)
+    binding = _read_binding(store, workspace)
     statuses = {"validated", "approved"}
     if include_candidates:
         statuses.add("candidate")
@@ -629,10 +729,10 @@ def query_records(workspace: Path, store: Path, tags_value: str, include_candida
     matching.sort(key=lambda record: (-record["revision"], record["experience_id"]))
     selected: list[dict[str, Any]] = []
     for record in matching:
-        validity = _record_validity(record, workspace)
+        validity = _record_validity(record, workspace, schema=binding["schema"])
         if validity["status"] != "pass":
             return report(validity["status"], validity["codes"])
-        item = _query_item(record)
+        item = _refs_for_output(_query_item(record), workspace, schema=binding["schema"])
         proposed = {"items": selected + [item], "omitted_count": len(matching) - len(selected) - 1}
         if len(selected) >= limit or len(json.dumps(proposed, ensure_ascii=False, separators=(",", ":"))) > max_chars:
             continue
@@ -651,22 +751,17 @@ def init_store(workspace: Path, store: Path) -> dict[str, Any]:
         metadata = os.lstat(store)
         if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
             raise InputError("INVALID_STORE")
-        binding = {"schema": 1, "workspace": str(workspace)}
         with _store_lock(store):
             binding_path = store / STORE_BINDING
             if binding_path.exists():
-                try:
-                    existing = json.loads(binding_path.read_text(encoding="utf-8"))
-                except (OSError, ValueError, UnicodeError) as error:
-                    raise InputError("STORE_CORRUPT") from error
-                if existing != binding:
-                    raise InputError("WORKSPACE_MISMATCH")
+                _read_binding(store, workspace)
                 _read_records(store, workspace)
             else:
                 records_path = store / STORE_RECORDS
                 if records_path.exists():
                     raise InputError("STORE_UNAVAILABLE", "unknown")
-                _atomic_json_write(records_path, {"schema": 1, "records": []})
+                binding = _new_binding(store, workspace)
+                _atomic_json_write(records_path, {"schema": binding["schema"], "records": []})
                 _atomic_json_write(binding_path, binding)
     except InputError:
         raise

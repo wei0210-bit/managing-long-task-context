@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "skill_name": "managing-long-task-context",
-  "skill_version": "0.12.0",
+  "skill_version": "0.13.0",
   "package_name": "managing-long-task-context",
-  "package_version": "0.12.0",
+  "package_version": "0.13.0",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",
@@ -75,6 +75,7 @@
     "scripts/context_experience.py",
     "tests/test_context_experience_cli.py",
     "tests/test_experience_review.py",
+    "tests/test_experience_cross_checkout.py",
     "tests/test_rule_execution.py",
     "tests/test_experience_rule_gate.py",
     "tests/test_independent_validation.py",

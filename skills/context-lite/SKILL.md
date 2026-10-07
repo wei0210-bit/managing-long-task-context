@@ -202,3 +202,36 @@ For every action, return: task ID; phase; `refreshed: <count>`; `unknown: <count
 blockers; and exactly one `First action:`. If blocked, say what observation or user
 authorization is needed. Do not claim that a checkpoint, refresh, archive, or record
 proves an external result.
+
+## Portable experience stores (Strict 0.13.0 / Lite 1.5.0)
+
+New experience stores inside a Git top-level workspace use schema 2 only when
+there are commits and the repository is not shallow. The binding contains a random
+`store_id`, `store_relpath`, and sorted `project_roots`; all source references,
+including lifecycle provenance, are stored relative to the workspace. Inputs
+remain absolute workspace-local paths; outputs and host callbacks receive current
+workspace absolute paths. `record_digest` describes the stored form: hosts must
+use the returned digest and cannot recompute it from the restored output.
+
+Schema 2 admits checkouts, forks, subtree merges, and unrelated-history merges
+sharing at least one root commit. A project without shared roots or a store moved
+to another relative location fails with `WORKSPACE_MISMATCH`. An orphan branch
+can fail this check until the original branch is restored. A shallow repository,
+missing Git directory, or otherwise unavailable project identity returns
+`PROJECT_IDENTITY_UNAVAILABLE`; schema 1 remains independent of Git.
+
+Existing schema 1 stores keep their format, absolute binding, and repeated-init
+behavior. There is no migration command; sharing old experience requires a fresh
+store and new recording. Moving or deleting an old store needs David's separate
+authorization. Before global synchronization, do not use the new version to
+`init` an experience store in a real repository; implementation and validation
+use temporary stores. If a schema 2 binding reports `WORKSPACE_MISMATCH`, first
+check that the loaded package is at least Strict 0.13.0 or Lite 1.5.0.
+
+Only the coordinator writes the shared experience library in one checkout.
+Receivers must not initialize their own library: merging a published commit can
+silently overwrite an existing ignored library. Sharing proceeds through
+`publish_context`, receiver fetch/merge, `git config core.hooksPath .githooks`,
+then `align_context`; publication in a real repository requires David's separate
+authorization. Rule execution still requires absolute `store_root`; portable
+experience storage does not extend that rule API.
