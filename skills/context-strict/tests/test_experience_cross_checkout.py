@@ -167,6 +167,90 @@ class PortableLifecycleTests(unittest.TestCase):
         self.assertTrue(all(not Path(path).is_absolute() for path in paths(json.loads((self.store_root / "records.json").read_text()))))
 
 
+    def lifecycle_reference_matrix(self, *, schema):
+        # Every allowed field appears on every event, including optional fields.
+        if schema == 1:
+            self.store_root = self.root / "external-schema1"
+            self.cli("init", "--store", str(self.store_root))
+            self.cli("record", "--store", str(self.store_root), "--input", str(self.workspace / "candidate.json"))
+            self.store = context.bind_experience(self.workspace, self.store_root)
+        refs = self.validation()
+        self.assertEqual(self.store.review("portable", 1, refs, evidence_checker=self.allow)["status"], "pass")
+        self.assertEqual(self.store.approve("portable", 1, self.approval(), evidence_checker=self.allow,
+                                            approval_checker=self.allow)["status"], "pass")
+        records_path = self.store_root / "records.json"
+        baseline = json.loads(records_path.read_text())
+        reference_paths = [
+            ("validation_refs", "cross", "source_refs", 0),
+            ("validation_refs", "counterexample", "source_refs", 0),
+            ("validation_refs", "effectiveness", "source_refs", 0),
+            *(("validation_refs", "counterexample", key) for key in
+              ("original_pass_ref", "mutated_fail_ref", "restored_pass_ref", "mutation_hit_ref")),
+            *(("validation_refs", "effectiveness", key) for key in
+              ("representative_run_ref", "non_applicable_run_ref")),
+            ("approval_ref", "source_ref"), ("source_ref",),
+        ]
+        for status in ("validated", "approved", "disputed", "revoked"):
+            clean = copy.deepcopy(baseline)
+            record = clean["records"][0]
+            prefix = [] if status == "validated" else record["lifecycle"][:1] if status == "approved" else record["lifecycle"][:2]
+            snapshot = dict(record, lifecycle=prefix, status=prefix[-1]["status"] if prefix else "candidate")
+            approval = {key: snapshot[key] for key in ("workspace_id", "experience_id", "revision")}
+            approval["record_digest"] = hashlib.sha256(json.dumps(snapshot, ensure_ascii=False, sort_keys=True,
+                                                                  separators=(",", ":")).encode()).hexdigest()
+            approval["source_ref"] = self.source("extra-approval.txt")
+            event = {"status": status, "validation_refs": copy.deepcopy(refs), "approval_ref": approval,
+                     "source_ref": self.source("extra-source.txt"), "reason": "matrix coverage"}
+            if schema == 2:
+                def relative(value):
+                    if isinstance(value, dict):
+                        if set(value) == {"path", "sha256"}:
+                            value["path"] = str(Path(value["path"]).relative_to(self.workspace))
+                        else:
+                            for item in value.values(): relative(item)
+                    elif isinstance(value, list):
+                        for item in value: relative(item)
+                relative(event)
+            record["lifecycle"] = prefix + [event]
+            record["status"] = status
+            records_path.write_text(json.dumps(clean))
+            self.assertEqual(self.store.get("portable", 1)["status"], "pass", status)
+            for ref_path in reference_paths:
+                for operation in ("get", "query", "init"):
+                    with self.subTest(schema=schema, status=status, field=ref_path, operation=operation):
+                        hostile = copy.deepcopy(clean)
+                        target = hostile["records"][0]["lifecycle"][-1]
+                        for key in ref_path: target = target[key]
+                        target["path"] = str(self.workspace / target["path"]) if schema == 2 else str(Path(target["path"]).relative_to(self.workspace))
+                        records_path.write_text(json.dumps(hostile))
+                        before = records_path.read_bytes()
+                        binding_before = (self.store_root / "binding.json").read_bytes()
+                        args = ("--id", "portable", "--revision", "1") if operation == "get" else ("--tags", "unmatched") if operation == "query" else ()
+                        result = subprocess.run([sys.executable, str(ROOT / "scripts/context_experience.py"), operation,
+                                                 "--workspace", str(self.workspace), "--store", str(self.store_root), *args],
+                                                capture_output=True, text=True)
+                        self.assertEqual(result.stderr, "")
+                        actual = json.loads(result.stdout)
+                        if schema == 2:
+                            self.assertEqual((result.returncode, actual),
+                                             (1, {"status": "fail", "codes": ["STORE_CORRUPT"], "data": None}))
+                        else:
+                            # Preservation: schema 1 only validates the primary event field.
+                            primary = ((ref_path[0] == "validation_refs" and status == "validated")
+                                       or (ref_path[0] == "approval_ref" and status in {"approved", "revoked"})
+                                       or (ref_path[0] == "source_ref" and status == "disputed"))
+                            unsafe = operation == "get" and ref_path[0] != "validation_refs"
+                            expected = (1, "fail", ["STORE_CORRUPT"]) if primary else (1, "fail", ["SOURCE_UNSAFE_PATH"]) if unsafe else (0, "pass", [])
+                            self.assertEqual((result.returncode, actual["status"], actual["codes"]), expected)
+                        self.assertEqual(records_path.read_bytes(), before)
+                        self.assertEqual((self.store_root / "binding.json").read_bytes(), binding_before)
+
+    def test_schema2_every_lifecycle_reference_rejects_absolute_path_for_all_readers(self):
+        self.lifecycle_reference_matrix(schema=2)
+
+    def test_preservation_schema1_lifecycle_optional_reference_matrix(self):
+        self.lifecycle_reference_matrix(schema=1)
+
     def publish_and_receive(self, *, receiver_has_library=False):
         remote = self.root / "origin.git"
         self.git(self.workspace, "init", "-q", "--bare", str(remote))

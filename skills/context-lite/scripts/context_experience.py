@@ -336,7 +336,7 @@ def _project_roots(workspace: Path) -> list[str] | None:
     def git(*arguments: str) -> str:
         result = subprocess.run(["git", "-C", str(workspace), *arguments],
                                 capture_output=True, text=True, check=True, timeout=10)
-        return result.stdout.strip()
+        return result.stdout.removesuffix("\n")
 
     try:
         if Path(git("rev-parse", "--show-toplevel")).resolve() != workspace:
@@ -463,6 +463,16 @@ def _valid_stored_record(record: dict[str, Any], workspace: Path, binding: dict[
         status = event.get("status")
         if status not in LIFECYCLE_STATUSES - {"candidate"}:
             return False
+        if schema == 2:
+            # Optional event fields are still stored references, regardless of status.
+            if "validation_refs" in event and not _validation_refs_shape(event["validation_refs"], schema=schema, form="stored"):
+                return False
+            if "source_ref" in event and not _stored_source_ref_shape(event["source_ref"], schema=schema, form="stored"):
+                return False
+            if "approval_ref" in event:
+                approval = event["approval_ref"]
+                if not isinstance(approval, dict) or not _stored_source_ref_shape(approval.get("source_ref"), schema=schema, form="stored"):
+                    return False
         if status == "validated":
             if not _validation_refs_shape(event.get("validation_refs"), schema=schema, form="stored"):
                 return False

@@ -446,6 +446,29 @@ class PortableExperienceCliTests(unittest.TestCase):
     def binding(self):
         return json.loads((self.store / "binding.json").read_text())
 
+    def test_schema2_git_roots_preserve_trailing_space_and_tab_across_checkouts(self):
+        import shutil
+        for suffix in (" ", "\t"):
+            with self.subTest(suffix=repr(suffix)):
+                sender = self.root / ("sender" + suffix)
+                receiver = self.root / ("receiver" + suffix)
+                self.git("clone", "-q", str(self.workspace), str(sender))
+                source = self.write_candidate(sender)
+                self.git("add", "evidence.txt", workspace=sender)
+                self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                         "-c", "commit.gpgsign=false", "commit", "-q", "-m", "source", workspace=sender)
+                sender_store = sender / ".prime/experience"
+                self.assertEqual(self.cli("init", workspace=sender, store=sender_store)[0], 0)
+                self.assertEqual(json.loads((sender_store / "binding.json").read_text())["schema"], 2)
+                self.assertEqual(self.cli("record", "--input", str(source), workspace=sender, store=sender_store)[0], 0)
+                self.git("clone", "-q", str(sender), str(receiver))
+                receiver_store = receiver / ".prime/experience"
+                shutil.copytree(sender_store, receiver_store)
+                code, result = self.cli("get", "--id", "safe-read-001", "--revision", "1",
+                                        workspace=receiver, store=receiver_store)
+                self.assertEqual((code, result["status"]), (0, "pass"), result)
+                self.assertEqual(result["data"]["source_refs"][0]["path"], str(receiver / "evidence.txt"))
+
     def test_schema2_init_and_concurrent_reinit_keep_one_identity(self):
         self.assertEqual(self.cli("init")[0], 0)
         binding = self.binding()
