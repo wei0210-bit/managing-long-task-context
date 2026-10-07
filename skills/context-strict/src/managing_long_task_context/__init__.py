@@ -1574,6 +1574,9 @@ def publish_contract(
     value.setdefault("schema", SCHEMA_VERSION)
     value.setdefault("authorized_approvers", [])
     errors = _validate_contract_shape(value)
+    version = value.get("version")
+    if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
+        errors.append("contract.version must be a positive integer (excluding bool)")
     if errors:
         raise ContextError("contract rejected: " + "; ".join(errors))
     if independent_validation_required is True and not _all_criteria_require_independent_validation(value):
