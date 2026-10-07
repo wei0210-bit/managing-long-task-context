@@ -48,6 +48,8 @@ COPIED_FILES = (
     Path("src/managing_long_task_context/evidence.py"),
     Path("src/managing_long_task_context/usage_freshness.py"),
     Path("src/managing_long_task_context/project_store.py"),
+    Path("src/managing_long_task_context/acceptance.py"),
+    Path("tests/test_acceptance_records.py"),
     Path("src/managing_long_task_context/worker_report.py"),
     Path("tests/test_worker_report.py"),
     Path("src/managing_long_task_context/contract_history.py"),
@@ -196,9 +198,25 @@ class ContextStrictDistributionTests(unittest.TestCase):
             self.assertEqual(copied.count(relative), 1)
             self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
             self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
-        self.assertEqual(declaration["skill_version"], "0.11.0")
-        self.assertEqual(declaration["package_version"], "0.11.0")
-        self.assertIn('version = "0.11.0"', (ROOT / "pyproject.toml").read_text())
+        self.assertEqual(declaration["skill_version"], "0.12.0")
+        self.assertEqual(declaration["package_version"], "0.12.0")
+        self.assertIn('version = "0.12.0"', (ROOT / "pyproject.toml").read_text())
+
+    def test_acceptance_registration_version_and_exports(self) -> None:
+        declaration = json.loads((ROOT / "skill-package.json").read_bytes())
+        copied = run_path(ROOT / "scripts/sync_context_strict_skill.py")["COPIED_FILES"]
+        for relative in (Path("src/managing_long_task_context/acceptance.py"), Path("tests/test_acceptance_records.py")):
+            self.assertEqual(COPIED_FILES.count(relative), 1)
+            self.assertEqual(copied.count(relative), 1)
+            self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
+            self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
+        self.assertEqual(declaration["skill_version"], "0.12.0")
+        self.assertEqual(declaration["package_version"], "0.12.0")
+        result = subprocess.run([sys.executable, "-c", "import managing_long_task_context as m; "
+                                "assert all(callable(getattr(m, n, None)) for n in "
+                                "('record_acceptance', 'latest_acceptance', 'acceptance_status'))"],
+                                env={"PYTHONPATH": str(STRICT / "src")}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_distributed_truth_source_example_executes(self) -> None:
         result = subprocess.run(

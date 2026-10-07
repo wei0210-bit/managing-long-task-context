@@ -51,6 +51,7 @@ from . import experience as _experience_module
 from . import _experience_store as _experience_store_module
 from .experience import bind_experience
 from .worker_report import worker_report_handlers
+from .acceptance import record_acceptance, latest_acceptance, acceptance_status
 from .evidence import (
     BUILTIN_RESOLVER_CAPABILITIES,
     MAX_CLOCK_SKEW_SECONDS,
@@ -2631,11 +2632,24 @@ def _plan_brief_from_view(
     include: Sequence[str] | None,
     max_items: int | None,
     max_chars: int,
+    latest_acceptance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     _validate_brief_limits(max_chars=max_chars, max_items=max_items)
+    from .acceptance import _summary_markdown
+    acceptance_section = _summary_markdown(latest_acceptance)
+
+    def packet_for(items):
+        packet = _build_brief_packet(task_id, contract, snapshot, phase, items, truth_evaluation)
+        if latest_acceptance is not None:
+            packet["latest_acceptance"] = deepcopy(latest_acceptance)
+        return packet
+
+    def render(packet):
+        return _brief_to_markdown(packet) + acceptance_section
+
     candidates, filtered_mandatory_ids = _brief_candidates(snapshot, include)
-    empty_packet = _build_brief_packet(task_id, contract, snapshot, phase, [], truth_evaluation)
-    empty_prompt = _brief_to_markdown(empty_packet)
+    empty_packet = packet_for([])
+    empty_prompt = render(empty_packet)
     empty_selection_prompt = _brief_to_markdown(_brief_selection_packet([]))
     prompt_adjustment_chars = len(empty_prompt) - len(empty_selection_prompt)
     selection_prompt_budget_chars = max_chars - prompt_adjustment_chars
@@ -2669,10 +2683,10 @@ def _plan_brief_from_view(
         )
 
     selected = selection_plan["selected"]
-    packet = _build_brief_packet(task_id, contract, snapshot, phase, selected, truth_evaluation)
+    packet = packet_for(selected)
     if selection_plan["omitted"]:
         packet["omitted_ids"] = [str(item.get("id", "")) for item in selection_plan["omitted"]]
-    selected_prompt = _brief_to_markdown(packet)
+    selected_prompt = render(packet)
     brief_overflow = selection_plan["overflow"]
     if brief_overflow is None and len(selected_prompt) > max_chars:
         brief_overflow = {
@@ -2713,9 +2727,13 @@ def _plan_brief_from_view(
             basis="selected_prompt",
         )
     elif diagnostic_overflow["kind"] != "fixed" and mandatory:
-        mandatory_packet = _build_brief_packet(task_id, contract, snapshot, phase, mandatory, truth_evaluation)
+        mandatory_packet = packet_for(mandatory)
+        mandatory_lines = _brief_markdown_lines(mandatory_packet)
+        if acceptance_section:
+            from itertools import chain
+            mandatory_lines = chain(mandatory_lines, acceptance_section[1:].split("\n"))
         text_metrics, token_estimate, measured_prompt_chars = _brief_text_metrics_from_lines(
-            _brief_markdown_lines(mandatory_packet),
+            mandatory_lines,
             basis="mandatory_prompt",
         )
     else:
@@ -2761,6 +2779,8 @@ def _plan_brief_from_view(
         "text": text_metrics,
         "token_estimate": token_estimate,
     }
+    if latest_acceptance is not None:
+        diagnostics["latest_acceptance"] = deepcopy(latest_acceptance)
     return {"packet": packet, "diagnostics": diagnostics, "brief_overflow": brief_overflow}
 
 
@@ -2802,9 +2822,12 @@ def brief(
             if truth_sources_enabled(view["contract"])
             else None
         )
+        from .acceptance import _latest_from_paths
+        acceptance = _latest_from_paths(paths, view["contract"])
         plan = _plan_brief_from_view(
             task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=evaluation,
             phase=phase, include=include, max_items=max_items, max_chars=max_chars,
+            latest_acceptance=acceptance,
         )
     diagnostics = _brief_diagnostics_from_plan(plan)
     overflow = diagnostics["overflow"]
@@ -2851,9 +2874,12 @@ def brief_diagnostics(
             if truth_sources_enabled(view["contract"])
             else None
         )
+        from .acceptance import _latest_from_paths
+        acceptance = _latest_from_paths(paths, view["contract"])
         plan = _plan_brief_from_view(
             task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=evaluation,
             phase=phase, include=include, max_items=max_items, max_chars=max_chars,
+            latest_acceptance=acceptance,
         )
     diagnostics = _brief_diagnostics_from_plan(plan)
     diagnostics["storage"] = _storage_info(task_id, base_dir)
@@ -5658,6 +5684,9 @@ from .contract_history import contract_diff
 
 
 __all__ = [
+    "record_acceptance",
+    "latest_acceptance",
+    "acceptance_status",
     "worker_report_handlers",
     "ContextError",
     "publish_contract",

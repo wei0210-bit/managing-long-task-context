@@ -388,3 +388,22 @@ and `changes` keyed by top-level field with `from`/`to` values (an absent key me
 the field was absent), or `{"status": "missing", "version": n}`. Older sessions do
 not retain overwritten versions; already lost contracts, including PILOT-B v1,
 remain missing and cannot be reconstructed.
+
+## Acceptance records (Strict 0.12.0)
+
+Only the coordinator calls `record_acceptance`, with `watched_paths` taken from the
+dispatch's `owned_paths`, in its own workspace after rerunning the sealed commands
+on the integration commit. It runs completion itself and records pass, fail or
+unknown in `acceptance-records.jsonl`; the ledger and snapshot keep their existing
+formats. `brief()` shows the recorded conclusion; `context_status.py` section 6
+checks whether it still holds by watched Git object IDs. Records exist per branch.
+Read `references/orca.md`'s acceptance-record workflow before recording or handing off.
+Publish immediately after recording, and before handoff or changing branches,
+using the existing publication authorization. Global synchronization comes later:
+until then use the new pinned package to write/read records and never align that
+checkout with an old package, whose `align_context` can overwrite unpublished records.
+Worker-report evidence and required outputs are copied only after path, digest,
+secret-marker and size checks. Other evidence retains summaries. The marker list
+covers six known strings; secrets outside that list may still be retained and pushed.
+Keep worker worktrees until recording; retained copies have no automatic cleanup,
+and deleting or rebuilding records/copies needs David's direct authorization.

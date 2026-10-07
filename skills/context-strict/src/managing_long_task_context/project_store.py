@@ -634,9 +634,36 @@ def align_context(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
         raise StoreNotWritable("MERGE_IN_PROGRESS", "merge in progress")
     if _run_git(root, "config", "--get", "core.hooksPath").stdout.strip() != HOOKS_PATH:
         raise StoreNotWritable("HOOKS_NOT_INSTALLED", "core.hooksPath must be .githooks")
+    def check_local_acceptance_records():
+        # checkout below restores every task: protect sidecars in every task first.
+        for record_file in context_root(root).glob("*/acceptance-records.jsonl"):
+            def record_ids(text):
+                identifiers = set()
+                for line in text.splitlines():
+                    try:
+                        value = json.loads(line)
+                        identifier = value.get("record_id") if isinstance(value, dict) else None
+                        if not isinstance(identifier, str) or not identifier:
+                            return None
+                        identifiers.add(identifier)
+                    except (ValueError, UnicodeError, RecursionError):
+                        return None
+                return identifiers
+            relative = record_file.relative_to(root).as_posix()
+            try:
+                if record_file.is_symlink():
+                    raise OSError("symlink record")
+                local_records = record_ids(record_file.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError):
+                local_records = None
+            head = _run_git(root, "show", "HEAD:" + relative)
+            head_records = record_ids(head.stdout) if head.returncode == 0 else set()
+            if local_records is None or head_records is None or local_records - head_records:
+                raise StoreNotWritable("LOCAL_AHEAD", "local acceptance records are not safely in HEAD: " + relative)
     tracked = _run_git(root, "ls-tree", "-r", "--name-only", "HEAD", "--", *CONTEXT_PATHS)
     names = {line for line in tracked.stdout.splitlines() if line.strip()}
     if tracked.returncode != 0 or not any(name.startswith(RELATIVE_CONTEXT + "/") or name == RELATIVE_CONTEXT for name in names):
+        check_local_acceptance_records()
         return {"status": "missing", "report": "没有可对齐的上下文"}
     directory = task_dir(task_id, root)
     local_ids = _local_event_ids(directory)
@@ -644,6 +671,7 @@ def align_context(task_id: str, worktree: Path | None = None) -> dict[str, Any]:
     extra = local_ids - head_ids
     if extra:
         raise StoreNotWritable("LOCAL_AHEAD", "local events are not in HEAD: " + ", ".join(sorted(extra)))
+    check_local_acceptance_records()
     checkout_paths = [relative for relative in CONTEXT_PATHS if any(name == relative or name.startswith(relative + "/") for name in names)]
     checkout = _run_git(root, "checkout", "HEAD", "--", *checkout_paths)
     if checkout.returncode != 0:

@@ -218,3 +218,23 @@ PYTHONPATH=src:tests python3 -m unittest tests.test_worker_report
 ```
 
 Pass: `OK`.
+
+### R-019 验收记录不进账本、旧版本可读、对齐不丢记录、不改 `.gitattributes`
+
+Added: #46, approved design section 14.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_acceptance_records.RecordStorageTests
+```
+
+Pass: `OK`.
+
+### R-020 「需重新验收」不因无关提交、发布提交、压缩合并而为真
+
+Added: #46, approved design section 14.
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_acceptance_records.ReacceptanceTests
+```
+
+Pass: `OK`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read five task-status sections without contacting Orca or writing the stores."""
+"""Read six task-status sections without contacting Orca or writing the stores."""
 from __future__ import annotations
 
 import argparse
@@ -191,8 +191,11 @@ def status(args: argparse.Namespace) -> tuple[dict, int]:
     dispatches = _section(lambda: _dispatches(args, verified), '快照',
                           identity_verified=verified, data=None)
     brief = _section(lambda: _brief(result, verified), 'brief', markdown=None)
+    from managing_long_task_context.acceptance import acceptance_status
+    acceptance = _section(lambda: acceptance_status(args.task_id, base_dir=args.context_root,
+                          workspace_root=args.workspace_root), '验收')
     return {'identity': identity, 'resume_gate': gate, 'checkpoint': checkpoint,
-            'dispatches': dispatches, 'brief': brief}, code
+            'dispatches': dispatches, 'brief': brief, 'acceptance': acceptance}, code
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -206,7 +209,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     else:
         for title, key in [('身份', 'identity'), ('恢复门禁', 'resume_gate'), ('最近检查点', 'checkpoint'),
-                           ('已入账的 Orca 派单', 'dispatches'), ('brief 正文', 'brief')]:
+                           ('已入账的 Orca 派单', 'dispatches'), ('brief 正文', 'brief'), ('验收', 'acceptance')]:
             print('## ' + title)
             value = result[key]
             if key == 'brief':

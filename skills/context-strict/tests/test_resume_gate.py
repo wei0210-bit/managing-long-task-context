@@ -229,7 +229,8 @@ class ResumeGateTests(ResumeFixture):
         self.assertIn('omitted_ids', self.module.brief(self.task, base_dir=self.base))
         (self.base / self.task / 'context-binding.json').unlink()
         r = self.command('context_status.py', expected=2)
-        self.assertEqual(len(r), 5)
+        self.assertEqual(len(r), 6)
+        self.assertEqual(r['acceptance']['status'], 'never_accepted')
         self.assertIn('init-binding', r['identity']['next_action'])
         self.assertIn('<从派工说明或接手文档取得的独立留存摘要>', r['identity']['next_action'])
         self.assertNotIn(self.digest, r['identity']['next_action'])
@@ -245,7 +246,7 @@ class ResumeGateTests(ResumeFixture):
         self.assertIn('不是工作区默认位置', r['checkpoint']['message'])
         self.assertIn('不是工作区默认位置', r['dispatches']['message'])
         text = self.command('context_status.py', text=True)
-        for section in ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文']:
+        for section in ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文', '验收']:
             self.assertIn(section, text)
 
     def test_status_nondefault_root_ignores_malformed_default_task(self):
@@ -272,7 +273,7 @@ class ResumeGateTests(ResumeFixture):
                 if json_output:
                     sections = json.loads(result.stdout)
                     self.assertEqual(set(sections),
-                                     {'identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief'})
+                                     {'identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief', 'acceptance'})
                     for key in ('checkpoint', 'dispatches'):
                         self.assertIsNone(sections[key]['data'])
                         self.assertEqual(sections[key]['message'], unavailable)
@@ -298,8 +299,8 @@ class ResumeGateTests(ResumeFixture):
         self.assertEqual(doctor['diagnostic']['status'], 'fail')
         self.assertIn('RESUME_GATE_FAILED', doctor['diagnostic']['codes'])
         output = self.command('context_status.py', expected=1, text=not json_output)
-        titles = ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文']
-        keys = ['identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief']
+        titles = ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文', '验收']
+        keys = ['identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief', 'acceptance']
         if json_output:
             sections = output
         else:
@@ -314,8 +315,12 @@ class ResumeGateTests(ResumeFixture):
                     payload, remaining = remaining.split('## ' + titles[index + 1] + '\n', 1)
                     sections[key] = json.loads(payload)
                     remaining = '## ' + titles[index + 1] + '\n' + remaining
+                elif key == 'brief':
+                    payload, remaining = remaining.split('## 验收\n', 1)
+                    sections[key] = {'markdown': payload.rstrip('\n')}
+                    remaining = '## 验收\n' + remaining
                 else:
-                    sections[key] = {'markdown': remaining.rstrip('\n')}
+                    sections[key] = json.loads(remaining)
         self.assertEqual(set(sections), set(keys))
         for key in ('checkpoint', 'dispatches'):
             self.assertIsNone(sections[key]['data'])
@@ -347,8 +352,8 @@ class ResumeGateTests(ResumeFixture):
 
 
 class StatusIsolationTests(ResumeFixture):
-    keys = ['identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief']
-    titles = ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文']
+    keys = ['identity', 'resume_gate', 'checkpoint', 'dispatches', 'brief', 'acceptance']
+    titles = ['身份', '恢复门禁', '最近检查点', '已入账的 Orca 派单', 'brief 正文', '验收']
 
     def sections(self, output, json_output):
         if json_output:
@@ -363,8 +368,12 @@ class StatusIsolationTests(ResumeFixture):
                     payload, output = output.split('## ' + self.titles[index + 1] + '\n', 1)
                     result[key] = json.loads(payload)
                     output = '## ' + self.titles[index + 1] + '\n' + output
+                elif key == 'brief':
+                    payload, output = output.split('## 验收\n', 1)
+                    result[key] = {'markdown': payload.rstrip('\n')}
+                    output = '## 验收\n' + output
                 else:
-                    result[key] = {'markdown': output.rstrip('\n')}
+                    result[key] = json.loads(output)
         self.assertEqual(set(result), set(self.keys))
         return result
 

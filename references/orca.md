@@ -258,3 +258,37 @@ reports nothing about completion. The handoff message is the only carrier:
 This reference does not define Orca commands or flags, routing, retries, or
 escalation, and it does not replace `brief()`, `gate()`, or `short-session-handoff/v1`.
 Keep these rules in this package; do not write them into Orca's own skill directories.
+
+## Coordinator: acceptance-record workflow (Strict 0.12.0)
+
+1. Keep the worker worktrees for comparison. On the integration commit, rerun
+   the sealed commands in the coordinator workspace and write a fresh report
+   with output files and hashes there; a worker report is only a review lead.
+2. Construct the host-bound `worker_report_handlers` for that workspace. Call
+   `record_acceptance` there with the sealed evidence map, `recorded_by`, and
+   `watched_paths` from the dispatch's `owned_paths`. Natural-language scope
+   text is not a path list. Completion runs inside the recorder before its
+   writer lock, then it checks contract, ledger, HEAD, dirty state and watched
+   content again; `RECORD_RACE` or `EVIDENCE_CHANGED` means no record was appended.
+3. Immediately publish the completed record and retained evidence with
+   `publish_context` under the existing publication authorization. Publish
+   before a handoff or branch switch; the receiving branch records its own
+   acceptance. `acceptance-records.jsonl` is a sidecar, with no merge attribute,
+   ledger event or snapshot field. Records exist per branch.
+4. Read `brief()` for the then-current conclusion and `context_status.py`
+   section 6 for validity now, commit ancestry and ledger advancement. A pass
+   record means completion only while that status is `still_valid`. Evidence
+   skipped for SECRET_MARKER, SIZE_LIMIT or TOTAL_LIMIT is shown as unretained,
+   and is not treated as a missing copy. Retained copies that are missing or
+   changed yield unknown. Copies are read-only and never automatically cleaned.
+
+Only the coordinator writes records. Local unpublished or malformed record lines
+block new `align_context` with LOCAL_AHEAD. Two checkouts writing and merging
+records can produce conflict markers: the recorder then refuses and validity is
+unknown; there is no manual merge recovery. David must directly authorize any
+record rebuild or deletion. Keep worker worktrees until `record_acceptance` has
+finished. Before global synchronization, only the new pinned package writes and
+reads acceptance records; publish before aligning, and do not run old-package
+alignment in the same checkout because it may overwrite unpublished sidecars.
+Secret checks use six known markers; secrets outside that list can still be copied
+and pushed under the existing publication authorization.
