@@ -1079,8 +1079,16 @@ class TruthSourceReducerTests(_TruthSourceContractFixture):
 
 class TruthSourceRecoveryTests(_TruthSourceContractFixture):
     def test_stale_pretruth_snapshot_forces_history_rebuild_and_v3_empty_reset(self) -> None:
-        context.publish_contract(self.legacy_contract(0), confirmed_by="publisher", base_dir=self.base)
+        # Recreate a sealed version-zero contract and its pre-truth projection.
+        legacy = self.legacy_contract(0)
+        legacy["seal"] = {"confirmed_by": "publisher", "confirmed_at": context._now()}
+        legacy["seal"]["integrity_digest"] = context._contract_digest(legacy)
         paths = context._paths("TSC-03", self.base)
+        context._atomic_write_json(paths["contract"], legacy, mode=0o444)
+        paths["lock"].touch()
+        context._append_missing_publish_event_locked(
+            legacy, paths, events=[], snapshot=context._empty_snapshot("TSC-03"),
+        )
         pre_truth_snapshot = context._read_json(paths["snapshot"])
         self.publish(version=1)
         context.publish_contract(self.legacy_contract(2), confirmed_by="publisher", base_dir=self.base)
@@ -1097,8 +1105,16 @@ class TruthSourceRecoveryTests(_TruthSourceContractFixture):
         self.assertTrue(context.audit("TSC-03", base_dir=self.base, emit=False)["passed"])
 
     def test_committed_view_rejects_stale_pretruth_fast_path_and_rebuilds_history(self) -> None:
-        context.publish_contract(self.legacy_contract(0), confirmed_by="publisher", base_dir=self.base)
+        # Recreate a sealed version-zero contract and its pre-truth projection.
+        legacy = self.legacy_contract(0)
+        legacy["seal"] = {"confirmed_by": "publisher", "confirmed_at": context._now()}
+        legacy["seal"]["integrity_digest"] = context._contract_digest(legacy)
         paths = context._paths("TSC-03", self.base)
+        context._atomic_write_json(paths["contract"], legacy, mode=0o444)
+        paths["lock"].touch()
+        context._append_missing_publish_event_locked(
+            legacy, paths, events=[], snapshot=context._empty_snapshot("TSC-03"),
+        )
         pre_truth_snapshot = context._read_json(paths["snapshot"])
         self.publish(version=1)
         removed = context.publish_contract(self.legacy_contract(2), confirmed_by="publisher", base_dir=self.base)

@@ -53,7 +53,12 @@ class ContractHistoryTests(unittest.TestCase):
         self.assertEqual(json.loads(self.path.read_bytes())['version'], 2)
 
     def test_malicious_version_never_enters_history_filename(self):
-        self.publish('1/../../../escape')
+        # Construct a sealed legacy contract without using the publication API.
+        legacy = deepcopy(self.contract)
+        legacy['version'] = '1/../../../escape'
+        legacy['seal'] = {'confirmed_by': 'publisher', 'confirmed_at': context._now()}
+        legacy['seal']['integrity_digest'] = context._contract_digest(legacy)
+        context._atomic_write_json(self.path, legacy, mode=0o444)
         data = self.path.read_bytes()
         self.publish(2)
         self.assertEqual(list(self.history.iterdir()), [self.archived_path(data)])
@@ -279,7 +284,12 @@ class ContractHistoryTests(unittest.TestCase):
         self.assertEqual(self.diff()['changes']['version'], {'from': 1, 'to': 2})
 
     def test_non_integer_history_versions_do_not_match(self):
-        self.publish('1/../../../escape')
+        # Construct a sealed legacy contract without using the publication API.
+        legacy = deepcopy(self.contract)
+        legacy['version'] = '1/../../../escape'
+        legacy['seal'] = {'confirmed_by': 'publisher', 'confirmed_at': context._now()}
+        legacy['seal']['integrity_digest'] = context._contract_digest(legacy)
+        context._atomic_write_json(self.path, legacy, mode=0o444)
         self.publish(2)
         self.assertEqual(self.diff('1/../../../escape', 2), {'status': 'missing', 'version': '1/../../../escape'})
 

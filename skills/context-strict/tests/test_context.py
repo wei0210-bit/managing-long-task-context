@@ -2628,6 +2628,75 @@ class ContextSkillTests(unittest.TestCase):
         )
         self.assertTrue(any("stale pointer target" in warning for warning in report["warnings"]))
 
+    def test_publish_rejects_invalid_versions_before_creating_files(self) -> None:
+        for version in ("1", 1.5, 1.0, True, False, 0, -1, None):
+            for existing_directory in (False, True):
+                with self.subTest(version=version, existing_directory=existing_directory):
+                    with tempfile.TemporaryDirectory() as directory:
+                        base = Path(directory) / ".prime" / "context"
+                        task_dir = base / "TASK-001"
+                        if existing_directory:
+                            task_dir.mkdir(parents=True)
+                        contract = deepcopy(self.contract)
+                        contract["version"] = version
+
+                        with self.assertRaises(context.ContextError):
+                            context.publish_contract(contract, confirmed_by="publisher", base_dir=base)
+
+                        self.assertEqual(set(Path(directory).rglob("*")),
+                                         {base.parent, base, task_dir} if existing_directory else set())
+
+    def test_publish_rejects_invalid_update_versions_without_changing_files(self) -> None:
+        for version in ("2", 2.5, 2.0, True, False, 0, -1, None):
+            with self.subTest(version=version):
+                with tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory) / ".prime" / "context"
+                    context.publish_contract(self.contract, confirmed_by="publisher", base_dir=base)
+                    task_dir = base / "TASK-001"
+                    before = {path.relative_to(task_dir): path.read_bytes() if path.is_file() else None
+                              for path in task_dir.rglob("*")}
+                    contract = deepcopy(self.contract)
+                    contract["version"] = version
+                    with self.assertRaises(context.ContextError):
+                        context.publish_contract(contract, confirmed_by="publisher", base_dir=base)
+                    after = {path.relative_to(task_dir): path.read_bytes() if path.is_file() else None
+                             for path in task_dir.rglob("*")}
+                    self.assertEqual(after, before)
+
+    def test_publish_accepts_positive_integer_versions(self) -> None:
+        for version in (1, 2, 100):
+            with self.subTest(version=version):
+                with tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory) / ".prime" / "context"
+                    contract = deepcopy(self.contract)
+                    contract["version"] = version
+                    published = context.publish_contract(contract, confirmed_by="publisher", base_dir=base)
+                    self.assertEqual(published["version"], version)
+                    stored = json.loads((base / "TASK-001" / "task-contract.json").read_text())
+                    self.assertEqual(stored, published)
+
+    def test_legacy_sealed_string_version_remains_readable(self) -> None:
+        # Preservation: create an already-sealed legacy contract without publishing it.
+        legacy = deepcopy(self.contract)
+        legacy["version"] = "legacy-1"
+        legacy["seal"] = {"confirmed_by": "publisher", "confirmed_at": NOW.isoformat()}
+        legacy["seal"]["integrity_digest"] = (
+            "sha256:" + hashlib.sha256(canonical_json_bytes(legacy)).hexdigest()
+        )
+        task_dir = self.base / "TASK-001"
+        task_dir.mkdir(parents=True)
+        (task_dir / ".lock").touch()
+        path = task_dir / "task-contract.json"
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+        before = path.read_bytes()
+
+        packet = context.brief("TASK-001", base_dir=self.base)
+        self.assertEqual(packet["task_id"], "TASK-001")
+        self.assertEqual(packet["contract_version"], "legacy-1")
+        self.assertTrue(context.audit("TASK-001", base_dir=self.base, emit=False)["passed"])
+        self.assertTrue(context.gate("TASK-001", stage="release", base_dir=self.base, emit=False)["passed"])
+        self.assertEqual(path.read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()
