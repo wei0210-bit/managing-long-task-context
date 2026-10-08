@@ -17,6 +17,7 @@ import subprocess
 import uuid
 
 import managing_long_task_context as context
+import managing_long_task_context.worker_report as worker_report
 from managing_long_task_context.worker_report import worker_report_handlers
 
 
@@ -101,7 +102,7 @@ def ingest(args):
         metadata = {**common, 'role': 'report-ingest', 'blocking': args.blocking}
         if args.verdict is not None:
             metadata['verdict'] = args.verdict
-        main = context.record(args.task, statement=args.statement, item_type='observation', actor=ACTOR,
+        main = context.record(args.task, statement=args.statement, item_type='observation', actor=args.actor,
             source=source, metadata=metadata, base_dir=args.store)
         created.append(main['id'])
     for number, target, statement, specified in targets:
@@ -111,7 +112,7 @@ def ingest(args):
         metadata = {**common, 'report_item': number, 'deferred': True}
         if not specified:
             metadata['report_task_unspecified'] = True
-        item = context.record(target, statement=statement, item_type='observation', actor=ACTOR,
+        item = context.record(target, statement=statement, item_type='observation', actor=args.actor,
             source=source, metadata=metadata, base_dir=args.store)
         created.append(item['id'])
     return {'command': 'ingest', 'main_item_id': main['id'], 'created_item_ids': created}
@@ -122,7 +123,7 @@ def settle(args):
     for item in items(args.store, args.task):
         metadata = item.get('metadata', {})
         if metadata.get('role') == 'report-ingest' and metadata.get('blocking') is True:
-            context.update_item(args.task, item['id'], actor=ACTOR,
+            context.update_item(args.task, item['id'], actor=args.actor,
                 metadata={**metadata, 'blocking': False, 'resolved_by': args.resolved_by}, base_dir=args.store)
             updated.append(item['id'])
     return {'command': 'settle', 'updated_item_ids': updated}
@@ -131,7 +132,7 @@ def settle(args):
 def checkpoint(args):
     value = context.checkpoint(args.task, phase=args.phase, completed=args.completed,
         evidence_added=args.evidence, blockers=args.blocker, next_action=args.next_action,
-        actor=ACTOR, base_dir=args.store)
+        actor=args.actor, base_dir=args.store)
     return {'command': 'checkpoint', 'checkpoint': value}
 
 
@@ -141,8 +142,11 @@ def git(root, *arguments):
 
 
 def accept(args):
+    clean_validator = getattr(worker_report, '_revision_is_clean', None)
+    if not callable(clean_validator):
+        raise ValueError('loaded package has no revision clean validator')
     workspace = args.workspace.resolve()
-    if Path(git(workspace, 'rev-parse', '--show-toplevel').decode().strip()).resolve() != workspace:
+    if Path(git(workspace, 'rev-parse', '--show-toplevel').decode().rstrip('\n')).resolve() != workspace:
         raise ValueError('--workspace must be the Git top-level directory')
     logs = args.logs_dir.resolve()
     logs.relative_to(workspace)
@@ -171,7 +175,8 @@ def accept(args):
     now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     run_id = 'coordinator-' + uuid.uuid4().hex
     revision = {'commit': git(workspace, 'rev-parse', '--verify', 'HEAD').decode().strip(),
-                'dirty': bool(git(workspace, 'status', '--porcelain=v1', '-z', '--untracked-files=all'))}
+                'dirty': False}
+    revision['dirty'] = not clean_validator(workspace, revision)
     good = not revision['dirty'] and all(c['exit_code'] == 0 for c in checks)
     report = {'schema': 1, 'task_id': args.task, 'orca_task_id': args.task, 'orca_dispatch_id': run_id,
         'contract_digest': contract['seal']['integrity_digest'], 'loaded_module_file': module,
@@ -217,6 +222,8 @@ def parser():
         sub.add_argument('--store', type=absolute, required=True)
         sub.add_argument('--task', type=task_id, required=True)
         sub.set_defaults(function=function)
+        if name != 'accept':
+            sub.add_argument('--actor', type=nonempty, default=ACTOR)
         if name == 'ingest':
             sub.add_argument('--report', type=absolute, required=True)
             sub.add_argument('--dispatch', type=nonempty, required=True)
