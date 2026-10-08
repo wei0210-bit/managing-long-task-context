@@ -74,7 +74,14 @@ def scan(repo, terms, paths):
     files = []
     tests_dir = repo / "tests"
     if tests_dir.exists():
-        for path in sorted(tests_dir.rglob("test_*.py")):
+        def raise_listing_error(error):
+            raise error
+
+        candidates = []
+        for directory, dirnames, filenames in os.walk(tests_dir, onerror=raise_listing_error):
+            candidates.extend(Path(directory) / name for name in dirnames + filenames
+                              if name.startswith("test_") and name.endswith(".py"))
+        for path in sorted(candidates):
             if not path.resolve().is_relative_to(tests_dir.resolve()):
                 raise ValueError(f"test file escapes tests/: {path}")
             files.append((path.relative_to(repo).as_posix(),

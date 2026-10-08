@@ -143,6 +143,54 @@ class ContractPrecheckTests(unittest.TestCase):
         self.assertIn("tests.nested.test_nested", data["test_modules"])
         self.assertTrue(all(entry["exit_code"] == 0 for entry in data["run"]))
 
+    def assert_unreadable_directory_error(self, directory, *args):
+        before = self.git("status", "--porcelain")
+        original_mode = directory.stat().st_mode
+        directory.chmod(0)
+        try:
+            try:
+                with os.scandir(directory) as entries:
+                    list(entries)
+            except PermissionError:
+                pass
+            else:
+                self.skipTest("process can list chmod 000 directories; permission denial unavailable")
+            out = self.base / "unreadable-logs"
+            for run_args in ([], ["--run", "--out-dir", str(out)]):
+                with self.subTest(run=bool(run_args)):
+                    result = self.cli(*args, *run_args)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn(str(directory), result.stderr)
+                    self.assertFalse(out.exists())
+        finally:
+            directory.chmod(original_mode)
+        self.assertEqual(self.git("status", "--porcelain"), before)
+
+    def test_unreadable_tests_root(self):
+        self.assert_unreadable_directory_error(self.repo / "tests", "--term", "widget")
+
+    def test_unreadable_nested_directory(self):
+        nested = self.repo / "tests/restricted"
+        nested.mkdir()
+        (nested / "test_hidden.py").write_text("# widget\n")
+        self.assert_unreadable_directory_error(nested, "--path", "src/widget.py")
+
+    def test_unreadable_nested_directory_does_not_hide_failing_run(self):
+        nested = self.repo / "tests/restricted"
+        nested.mkdir()
+        (nested / "test_hidden.py").write_text(
+            "import unittest\n# hidden-failure\n"
+            "class TestHidden(unittest.TestCase):\n"
+            "    def test_bad(self):\n        self.fail('hidden failure')\n")
+        data = self.payload("--term", "hidden-failure", "--run",
+                            "--out-dir", str(self.base / "readable-logs"))
+        self.assertEqual(data["status"], "failed")
+        self.assertEqual(data["test_modules"], ["tests.restricted.test_hidden"])
+        self.assertNotEqual(data["run"][0]["exit_code"], 0)
+        self.assertIn("hidden failure", Path(data["run"][0]["log_file"]).read_text())
+        self.assert_unreadable_directory_error(nested, "--term", "hidden-failure")
+
 
 if __name__ == "__main__":
     unittest.main()
