@@ -15,6 +15,7 @@ tool does not sandbox test code or undo writes performed by the tests themselves
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -27,6 +28,13 @@ from pathlib import Path
 
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+
+    def resolve_argument(path, option):
+        try:
+            return path.resolve()
+        except (OSError, RuntimeError, ValueError) as exc:
+            parser.error(f"cannot resolve {option} {path}: {exc}")
+
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--term", action="append", default=[])
     parser.add_argument("--path", action="append", default=[])
@@ -39,7 +47,7 @@ def parse_arguments(argv=None):
         parser.error("at least one --term or --path is required")
     if any(not term for term in args.term):
         parser.error("--term must not be empty")
-    args.repo = args.repo.resolve()
+    args.repo = resolve_argument(args.repo, "--repo")
     git_env = {key: value for key, value in os.environ.items()
                if not key.startswith("GIT_")}
     try:
@@ -47,20 +55,20 @@ def parse_arguments(argv=None):
                                env=git_env, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as exc:
         parser.error(f"cannot inspect Git repository: {exc}")
-    if check.returncode or Path(check.stdout.strip()).resolve() != args.repo:
+    if check.returncode or resolve_argument(Path(check.stdout.strip()), "--repo") != args.repo:
         parser.error("--repo must be the root of a Git working tree")
     for raw in args.path:
         path = Path(raw)
         if not raw or ".." in path.parts:
             parser.error("--path must be a nonempty repository-local file path")
-        resolved = (args.repo / path).resolve()
+        resolved = resolve_argument(args.repo / path, "--path")
         if not resolved.is_relative_to(args.repo) or not path.stem:
             parser.error("--path must stay inside --repo and name a file")
     if args.out_dir is None:
         args.out_dir = args.repo / ".context-reports/contract-precheck"
     elif not args.out_dir.is_absolute():
         parser.error("--out-dir must be absolute")
-    args.out_dir = args.out_dir.resolve()
+    args.out_dir = resolve_argument(args.out_dir, "--out-dir")
     if args.out_dir.is_relative_to(args.repo):
         relative = args.out_dir.relative_to(args.repo)
         if not relative.parts or relative.parts[0] != ".context-reports":
@@ -71,7 +79,11 @@ def parse_arguments(argv=None):
 
 
 def test_files(repo):
-    """Inventory tests explicitly: never silently skip links or listing errors."""
+    """Inventory unittest's test*.py candidates in every directory.
+
+    Including directories without package markers makes this a superset of
+    unittest discovery. Never silently skip links or listing errors.
+    """
     tests_dir = repo / "tests"
     try:
         root_mode = tests_dir.lstat().st_mode
@@ -93,7 +105,7 @@ def test_files(repo):
                 raise ValueError(f"{path}: symlink is not allowed")
             if stat.S_ISDIR(mode):
                 pending.append(path)
-            elif path.name.startswith("test_") and path.suffix == ".py":
+            elif fnmatch.fnmatch(path.name, "test*.py"):
                 if not stat.S_ISREG(mode):
                     raise ValueError(f"{path}: test must be a regular file")
                 candidates.append(path)
@@ -105,7 +117,9 @@ def scan(repo, terms, paths):
     files = []
     for path in test_files(repo):
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            # read_text translates CR/CRLF to LF. Other Unicode separators
+            # remain part of the physical source line, as Python treats them.
+            lines = path.read_text(encoding="utf-8").split("\n")
         except (OSError, UnicodeError) as exc:
             raise ValueError(f"{path}: {exc}") from exc
         files.append((path.relative_to(repo).as_posix(), lines))

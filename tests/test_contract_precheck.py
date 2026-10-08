@@ -322,6 +322,151 @@ class ContractPrecheckTests(unittest.TestCase):
         self.assertEqual(data["test_modules"], [])
         self.assertEqual(data["run"], [])
 
+    def test_inventory_and_run_cover_unittest_discovery(self):
+        # Use unittest itself in a fresh interpreter so previously imported
+        # fixture modules cannot affect this oracle's discovery results.
+        discover = """
+import json, sys, unittest
+from pathlib import Path
+repo = Path(sys.argv[1])
+sys.path.insert(0, str(repo / 'src'))
+suite = unittest.TestLoader().discover(
+    start_dir=str(repo / 'tests'), pattern='test*.py', top_level_dir=str(repo))
+def modules(suite):
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from modules(item)
+        else:
+            yield type(item).__module__
+print(json.dumps(sorted(set(modules(suite)))))
+"""
+        variants = ("test.py", "testlegacy.py", "testWidget.py", "test_x.py",
+                    "Test_x.py", "helper.py")
+        (self.repo / "tests/__init__.py").write_text("")
+        for layout in ("", "nested/deeper"):
+            with self.subTest(layout=layout):
+                directory = self.repo / "tests"
+                for part in Path(layout).parts:
+                    directory = directory / part
+                    directory.mkdir(exist_ok=True)
+                    (directory / "__init__.py").write_text("")
+                for name in variants:
+                    # Keep Test_x.py separate from test_x.py on filesystems
+                    # that treat these two names as the same file.
+                    target = directory
+                    if name in variants[4:]:
+                        target = directory / "excluded"
+                        target.mkdir(exist_ok=True)
+                        (target / "__init__.py").write_text("")
+                    (target / name).write_text(
+                        "import unittest\n# discovery-marker widget\n"
+                        "class TestDiscovered(unittest.TestCase):\n"
+                        "    def test_bad(self):\n"
+                        f"        self.fail('discovered failure {name}')\n")
+                oracle = subprocess.run(
+                    [sys.executable, "-B", "-c", discover, str(self.repo)],
+                    env=self.env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(oracle.returncode, 0, oracle.stderr)
+                discovered = set(json.loads(oracle.stdout))
+                prefix = "tests" + ("." + layout.replace("/", ".") if layout else "")
+                expected = {prefix + "." + Path(name).stem for name in variants[:4]}
+                self.assertTrue(expected <= discovered, discovered)
+                excluded = {prefix + ".excluded.Test_x", prefix + ".excluded.helper"}
+                self.assertFalse(excluded & discovered)
+                # 'unittest' occurs in every candidate, including setUp's files.
+                inventory = self.payload("--term", "unittest")
+                self.assertTrue(discovered <= set(inventory["test_modules"]), inventory)
+                self.assertFalse(excluded & set(inventory["test_modules"]))
+                out = self.base / ("oracle-logs-" + (layout.replace("/", "-") or "root"))
+                before = self.git("status", "--porcelain")
+                data = self.payload("--term", "unittest", "--path", "src/widget.py",
+                                    "--run", "--out-dir", str(out))
+                runs = {row["module"]: row for row in data["run"]}
+                self.assertTrue(discovered <= set(runs), runs)
+                mapped = set(data["paths"][0]["tests"])
+                hits = {hit["file"] for hit in data["terms"][0]["hits"]}
+                for module in expected:
+                    file = module.replace(".", "/") + ".py"
+                    self.assertIn(file, hits)
+                    self.assertIn(file, mapped)
+                    self.assertNotEqual(runs[module]["exit_code"], 0)
+                    self.assertIn("discovered failure " + Path(file).name,
+                                  Path(runs[module]["log_file"]).read_text())
+                self.assertEqual(data["status"], "failed")
+                self.assertEqual(self.git("status", "--porcelain"), before)
+
+    def test_unicode_separators_preserve_physical_line_numbers(self):
+        path = self.repo / "tests/test_unicode.py"
+        for separator in ("\u2028", "\u0085"):
+            for newline in ("\n", "\r\n", "\r"):
+                with self.subTest(separator=separator, newline=newline):
+                    text = newline.join(["# prefix" + separator + "suffix",
+                                         "# physical-marker " + separator + "tail",
+                                         "# another line", "# physical-marker again", ""])
+                    path.write_bytes(text.encode("utf-8"))
+                    data = self.payload("--term", "physical-marker")
+                    self.assertEqual(data["terms"][0]["hits"], [
+                        {"file": "tests/test_unicode.py", "line": 2,
+                         "text": "# physical-marker " + separator + "tail"},
+                        {"file": "tests/test_unicode.py", "line": 4,
+                         "text": "# physical-marker again"}])
+
+    def assert_argument_loop_error(self, option):
+        loop = self.repo / "src/loop.py"
+        loop.symlink_to(loop)
+        out = self.base / "loop-logs"
+        before = self.git("status", "--porcelain")
+        for run_args in ([], ["--run"]):
+            with self.subTest(run=bool(run_args)):
+                args = ["--term", "widget", "--out-dir", str(out), *run_args,
+                        option, str(loop)]
+                result = self.cli(*args)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(option, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse(out.exists())
+        self.assertEqual(self.git("status", "--porcelain"), before)
+
+    def test_repo_argument_symlink_loop(self):
+        self.assert_argument_loop_error("--repo")
+
+    def test_path_argument_symlink_loop(self):
+        self.assert_argument_loop_error("--path")
+
+    def test_out_dir_argument_symlink_loop(self):
+        self.assert_argument_loop_error("--out-dir")
+
+    def test_name_variants_retain_fail_closed_policy(self):
+        for name in ("test.py", "testlegacy.py", "testWidget.py"):
+            path = self.repo / "tests" / name
+            with self.subTest(name=name, case="invalid-utf8"):
+                path.write_bytes(b"# widget\n\xff\n")
+                self.assert_scan_failure(path, "utf-8")
+            # Retain each hostile fixture while moving it outside tests/;
+            # no cleanup hides evidence from the next independent case.
+            path.rename(self.repo / "src" / (name + ".invalid"))
+            with self.subTest(name=name, case="symlink"):
+                path.symlink_to(self.repo / "tests/test_widget.py")
+                self.assert_scan_failure(path, "symlink")
+            path.rename(self.repo / "src" / (name + ".link"))
+            with self.subTest(name=name, case="nonregular"):
+                os.mkfifo(path)
+                self.assert_scan_failure(path, "regular file")
+            path.rename(self.repo / "src" / (name + ".fifo"))
+            with self.subTest(name=name, case="unreadable"):
+                path.write_text("# widget\n")
+                path.chmod(0)
+                try:
+                    try:
+                        path.read_bytes()
+                    except PermissionError:
+                        self.assert_scan_failure(path, "Permission denied")
+                    else:
+                        self.skipTest("process can read chmod 000 files")
+                finally:
+                    path.chmod(0o644)
+
 
 if __name__ == "__main__":
     unittest.main()
