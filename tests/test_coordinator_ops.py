@@ -212,5 +212,100 @@ class CoordinatorOpsTests(unittest.TestCase):
         self.assertEqual(len(self.items()), 0)
 
 
+
+    def expose_validator_exclusions(self):
+        # Keep only report evidence ignored; do not hide the validator's exclusions.
+        (self.root / '.gitignore').write_text('.context-reports/\n')
+        self.git('add', '.gitignore')
+        self.git('commit', '-qm', 'expose validator exclusions')
+
+    def test_accept_unignored_validator_exclusions_can_pass(self):
+        self.expose_validator_exclusions()
+        self.assertIn('.prime/', self.git('status', '--porcelain'))
+        result = self.accept()
+        self.assertEqual(result['decision'], 'pass', result)
+        self.assertFalse(json.loads(Path(result['report_path']).read_text())['code_revision']['dirty'])
+
+    def test_accept_unignored_near_exclusion_paths_cannot_pass(self):
+        self.expose_validator_exclusions()
+        for path in ('.githooks/other', '.gitattributes.bak'):
+            with self.subTest(path=path):
+                target = self.root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('dirty\n')
+                self.assertNotEqual(self.accept(expected=1)['decision'], 'pass')
+                # Track this probe before the next iteration, so it cannot mask
+                # an incorrect exclusion of the second path.
+                self.git('add', path)
+                self.git('commit', '-qm', 'track completed dirty probe')
+
+    def test_actor_written_to_ingest_settle_and_checkpoint_events(self):
+        self.run_cli('ingest', '--report', self.report, '--dispatch', 'ctx_test',
+            '--statement', 'blocked', '--blocking', '--actor', 'executor-alice')
+        self.assertTrue(all(i['actor'] == 'executor-alice' for i in self.items().values()))
+        self.run_cli('settle', '--resolved-by', 'review', '--actor', 'reviewer-bob')
+        self.run_cli('checkpoint', '--phase', 'review', '--completed', 'done',
+            '--evidence', 'file:one', '--next-action', 'accept', '--actor', 'coordinator-carol')
+        snapshot = json.loads((self.store / self.task / 'snapshot.json').read_text())
+        self.assertEqual(snapshot['latest_checkpoint']['actor'], 'coordinator-carol')
+        events = [json.loads(line) for line in (self.store / self.task / 'events.jsonl').read_text().splitlines()]
+        self.assertEqual(events[-2]['actor'], 'reviewer-bob')
+        self.assertEqual(events[-1]['actor'], 'coordinator-carol')
+
+    def test_blank_actor_rejected_without_writing_events(self):
+        before = (self.store / self.task / 'events.jsonl').read_bytes()
+        for command, arguments in [
+            ('ingest', ['--report', self.report, '--dispatch', 'ctx_test', '--statement', 'report']),
+            ('settle', ['--resolved-by', 'review']),
+            ('checkpoint', ['--phase', 'review', '--completed', 'done', '--evidence', 'file:one', '--next-action', 'accept']),
+        ]:
+            with self.subTest(command=command):
+                self.run_cli(command, *arguments, '--actor', ' \t ', expected=2)
+        self.assertEqual(before, (self.store / self.task / 'events.jsonl').read_bytes())
+
+    def test_accept_top_level_with_trailing_space_reaches_next_validation(self):
+        # v2 checks this script's boundary; the underlying API still strips paths.
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location('coordinator_ops_path_test', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        root = self.root / 'workspace '
+        root.mkdir()
+        subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True, capture_output=True)
+        args = module.parser().parse_args(['accept', '--store', str(self.store), '--task', self.task,
+            '--workspace', str(root), '--package-root', str(self.package), '--logs-dir', str(root),
+            '--check', 'unit=' + COMMAND, '--recorded-by', 'coordinator'])
+        class ReachedContractRead(Exception):
+            pass
+        with patch.object(module, 'read_json', side_effect=ReachedContractRead):
+            with self.assertRaises(ReachedContractRead):
+                module.accept(args)
+
+    def test_accept_subdirectory_workspace_rejected(self):
+        child = self.root / 'subdirectory'
+        child.mkdir()
+        self.run_cli('accept', '--workspace', child, '--package-root', self.package,
+            '--logs-dir', self.logs, '--check', 'unit=' + COMMAND,
+            '--recorded-by', 'coordinator', expected=2)
+        self.assertFalse((self.store / self.task / 'acceptance-records.jsonl').exists())
+
+    def test_accept_missing_clean_validator_exits_two(self):
+        # Load the actual built package, then simulate an older package API.
+        bootstrap = ('import runpy, sys; '
+            'import managing_long_task_context.worker_report as w; '
+            'del w._revision_is_clean; '
+            'sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")')
+        result = subprocess.run([sys.executable, '-c', bootstrap, str(SCRIPT), 'accept',
+            '--store', str(self.store), '--task', self.task, '--workspace', str(self.root),
+            '--package-root', str(self.package), '--logs-dir', str(self.logs),
+            '--check', 'unit=' + COMMAND, '--recorded-by', 'coordinator'],
+            capture_output=True, text=True,
+            env={**os.environ, 'PYTHONPATH': str(self.package / 'src')})
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn('clean', json.loads(result.stdout)['error'])
+        self.assertFalse((self.store / self.task / 'acceptance-records.jsonl').exists())
+
+
 if __name__ == '__main__':
     unittest.main()
