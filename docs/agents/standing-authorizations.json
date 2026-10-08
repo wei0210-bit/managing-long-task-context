@@ -1,0 +1,61 @@
+{
+  "schema": "standing-authorizations/v1",
+  "grant": {
+    "question": "项目级常设授权清单放哪些？",
+    "choice": "推荐清单（推荐）",
+    "date": "2026-10-08",
+    "session": "67f469da-a1cd-49c8-acbf-98a903fecc70",
+    "coordinator": "coordinator-opus",
+    "contract_version": 1,
+    "covers": "docs/agents/standing-authorizations.json 的三项内容：推送分支和开 PR（不合并）、CI 超时上限上调不超过一倍、阈值放宽到实测值 +50% 以内"
+  },
+  "use_by": "coordinator-only",
+  "merge_authorized": false,
+  "items": [
+    {
+      "id": "SA-PUSH-PR",
+      "allow": [
+        "推送非默认分支",
+        "开 PR"
+      ],
+      "deny_refs": [
+        "main",
+        "默认分支"
+      ],
+      "force": false,
+      "deny": [
+        "gh pr merge",
+        "--auto",
+        "删除远端分支",
+        "在默认分支 publish_context"
+      ]
+    },
+    {
+      "id": "SA-CI-TIMEOUT",
+      "files": ".github/workflows/*.yml",
+      "key": "timeout-minutes",
+      "anchor": {
+        "commit": "b0db61f",
+        "value": 10
+      },
+      "max": 20,
+      "conditions": [
+        "仅可上调 timeout-minutes，按固定基线最多增加一倍，不得滚动翻倍",
+        "其他 CI 内容变更不在此项授权内"
+      ]
+    },
+    {
+      "id": "SA-THRESHOLD",
+      "max_ratio": 1.5,
+      "measured": "使用原测量方式在合同要求的各解释器实测，取各解释器实测最大值；放宽后的阈值不得超过该最大值的 1.5 倍",
+      "deny": [
+        "改测量方式",
+        "删断言"
+      ],
+      "conditions": [
+        "封印前逐一记录各解释器命令、版本、实测值与所选阈值",
+        "仅覆盖数值阈值调整，不覆盖其他质量底线豁免"
+      ]
+    }
+  ]
+}

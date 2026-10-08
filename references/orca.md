@@ -315,20 +315,11 @@ Rule execution keeps its absolute `store_root` restriction.
 
 ## 封印前影响面检查（A）
 
-协调者在封印合同前，对计划改动的字面量、符号和文件运行
-`scripts/contract_precheck.py`，将命中的测试逐项核对：要么列入合同 scope，
-要么在合同里写明该测试为何不受影响。命中结果只是影响面线索，不能替代核对。
-
-凡合同含数值阈值，须在每个要求的解释器上实测，并把各解释器的实测值写进
-合同后再封印。设计要求须追到所有受影响的函数，将这些函数及其文件列入
-scope，不能只列入口或最先发现的函数。
+见 [统一封印前检查](preseal-checks.md)。
 
 ## 读盘功能的健壮性验收条（C）
 
-凡读取任务库、报告或其他落盘记录的改动，合同须含一条健壮性验收：对类型
-错误、缺键、不可读、嵌套过深等异常形状，返回 `unknown` 或明确错误码，
-不得抛出未捕获异常。验收须实际覆盖这些失败路径并保留命令与输出，不能只凭
-正常记录的成功读取判定通过。
+见 [统一封印前检查](preseal-checks.md)。
 
 ## 并行派工与共用件归属（D）
 
@@ -352,11 +343,49 @@ owned paths 互不相交的任务，各用自己的工作树并发派工；同�
 
 ## 派工等待防休眠（G）
 
-协调者等待派工结果时，用 `caffeinate -i` 包住等待命令，例如：
+派工与等待须接电源、不合盖。`caffeinate -i -s` 中，`-s` 只在接交流电时
+有效，`-i` 只防空闲休眠；二者都挡不住合盖与低电量休眠。
+
+处理完本批消息后，把确认与等待放在一次调用中（不带 `--types`）：
 
 ```sh
-caffeinate -i orca orchestration check --wait --types "worker_done,escalation,question" --timeout-ms 900000 --json
+caffeinate -i -s <orca> orchestration check --terminal <coordinator-terminal> --ack <delivery> --wait --timeout-ms 900000 --json
 ```
 
-防休眠只持续到被包住的等待命令结束，等待结束即解除，不启动脱离等待命令的
-常驻防休眠进程。等待结果仍按 Orca 的派工状态和消息处理规则判断。
+`<delivery>` 必须来自当前会话本次 `check` 返回的 delivery id。确认与等待
+分两次调用或带 `--types` 时，心跳与状态消息可能被注入协调者输入框；因此
+使用一次 `check --ack <delivery> --wait`，读回消息后按实际派工状态处理。
+防休眠只持续到被包住的等待命令结束，不启动脱离等待命令的常驻防休眠进程。
+
+## David 授权与阻塞提醒（H）
+
+需要 David 决定的事项在封印前一次问完。David 在协调者会话亲自点选或回复
+的原文，由该协调者写入合同 constraints 的一行 `DAVID_AUTH: {json}`。
+JSON 的 `question`、`choice` 保留逐字原文，`date` 为 UTC 日期，`session`
+为封印者本人的会话号，`coordinator` 等于 `seal.confirmed_by`，
+`contract_version` 等于合同 `version`，`covers` 写明唯一覆盖的那项改动。
+各字段必须非空且相符；协调者以自己的名义封印，不再代填 David。
+
+执行者和审核者按全局「点选授权」规则核对原件，仅在 `covers` 所述范围内
+视为 David 直接授权，不能扩大到其他改动。2026-10-08 之前以 David 名义封印
+且正文保留问题、所选项和日期原文的旧合同，按全局兼容规则继续有效。
+
+项目级常设授权只由协调者使用，永不含合并。协调者在封印前读取
+`docs/agents/standing-authorizations.json`，核对所用条目的限制，并在合同
+constraints 写入一行：
+
+```text
+STANDING_AUTH: docs/agents/standing-authorizations.json@<commit> sha256=<hex>
+```
+
+`<commit>` 固定清单所在提交，`<hex>` 是该提交清单原件字节的 SHA-256。
+执行者核对提交、原件摘要和适用条目；执行者不得自行调用协调者的常设授权。
+任一授权字段、摘要、条件或覆盖范围不符，按本文 “When blocked” 停止并
+联系协调者，不得自行推断。`publish_context` 推默认分支不属于常设推送，
+仍需该动作的独立授权；推送非默认分支和开 PR 也不能扩展为合并或自动合并。
+
+流水线因待答问题、登录失效、usage limit 或需人按键而阻塞，协调者按全局
+规则「阻塞提醒」在停下前向 David 手机推送项目、任务号和需要他做的事；
+同一原因只推一次，宿主已自动推送的待答卡片不重复推。工具不可用或手机未
+连接时不假装已推，回复首行写 `推送：UNKNOWN（原因）`。遇到 usage limit
+立即停止、不重试，并按全局用量纪律首行报告。

@@ -87,6 +87,8 @@ for facts that cannot be proven; `brief_diagnostics().usable=true` proves struct
 
 ### 1. Bind storage, publish, then release
 
+Before sealing, follow the shared checks in `references/preseal-checks.md`.
+
 Prefer one absolute store so process `cwd` cannot select a different task:
 
 ```python

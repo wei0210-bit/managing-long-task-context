@@ -34,6 +34,7 @@ COPIED_FILES = (
     Path("references/bot-pipeline-handoff.md"),
     Path("references/agent-role-handoff.md"),
     Path("references/orca.md"),
+    Path("references/preseal-checks.md"),
     Path("references/host-codex-cli.md"),
     Path("references/host-native.md"),
     Path("scripts/handoff_preflight.py"),

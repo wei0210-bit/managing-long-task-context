@@ -48,6 +48,7 @@ updated_at: 2026-09-19T13:06:07Z
 - NAT-01（授权的 manual fallback 冷恢复）与 EVAL-01（代理行为评估）：NOT_RUN。
 - 真实宿主迁移与可信接管、token/费用/自然项目收益：NOT_RUN/UNKNOWN；远程 CI：PASS。
 - 未授权：v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、NAT-01、EVAL-01、真实宿主迁移，以及后续新的合并、推送或部署。
+- 推送非默认分支和开 PR 见 `docs/agents/standing-authorizations.json`。
 - 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）。更早的 `RUN-20260917-phase1-0f9fdd1/` 与该重验重复，已删除。远程 CI：run 35178996161（证据提交）与 PR #26 required check run 35179382768 均 success。
 - 合并后状态回读：`docs/superpowers/evidence/context-strict-migration/RUN-20260919-status-correction/`；在 `2026-09-19T09:34:27Z` 回读时，PR #25 已合并为 `f5b5fc1`，PR #26 已合并为 `59604f5`，且当时远程 `main` 指向 `59604f5`。该值是带时间点的历史观察，不冒充实时 `current_head`。
 - 已知风险：`test_truth_sources` 中 3 个既有锁时序测试在高负载主机上曾失败一次，重跑通过，源码未改动。
@@ -56,3 +57,5 @@ updated_at: 2026-09-19T13:06:07Z
 ## 下一步
 
 First action: 若要继续完成 T5，先单独授权并定义 NAT-01 或 EVAL-01 的安全 fixture；在此之前保持真实宿主迁移、控制接管和归档为 NOT_RUN/UNKNOWN。任何后续新的推送、合并或部署仍须单独授权。
+
+推送非默认分支和开 PR 见 `docs/agents/standing-authorizations.json`。
