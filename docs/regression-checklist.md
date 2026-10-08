@@ -346,3 +346,30 @@ E and G.
 Known gap: section A names `scripts/contract_precheck.py`, which is not in this release
 (IMP-PRECHECK was parked after its fourth review); until it lands, run the impact check
 with `grep -rn` over `tests/` by hand.
+
+### R-029 封印前检查规范是单一来源，健壮性验收为强制项
+
+Added: W1-S (contract v1, coordinator-sealed with DAVID_AUTH lines from 2026-10-08).
+
+```sh
+python3 -c "import sys;t=open('references/preseal-checks.md',encoding='utf-8').read();ks=['verify.sh','预审','影响面','解释器','调用方','locale','3.12','task-contract.json','unittest','重入','DAVID_AUTH','STANDING_AUTH','凡读取任务库、报告或其他落盘记录的改动，合同须含一条健壮性验收'];m=[k for k in ks if k not in t];print('missing',m);sys.exit(1 if m else 0)"
+for f in references/*.md; do cmp "$f" "skills/context-strict/$f" || exit 1; done
+python3 -c "import json,sys;d=json.load(open('docs/agents/standing-authorizations.json',encoding='utf-8'));it={i['id']:i for i in d['items']};sys.exit(0 if set(it)=={'SA-PUSH-PR','SA-CI-TIMEOUT','SA-THRESHOLD'} and 'main' in it['SA-PUSH-PR']['deny_refs'] and it['SA-CI-TIMEOUT']['max']==20 and it['SA-THRESHOLD']['max_ratio']==1.5 else 1)"
+```
+
+Pass: every command exits 0. `references/preseal-checks.md` carries every preseal check, including the mandatory
+robustness acceptance for changes that read persisted records (restored after review F-01); every reference file is
+mirrored byte for byte; the standing authorizations never include merge and keep their numeric bounds.
+
+### R-030 Orca 等待脚本一次调用确认并等待，验收的工作区判定与校验器一致
+
+Added: W1-O (contract v2).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_orca_wait tests.test_coordinator_ops
+test -f scripts/orca_wait.py && ! grep -n -- '--types' scripts/orca_wait.py
+```
+
+Pass: `OK` and no `--types` in the script. `scripts/orca_wait.py` never sends a separate acknowledgement and never filters
+by type (the gap that let Orca inject prompts into the coordinator input); `coordinator_ops accept` judges a dirty
+workspace with the worker-report verifier's own exclusions.
