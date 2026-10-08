@@ -302,3 +302,53 @@ preflight peak memory against an import-only baseline measured in the same run (
 most 32 MiB for small and grown inputs, growth at most 8 MiB); its git-call and CPU
 assertions are unchanged. The expired-rule case controls the clock with a mock and does
 not sleep.
+
+### R-026 分发测试从 pyproject.toml 读取 Strict 版本号
+
+Added: IMP-B (contract v1, David confirmed the seal on 2026-10-08).
+
+```sh
+grep -c '0\.13\.' tests/test_distribution.py; python3 -m unittest tests.test_distribution
+```
+
+Pass: the `grep -c` count is `0` (no hard-coded Strict version remains in the file) and the
+unittest run is `OK`. The worker-report and acceptance registration tests read the
+version from `pyproject.toml`, so a version bump changes only `pyproject.toml`,
+`skill-package.json` and their synchronized copies.
+
+### R-027 封印前影响面预检脚本只读且行号准确
+
+Added: IMP-PRECHECK (contract v1).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_contract_precheck
+```
+
+Pass: `OK`. `scripts/contract_precheck.py` reports literal hits with correct line numbers,
+maps `--path` to the tests that import it, records non-zero exit codes for `--run`, leaves
+`git status --porcelain` unchanged, and exits 2 with no partial output on bad arguments.
+
+### R-028 协调者入账、检查点与验收一条命令且去重
+
+Added: IMP-OPS (contract v1).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_coordinator_ops
+```
+
+Pass: `OK`. Running `ingest` twice leaves one main item and exactly the report's number of
+deferred items; `checkpoint` without evidence exits 2; `accept` never records `pass`
+when a check exits non-zero or the workspace is dirty.
+
+### R-029 Orca 规程含封印前检查与验收深度，审核者说明含验收深度
+
+Added: IMP-DOC (contract v1, David confirmed the seal on 2026-10-08).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_dispatch_spec
+```
+
+Pass: `OK`. The reviewer dispatch text states the acceptance depth (targeted tests plus one
+sampled `python3` full suite; interpreter and package matrix left to CI), and
+`references/orca.md` keeps every pre-existing paragraph while carrying sections A, C, D,
+E and G.
