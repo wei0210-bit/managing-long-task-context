@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STRICT = ROOT / "skills" / "context-strict"
+
+
+def _project_version() -> str:
+    project = re.search(
+        r"(?ms)^\[project\]\s*\n(.*?)(?=^\[|\Z)",
+        (ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+    ).group(1)
+    return re.search(r'^version\s*=\s*"([^"]+)"\s*$', project, re.MULTILINE).group(1)
+
 
 COPIED_FILES = (
     Path("pyproject.toml"),
@@ -199,9 +209,10 @@ class ContextStrictDistributionTests(unittest.TestCase):
             self.assertEqual(copied.count(relative), 1)
             self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
             self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
-        self.assertEqual(declaration["skill_version"], "0.13.3")
-        self.assertEqual(declaration["package_version"], "0.13.3")
-        self.assertIn('version = "0.13.3"', (ROOT / "pyproject.toml").read_text())
+        version = _project_version()
+        self.assertEqual(declaration["skill_version"], version)
+        self.assertEqual(declaration["package_version"], version)
+        self.assertEqual(declaration["skill_version"], declaration["package_version"])
 
     def test_acceptance_registration_version_and_exports(self) -> None:
         declaration = json.loads((ROOT / "skill-package.json").read_bytes())
@@ -211,8 +222,9 @@ class ContextStrictDistributionTests(unittest.TestCase):
             self.assertEqual(copied.count(relative), 1)
             self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
             self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
-        self.assertEqual(declaration["skill_version"], "0.13.3")
-        self.assertEqual(declaration["package_version"], "0.13.3")
+        version = _project_version()
+        self.assertEqual(declaration["skill_version"], version)
+        self.assertEqual(declaration["package_version"], version)
         result = subprocess.run([sys.executable, "-c", "import managing_long_task_context as m; "
                                 "assert all(callable(getattr(m, n, None)) for n in "
                                 "('record_acceptance', 'latest_acceptance', 'acceptance_status'))"],
