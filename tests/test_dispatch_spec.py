@@ -245,6 +245,29 @@ class DispatchSpecTests(unittest.TestCase):
                 self.assertEqual(copied.count(Path(relative)), 1)
                 self.assertEqual(independent.count(Path(relative)), 1)
 
+    def test_reviewer_acceptance_depth_requires_targeted_and_sampled_full_suite(self) -> None:
+        output = self.output(role="reviewer").decode()
+        for requirement in (
+            "验收深度：审核者跑与改动相关的定向测试",
+            "在 python3 上抽查一次仓库全量",
+            "双解释器与包矩阵交给 CI",
+            "协调者在集成提交上复跑合同命令",
+            "CI 全绿才合并",
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, output)
+        expected = "\n".join(f"- {item['id']}: {item['criterion']}"
+                             for item in self.contract["acceptance_criteria"])
+        observed = output.split("Acceptance criteria, copied verbatim from the sealed contract:\n\n", 1)[1]
+        observed = observed.split("\n\nOpen and read the original contract", 1)[0]
+        self.assertEqual(observed, expected)
+
+    def test_executor_does_not_receive_reviewer_acceptance_depth_paragraph(self) -> None:
+        output = self.output(role="executor").decode()
+        self.assertNotIn("验收深度：", output)
+        self.assertNotIn("在 python3 上抽查一次仓库全量", output)
+        self.assertNotIn("双解释器与包矩阵交给 CI", output)
+
 
 if __name__ == "__main__":
     unittest.main()

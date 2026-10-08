@@ -90,7 +90,11 @@ def render_spec(args: argparse.Namespace) -> str:
     owned = args.owned_paths if args.owned_paths is not None else contract.get("scope", [])
     if args.role == "reviewer":
         ownership = "Read-only review; no implementation paths may be edited."
-        change = "Review the sealed scope against the baseline and original evidence."
+        change = (
+            "Review the sealed scope against the baseline and original evidence.\n\n"
+            "验收深度：审核者跑与改动相关的定向测试，并在 python3 上抽查一次仓库全量；"
+            "双解释器与包矩阵交给 CI；协调者在集成提交上复跑合同命令；CI 全绿才合并。"
+        )
     else:
         ownership = "\n".join(f"  - {item}" for item in owned) or "  - None declared."
         change = "Implement only the sealed scope:\n" + "\n".join(

@@ -312,3 +312,51 @@ returns `PROJECT_IDENTITY_UNAVAILABLE`. Existing schema 1 stores remain unchange
 no migration is provided. Source paths are relative on disk and absolute in
 outputs/callbacks; `record_digest` must not be recomputed from restored output.
 Rule execution keeps its absolute `store_root` restriction.
+
+## 封印前影响面检查（A）
+
+协调者在封印合同前，对计划改动的字面量、符号和文件运行
+`scripts/contract_precheck.py`，将命中的测试逐项核对：要么列入合同 scope，
+要么在合同里写明该测试为何不受影响。命中结果只是影响面线索，不能替代核对。
+
+凡合同含数值阈值，须在每个要求的解释器上实测，并把各解释器的实测值写进
+合同后再封印。设计要求须追到所有受影响的函数，将这些函数及其文件列入
+scope，不能只列入口或最先发现的函数。
+
+## 读盘功能的健壮性验收条（C）
+
+凡读取任务库、报告或其他落盘记录的改动，合同须含一条健壮性验收：对类型
+错误、缺键、不可读、嵌套过深等异常形状，返回 `unknown` 或明确错误码，
+不得抛出未捕获异常。验收须实际覆盖这些失败路径并保留命令与输出，不能只凭
+正常记录的成功读取判定通过。
+
+## 并行派工与共用件归属（D）
+
+owned paths 互不相交的任务，各用自己的工作树并发派工；同一工作树同一时间
+只能有一个在途任务。协调者先核对所有任务的 owned paths 再派出独立任务。
+
+共用件 `src/managing_long_task_context/__init__.py`、`pyproject.toml`、
+`skill-package.json`、`tests/test_distribution.py` 以及 `skills/` 镜像，
+同一轮只许一条线改。版本号与镜像同步由协调者在集成时统一做，避免并行分支
+各自改写共用件；执行者不得因 owned paths 扩大而越过封印 scope。
+
+## 验收深度与集成复跑（E）
+
+执行者跑仓库全量（两个要求的解释器）与包内测试，并保留每次检查的实际输出。
+审核者跑与改动相关的定向测试，并在 `python3` 上抽查一次仓库全量；
+双解释器与包矩阵交给 CI。审核者仍须从原始合同、代码和输出核对执行者主张，
+抽查不免除合同明确要求的检查。
+
+协调者在集成提交上复跑合同命令，生成该提交的验收证据；CI 全绿才合并。
+执行者自检、审核者报告、协调者复跑和 CI 结果分别记录，未运行的检查不得记为通过。
+
+## 派工等待防休眠（G）
+
+协调者等待派工结果时，用 `caffeinate -i` 包住等待命令，例如：
+
+```sh
+caffeinate -i orca orchestration check --wait --types "worker_done,escalation,question" --timeout-ms 900000 --json
+```
+
+防休眠只持续到被包住的等待命令结束，等待结束即解除，不启动脱离等待命令的
+常驻防休眠进程。等待结果仍按 Orca 的派工状态和消息处理规则判断。
