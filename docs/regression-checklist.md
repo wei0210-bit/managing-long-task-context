@@ -346,9 +346,12 @@ Added: IMP-DOC (contract v1, David confirmed the seal on 2026-10-08).
 
 ```sh
 PYTHONPATH=src:tests python3 -m unittest tests.test_dispatch_spec
+grep -c -E '^## .*（[ACDEG]）$' references/orca.md
+cmp references/orca.md skills/context-strict/references/orca.md
 ```
 
-Pass: `OK`. The reviewer dispatch text states the acceptance depth (targeted tests plus one
+Pass: the unittest run is `OK`, the `grep -c` count is `5` (sections A, C, D, E and G are
+present), and `cmp` prints nothing. The reviewer dispatch text states the acceptance depth (targeted tests plus one
 sampled `python3` full suite; interpreter and package matrix left to CI), and
 `references/orca.md` keeps every pre-existing paragraph while carrying sections A, C, D,
 E and G.
