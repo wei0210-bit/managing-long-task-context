@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -69,23 +70,45 @@ def parse_arguments(argv=None):
     return parser, args
 
 
+def test_files(repo):
+    """Inventory tests explicitly: never silently skip links or listing errors."""
+    tests_dir = repo / "tests"
+    try:
+        root_mode = tests_dir.lstat().st_mode
+    except FileNotFoundError:
+        return []  # An absent tests directory remains an ordinary empty scan.
+    if stat.S_ISLNK(root_mode):
+        raise ValueError(f"{tests_dir}: symlink is not allowed")
+    if not stat.S_ISDIR(root_mode):
+        raise ValueError(f"{tests_dir}: tests root must be a directory")
+    pending = [tests_dir]
+    candidates = []
+    while pending:
+        directory = pending.pop()
+        with os.scandir(directory) as entries:
+            paths = sorted(directory / entry.name for entry in entries)
+        for path in paths:
+            mode = path.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"{path}: symlink is not allowed")
+            if stat.S_ISDIR(mode):
+                pending.append(path)
+            elif path.name.startswith("test_") and path.suffix == ".py":
+                if not stat.S_ISREG(mode):
+                    raise ValueError(f"{path}: test must be a regular file")
+                candidates.append(path)
+    return sorted(candidates)
+
+
 def scan(repo, terms, paths):
     """Collect literal lines and the union of affected test modules."""
     files = []
-    tests_dir = repo / "tests"
-    if tests_dir.exists():
-        def raise_listing_error(error):
-            raise error
-
-        candidates = []
-        for directory, dirnames, filenames in os.walk(tests_dir, onerror=raise_listing_error):
-            candidates.extend(Path(directory) / name for name in dirnames + filenames
-                              if name.startswith("test_") and name.endswith(".py"))
-        for path in sorted(candidates):
-            if not path.resolve().is_relative_to(tests_dir.resolve()):
-                raise ValueError(f"test file escapes tests/: {path}")
-            files.append((path.relative_to(repo).as_posix(),
-                          path.read_text(encoding="utf-8").splitlines()))
+    for path in test_files(repo):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError) as exc:
+            raise ValueError(f"{path}: {exc}") from exc
+        files.append((path.relative_to(repo).as_posix(), lines))
     term_results = []
     path_results = []
     affected = set()
@@ -135,7 +158,11 @@ def main(argv=None):
             if any(entry["exit_code"] != 0 for entry in result["run"]):
                 result["status"] = "failed"
     except (OSError, UnicodeError, ValueError) as exc:
-        parser.error(str(exc))
+        # Operational failures must name the affected path on one stderr line,
+        # without argparse's usage banner or any partial JSON on stdout.
+        message = str(exc).replace("\r", "\\r").replace("\n", "\\n")
+        print(f"contract_precheck.py: error: {message}", file=sys.stderr)
+        return 2
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 
