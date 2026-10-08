@@ -332,7 +332,11 @@ empty stdout instead of reporting `ok` without hits (independent review F-01). T
 fail-closed exit applies to every case where the complete set of test files cannot be
 established: directory or file symlinks (symlinks are never followed), dangling links,
 symlink loops, unreadable or non-UTF-8 test files, `tests` being a regular file, and a
-path that disappears between listing and reading (re-review F-02).
+path that disappears between listing and reading (re-review F-02). Candidate test files
+are every `test*.py` under `tests/` (unittest's default pattern); a differential test runs
+`unittest.TestLoader().discover` on name-variant fixtures and requires every discovered
+module to appear in the inventory and in `--run`. Hit line numbers count physical lines
+only, and a path argument that cannot be resolved exits 2 (third review F-03 to F-05).
 
 ### R-028 协调者入账、检查点与验收一条命令且去重
 
