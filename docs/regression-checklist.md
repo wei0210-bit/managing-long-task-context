@@ -328,7 +328,11 @@ Pass: `OK`. `scripts/contract_precheck.py` reports literal hits with correct lin
 maps `--path` to the tests that import it, records non-zero exit codes for `--run`, leaves
 `git status --porcelain` unchanged, and exits 2 with no partial output on bad arguments.
 An unreadable tests root or nested directory makes both the scan and `--run` exit 2 with
-empty stdout instead of reporting `ok` without hits (independent review F-01).
+empty stdout instead of reporting `ok` without hits (independent review F-01). The same
+fail-closed exit applies to every case where the complete set of test files cannot be
+established: directory or file symlinks (symlinks are never followed), dangling links,
+symlink loops, unreadable or non-UTF-8 test files, `tests` being a regular file, and a
+path that disappears between listing and reading (re-review F-02).
 
 ### R-028 协调者入账、检查点与验收一条命令且去重
 
