@@ -63,7 +63,14 @@ Acceptance conclusions are read through `brief()` and the status command;
 
 ## Dispatch spec
 
-Every dispatch spec is self-contained and contains:
+Generate the spec from the sealed contract with `scripts/dispatch_spec.py`;
+add only role-whitelisted context and the live Orca preamble:
+
+```sh
+python3 scripts/dispatch_spec.py --store /absolute/project/.prime/context --task-id TASK-001 --coordinator-workspace /absolute/project --package-root /absolute/pinned-package --role executor --expected-manifest <retained-manifest-sha256> --baseline-commit <baseline-commit> --owned-paths references/orca.md
+```
+
+The generated dispatch spec is self-contained and contains:
 
 1. Objective, the concrete change, constraints, and file ownership (which paths this
    worker may edit). Parallel executors each use their own worktree; the coordinator
@@ -80,12 +87,6 @@ Every dispatch spec is self-contained and contains:
 6. The pinned package path, its expected manifest digest, and the version-proof command.
 
 Choose any further context from the role whitelist in `agent-role-handoff.md`.
-
-Immediately after publishing a contract, run `context_doctor.py init-binding` for
-that task. Publishing does not initialize the binding; without this step,
-`checked_resume()` returns `BINDING_MISSING`. See
-[#55](https://github.com/wei0210-bit/managing-long-task-context/issues/55); this is
-a procedure requirement only.
 
 Follow the complete `init-binding` command in SKILL.md section 1, immediately
 between publication and release. Use the independently retained manifest digest
@@ -191,17 +192,18 @@ completion gate. This procedure does not enable the contract's
 
 ## Coordinator: ingest and deduplicate
 
-This is a manual procedure for the coordinator, not enforced by code.
+Only the coordinator uses `scripts/coordinator_ops.py ingest` after checking the
+report against originals. It deduplicates the main `report-ingest` observation by
+`orca_dispatch_id`, then appends each deferred suggestion in report order with its
+`report_item` sequence number. A repeat invocation writes only missing items:
 
-1. Before ingesting a report, look in the snapshot for a main item with that report's
-   `orca_dispatch_id`.
-2. If there is none, record one main item:
-   `record(task_id, item_type="observation", metadata={"orca_dispatch_id": ..., "report_sha256": ..., "role": "report-ingest"}, ...)`.
-3. Then record each entry of `deferred_suggestions` as its own item, in report order.
-   Its metadata carries the same `orca_dispatch_id` and a `report_item` sequence number,
-   and its content is marked `{"deferred": true}`.
-4. If the main item exists but there are fewer suggestion items than the report has,
-   record only the missing sequence numbers. If all are present, write nothing.
+Use each subcommand’s `--help` for its required arguments.
+
+After resolving report blockers, use `scripts/coordinator_ops.py settle` to clear
+only blocking `report-ingest` metadata and record `resolved_by`; this does not
+clear other blockers or prove acceptance. Record completed work, evidence, blockers
+and the next action with `scripts/coordinator_ops.py checkpoint`:
+
 
 When a review report covers multiple tasks, record each suggestion under the
 `task_id` marked for that entry in the report. If an entry has no `task_id`, record
@@ -262,14 +264,21 @@ Keep these rules in this package; do not write them into Orca's own skill direct
 ## Coordinator: acceptance-record workflow (Strict 0.12.0)
 
 1. Keep the worker worktrees for comparison. On the integration commit, rerun
-   the sealed commands in the coordinator workspace and write a fresh report
-   with output files and hashes there; a worker report is only a review lead.
-2. Construct the host-bound `worker_report_handlers` for that workspace. Call
-   `record_acceptance` there with the sealed evidence map, `recorded_by`, and
-   `watched_paths` from the dispatch's `owned_paths`. Natural-language scope
-   text is not a path list. Completion runs inside the recorder before its
-   writer lock, then it checks contract, ledger, HEAD, dirty state and watched
-   content again; `RECORD_RACE` or `EVIDENCE_CHANGED` means no record was appended.
+   the sealed commands in the coordinator workspace and retain each check's
+   `<name>.log` and `<name>.exit` under that workspace; a worker report is only
+   a review lead. Before `accept`, satisfy section E’s final-commit and upstream checks.
+2. Use `scripts/coordinator_ops.py accept` in that workspace with the pinned
+   package, each sealed command's retained log, `recorded_by`, and repeated
+   `--watched-path` values from the dispatch's `owned_paths`. Natural-language
+   scope text is not a path list. The tool builds the host-bound handlers,
+   writes a fresh report with output hashes, calls `record_acceptance`, and
+   records an acceptance checkpoint. It consumes prior outputs; it does not
+   run the commands or push the branch:
+
+   Repeat `--check 'name=command'` for every sealed command and pass its exact
+   text. Completion runs inside the recorder before its writer lock, then it
+   checks contract, ledger, HEAD, dirty state and watched content again;
+   `RECORD_RACE` or `EVIDENCE_CHANGED` means no record was appended.
 3. Immediately publish the completed record and retained evidence with
    `publish_context` under the existing publication authorization. Publish
    before a handoff or branch switch; the receiving branch records its own
@@ -338,7 +347,10 @@ owned paths 互不相交的任务，各用自己的工作树并发派工；同�
 双解释器与包矩阵交给 CI。审核者仍须从原始合同、代码和输出核对执行者主张，
 抽查不免除合同明确要求的检查。
 
-协调者在集成提交上复跑合同命令，生成该提交的验收证据；CI 全绿才合并。
+合同中相对基线的范围检查命令，须在执行者工作树的最终提交上复跑并保留输出；
+集成工作树的差异不能代替这项检查。协调者在集成提交上复跑合同命令，生成
+该提交的验收证据；运行 `scripts/coordinator_ops.py accept` 前，该分支须已
+推送并设置上游（upstream），推送遵循适用授权；CI 全绿才合并。
 执行者自检、审核者报告、协调者复跑和 CI 结果分别记录，未运行的检查不得记为通过。
 
 ## 派工等待防休眠（G）
@@ -346,43 +358,24 @@ owned paths 互不相交的任务，各用自己的工作树并发派工；同�
 派工与等待须接电源、不合盖。`caffeinate -i -s` 中，`-s` 只在接交流电时
 有效，`-i` 只防空闲休眠；二者都挡不住合盖与低电量休眠。
 
-处理完本批消息后，把确认与等待放在一次调用中（不带 `--types`）：
+派工前用 `scripts/orca_wait.py power-check` 检查电源；处理完本批消息后，
+用 `scripts/orca_wait.py` 把确认与等待放在一次调用中（不带 `--types`）：
 
 ```sh
-caffeinate -i -s <orca> orchestration check --terminal <coordinator-terminal> --ack <delivery> --wait --timeout-ms 900000 --json
+python3 scripts/orca_wait.py power-check
+python3 scripts/orca_wait.py --orca <orca> --run <run-id> --ack <delivery> --timeout-ms 900000 --max-minutes 60 --log /absolute/retained/orca-wait.jsonl
 ```
 
-`<delivery>` 必须来自当前会话本次 `check` 返回的 delivery id。确认与等待
-分两次调用或带 `--types` 时，心跳与状态消息可能被注入协调者输入框；因此
-使用一次 `check --ack <delivery> --wait`，读回消息后按实际派工状态处理。
-防休眠只持续到被包住的等待命令结束，不启动脱离等待命令的常驻防休眠进程。
+`<delivery>` 必须来自当前会话本次 `check` 返回的 delivery id。脚本调用一次
+`check --ack <delivery> --wait`，不按类型过滤，并自动在下一次等待中确认仅含
+心跳或状态的批次；有可操作消息时输出完整批次，协调者处理后再传入本次 id。
+确认与等待分两次调用或带 `--types` 时，心跳与状态消息可能被注入输入框。
+脚本负责电源检查、有界重试和随等待结束退出的 `caffeinate`，读回消息后仍须
+按实际派工状态处理；防休眠不启动脱离等待命令的常驻进程。
 
 ## David 授权与阻塞提醒（H）
 
-需要 David 决定的事项在封印前一次问完。David 在协调者会话亲自点选或回复
-的原文，由该协调者写入合同 constraints 的一行 `DAVID_AUTH: {json}`。
-JSON 的 `question`、`choice` 保留逐字原文，`date` 为 UTC 日期，`session`
-为封印者本人的会话号，`coordinator` 等于 `seal.confirmed_by`，
-`contract_version` 等于合同 `version`，`covers` 写明唯一覆盖的那项改动。
-各字段必须非空且相符；协调者以自己的名义封印，不再代填 David。
-
-执行者和审核者按全局「点选授权」规则核对原件，仅在 `covers` 所述范围内
-视为 David 直接授权，不能扩大到其他改动。2026-10-08 之前以 David 名义封印
-且正文保留问题、所选项和日期原文的旧合同，按全局兼容规则继续有效。
-
-项目级常设授权只由协调者使用，永不含合并。协调者在封印前读取
-`docs/agents/standing-authorizations.json`，核对所用条目的限制，并在合同
-constraints 写入一行：
-
-```text
-STANDING_AUTH: docs/agents/standing-authorizations.json@<commit> sha256=<hex>
-```
-
-`<commit>` 固定清单所在提交，`<hex>` 是该提交清单原件字节的 SHA-256。
-执行者核对提交、原件摘要和适用条目；执行者不得自行调用协调者的常设授权。
-任一授权字段、摘要、条件或覆盖范围不符，按本文 “When blocked” 停止并
-联系协调者，不得自行推断。`publish_context` 推默认分支不属于常设推送，
-仍需该动作的独立授权；推送非默认分支和开 PR 也不能扩展为合并或自动合并。
+David 点选授权、项目常设授权及其字段、原件与封印核对规则，统一见 [封印前检查](preseal-checks.md#授权前置与封印读回)。
 
 流水线因待答问题、登录失效、usage limit 或需人按键而阻塞，协调者按全局
 规则「阻塞提醒」在停下前向 David 手机推送项目、任务号和需要他做的事；
