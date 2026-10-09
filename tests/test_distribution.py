@@ -51,6 +51,15 @@ COPIED_FILES = (
     Path("references/host-native.md"),
     Path("scripts/handoff_preflight.py"),
     Path("scripts/dispatch_spec.py"), Path("tests/test_dispatch_spec.py"),
+    Path("scripts/contract_precheck.py"),
+    Path("tests/test_contract_precheck.py"),
+    Path("tests/test_contract_precheck_outdir.py"),
+    Path("scripts/coordinator_ops.py"),
+    Path("tests/test_coordinator_ops.py"),
+    Path("scripts/orca_wait.py"),
+    Path("tests/test_orca_wait.py"),
+    Path("scripts/context_skill_router.py"),
+    Path("tests/test_context_skill_router.py"),
     Path("scripts/context_status.py"), Path("tests/test_resume_gate.py"),
     Path("tests/test_update_item_verified_at.py"),
     Path("tests/test_brief_rendering.py"),
@@ -175,6 +184,18 @@ class ContextStrictDistributionTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_coordinator_tools_are_required_and_mirrored(self) -> None:
+        declaration = json.loads((STRICT / "skill-package.json").read_bytes())
+        for relative in (
+            "scripts/contract_precheck.py", "tests/test_contract_precheck.py",
+            "tests/test_contract_precheck_outdir.py", "scripts/coordinator_ops.py",
+            "tests/test_coordinator_ops.py", "scripts/orca_wait.py", "tests/test_orca_wait.py",
+            "scripts/context_skill_router.py", "tests/test_context_skill_router.py",
+        ):
+            with self.subTest(path=relative):
+                self.assertEqual(declaration["required_paths"].count(relative), 1)
+                self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
 
     def test_distribution_includes_truth_source_files(self) -> None:
         required = (

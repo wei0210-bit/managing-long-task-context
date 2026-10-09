@@ -23,6 +23,15 @@
 否则用 `grep -rn` 检索 `tests/` 和相关源文件，保存命中及逐项解释。
 命中只是影响面线索：将受影响文件和检查纳入 scope，或说明为何不受影响。
 
+```sh
+python3 scripts/contract_precheck.py --repo /absolute/project --term 'changed_symbol' --path 'src/changed_module.py'
+PYTHONPATH=/absolute/project/src:/absolute/project/tests python3 scripts/contract_precheck.py --repo /absolute/project --term 'changed_symbol' --run --out-dir /absolute/retained/precheck
+```
+
+`--repo` 使用仓库绝对根路径；`--term`、`--path` 可重复，路径相对该根目录。
+默认只扫描；`--run` 按 unittest 实际发现的文件运行命中测试，调用者须提供
+正确的导入环境。执行 `--run` 时须显式提供 `--out-dir`，并逐项保留命中、运行结果与范围解释。
+
 从入口追到所有受影响函数，再追到这些函数的全部调用方、包装器与公共入口，
 将需要改动的函数、文件、依赖测试和生成步骤一起纳入范围，完成范围闭包。
 owned paths 是可写上限，不会自行扩大 scope；封印后发现漏项须返回协调者。
@@ -47,6 +56,10 @@ owned paths 是可写上限，不会自行扩大 scope；封印后发现漏项�
 在固定基线上运行，确认因待实现行为而红并保留输出，再允许实现；环境或
 测试脚本自身出错不算有效的红证据。保留原有测试与断言，失败不得自行削弱。
 
+冻结验收测试前，须在合同要求的每个解释器上各运行一次并保留输出。
+合同引用的设计文件与依据文件不得放在会被清理的临时目录，须放在保留位置并把 sha256 写进合同。
+给 Codex 的派工与审核说明避免攻击式措辞；需要对抗验证时改用代码走查加非对抗测试，或换用不受该过滤影响的审核者。
+
 凡读取任务库、报告或其他落盘记录的改动，合同须含一条健壮性验收：对类型
 错误、缺键、不可读、嵌套过深等异常形状，返回 `unknown` 或明确错误码，
 不得抛出未捕获异常。验收须实际覆盖这些失败路径并保留命令与输出，不能只凭
@@ -65,17 +78,29 @@ owned paths 是可写上限，不会自行扩大 scope；封印后发现漏项�
 
 协调者把需要 David 拍板的事项在封印前一次问完，逐项给出方案、好处、风险
 与建议；没有回答不能推断授权。David 在协调者会话的直接点选或回复按
-[David 授权与阻塞提醒](orca.md#david-授权与阻塞提醒h) 的格式记录为
-`DAVID_AUTH: {json}` 一行，保留逐字问题与选择，以协调者自己的名义封印。
+以下格式记录为合同 constraints 中的 `DAVID_AUTH: {json}` 一行，以协调者
+自己的名义封印，不再代填 David。JSON 字段与核对规则如下：
+
+- `question`、`choice`：David 看到的问题与亲自点选或回复的选择，逐字保留。
+- `date`：UTC 日期；`session`：封印者本人的会话号。
+- `coordinator`：等于 `seal.confirmed_by`；`contract_version`：等于合同 `version`。
+- `covers`：写明这条授权覆盖的那一项改动，只覆盖所列事项。
+
+所有字段必须非空且相符。执行者和审核者读回原件，在覆盖范围内视为 David
+直接授权，不得扩展；其他会话转述的「David 已同意」不算。2026-10-08 之前
+以 David 名义封印且正文保留问题、所选项与日期原文的旧合同继续有效。
 
 使用项目级常设授权前，协调者读取清单原件、核对适用项目与条件，并在合同
 constraints 写一行 `STANDING_AUTH: docs/agents/standing-authorizations.json@<commit> sha256=<hex>`。
-提交与 SHA-256 固定清单原件，不能用新清单代替封印时的依据。常设授权只由
+`<commit>` 固定清单所在提交，`<hex>` 是该提交清单原件字节的 SHA-256；
+不能用新清单代替封印时的依据。常设授权只由
 协调者使用，永不含合并；超出清单边界的事项仍须 David 直接授权。
+执行者核对提交、原件摘要与适用条目，不得自行调用协调者的常设授权。
+`publish_context` 推默认分支不属于常设推送，仍需该动作的独立授权；
+推送非默认分支和开 PR 也不能扩展为合并或自动合并。
 
 封印后打开落盘 `task-contract.json`，与草稿逐条比对 objective、scope、
 constraints、全部验收标准与命令、运行环境、授权字段、版本和 seal。
-核验完整性摘要以及 `coordinator == seal.confirmed_by`、
-`contract_version == version`；授权所有字段必须非空且 covers 仅覆盖所列事项。
-执行者也核对授权原件、提交及摘要；缺失、不符、过期或无法读回时，按
-`references/orca.md` 的 “When blocked” 停止并联系协调者，不能自行放宽检查。
+核验完整性摘要与上述授权字段、提交、摘要、适用条件及覆盖范围。
+执行者也核对授权原件、提交及摘要；缺失、不符、过期或无法读回时，
+停止执行并联系协调者处理，不能自行推断或放宽检查。
