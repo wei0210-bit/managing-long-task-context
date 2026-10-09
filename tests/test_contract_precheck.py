@@ -69,6 +69,7 @@ class FixtureCase(unittest.TestCase):
         self.repo = self.base / "Repo"
         self.repo.mkdir()
         self.trace = self.base / "trace"
+        self.import_trace = self.base / "imports"
         self.out = self.base / "logs"
         self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         # Fixture controls explicitly choose their inherited search path. The CLI
@@ -76,6 +77,7 @@ class FixtureCase(unittest.TestCase):
         self.env.pop("PYTHONPATH", None)
         self.env["PYTHONDONTWRITEBYTECODE"] = "1"
         self.env["FIXTURE_TRACE"] = str(self.trace)
+        self.env["FIXTURE_IMPORT_TRACE"] = str(self.import_trace)
         self.command(["git", "init", "-q", str(self.repo)])
 
     def command(self, argv, env=None):
@@ -90,6 +92,15 @@ class FixtureCase(unittest.TestCase):
         if isinstance(content, bytes):
             target.write_bytes(content)
         else:
+            if target.suffix == ".py":
+                # Observe the module's own import, independently of any loader.
+                # Append so literal-hit and physical-line fixtures keep their
+                # original positions. Preflight-only PIDs never count as runs.
+                content += textwrap.dedent('''
+                    import os as _fixture_os
+                    with open(_fixture_os.environ['FIXTURE_IMPORT_TRACE'], 'a', encoding='utf-8') as _fixture_stream:
+                        _fixture_stream.write(str(_fixture_os.getpid()) + '\\t' + _fixture_os.path.realpath(__file__) + '\\n')
+                ''')
             target.write_text(content, encoding="utf-8")
         return target
 
@@ -98,29 +109,12 @@ class FixtureCase(unittest.TestCase):
             import os
             import unittest
             # {marker}
-            # Attach the loader's actual entry to each case without changing the
-            # suite. In particular, a helper's definition file is not its entry.
-            if not getattr(unittest.TestLoader, '_fixture_entry_traced', False):
-                original_load = unittest.TestLoader.loadTestsFromModule
-                def traced_load(loader, module, *args, **kwargs):
-                    suite = original_load(loader, module, *args, **kwargs)
-                    def attach(items):
-                        for item in items:
-                            if isinstance(item, unittest.TestSuite):
-                                attach(item)
-                            else:
-                                item._fixture_entry = module.__file__
-                    attach(suite)
-                    return suite
-                unittest.TestLoader.loadTestsFromModule = traced_load
-                unittest.TestLoader._fixture_entry_traced = True
             class {name}(unittest.TestCase):
                 TOKEN = {token!r}
                 def test_observed(self):
                     with open(os.environ['FIXTURE_TRACE'], 'a', encoding='utf-8') as stream:
                         stream.write(self.TOKEN + '\\t' + os.path.realpath(__file__) + '\\t'
-                                     + self.id() + '@' + str(os.getpid()) + '\\t'
-                                     + os.path.realpath(self._fixture_entry) + '\\n')
+                                     + self.id() + '@' + str(os.getpid()) + '\\n')
                     self.assertEqual({fail!r}, False)
         ''').format(marker=marker, name=name, token=token, fail=fail)
 
@@ -144,6 +138,24 @@ class FixtureCase(unittest.TestCase):
 
     def reset_trace(self):
         self.trace.write_text("", encoding="utf-8")
+        self.import_trace.write_text("", encoding="utf-8")
+
+    def execution_groups(self, selection):
+        # Imports identify entries; executed methods identify definition sources.
+        # Intersect by inode, not module names, and only join PIDs that actually
+        # ran methods. Binding preflights may import the same entry in other PIDs.
+        imports = {}
+        for line in self.import_trace.read_text(encoding="utf-8").splitlines():
+            pid, source = line.split("\t")
+            imports.setdefault(pid, set()).add(self.identity(source))
+        selected = self.identities(selection)
+        groups = {}
+        for row in self.rows():
+            pid = row[2].rsplit("@", 1)[1]
+            group = groups.setdefault(pid, {"entries": imports.get(pid, set()) & selected,
+                                            "sources": set()})
+            group["sources"].add((row[0], self.identity(row[1])))
+        return groups
 
     def git_status(self):
         result = self.command(["git", "status", "--porcelain", "--untracked-files=all"])
@@ -263,14 +275,9 @@ class FixtureCase(unittest.TestCase):
         # These two public arrays correspond by file; child scheduling does not.
         self.assertEqual(result["test_modules"],
                          [modules_by_entry[self.identity(path)] for path in result["test_files"]])
-        # The trace records the actual loader entry as well as the definition and
-        # PID. Neither JSON sorting nor child execution order establishes binding.
-        groups = {}
-        for row in self.rows():
-            pid = row[2].rsplit("@", 1)[1]
-            group = groups.setdefault(pid, {"entries": set(), "sources": set()})
-            group["entries"].add(self.identity(row[3]))
-            group["sources"].add((row[0], self.identity(row[1])))
+        # Module import observations bind each executing PID to its selected
+        # entry without inspecting or modifying the implementation's loader.
+        groups = self.execution_groups(selection)
         self.assertEqual(len(groups), len(selection), "one subprocess per selected file")
         # Consume exactly one PID group per entry; identical source sets from
         # shared helpers still belong to distinct entries and keep multiplicity.
@@ -410,12 +417,25 @@ import json, pathlib, subprocess, sys
 config = json.loads(sys.argv[1])
 child = r"""
 import os, sys, unittest
+original_load = unittest.TestLoader.loadTestsFromModule
 target = os.stat(sys.argv[1])
 class Loader(unittest.TestLoader):
     def _match_path(self, path, full_path, pattern):
         source = os.stat(full_path)
         return (source.st_dev, source.st_ino) == (target.st_dev, target.st_ino)
+if sys.argv[2] == 'cached':
+    # Isolated reference implementation control: freeze the stdlib base method
+    # before fixture imports. Fixture instrumentation must not require a later
+    # dynamic lookup of that method.
+    class CachedLoader(Loader):
+        def loadTestsFromModule(self, module, *args, **kwargs):
+            return original_load(self, module, *args, **kwargs)
+    Loader = CachedLoader
 suite = Loader().discover('tests')
+if sys.argv[3] == 'wrong_source' and sys.argv[1].endswith('test_alpha.py'):
+    import runpy
+    foreign = runpy.run_path('src/impostor.py')
+    suite = unittest.TestSuite([foreign['Case']('test_observed')])
 result = unittest.TextTestRunner().run(suite)
 sys.exit(0 if result.wasSuccessful() else 1)
 """
@@ -423,7 +443,11 @@ out = pathlib.Path(config['out'])
 out.mkdir(parents=True, exist_ok=True)
 runs = []
 for entry in reversed(sorted(config['entries'])):
-    completed = subprocess.run([sys.executable, '-B', '-c', child, entry],
+    actual = entry
+    if config.get('fault') == 'duplicate' and entry.endswith('test_shared_two.py'):
+        actual = 'tests/test_shared_one.py'
+    completed = subprocess.run([sys.executable, '-B', '-c', child, actual,
+                                config.get('loader', 'native'), config.get('fault', 'none')],
                                capture_output=True)
     log = out / (str(len(runs)) + '.log')
     log.write_bytes(completed.stdout + completed.stderr)
@@ -441,7 +465,7 @@ print(json.dumps({'inventory': {'tests': sorted(config['tests']),
         config = dict(self.reverse_fixture, out=str(self.out))
         return self.command([sys.executable, "-B", "-c", shim, json.dumps(config)])
 
-    def test_reverse_child_execution_order(self):
+    def binding_fixture(self):
         # Include distinct definition sources and two entries sharing a helper;
         # source equality alone cannot distinguish the latter's subprocesses.
         paths = ["tests/test_alpha.py", "tests/pkg/test_beta.py",
@@ -460,18 +484,36 @@ print(json.dumps({'inventory': {'tests': sorted(config['tests']),
         self.reverse_fixture = {"tests": paths, "support": support,
                                 "entries": {paths[0]: "test_alpha", paths[1]: "pkg.test_beta",
                                             paths[2]: "test_shared_one", paths[3]: "test_shared_two"}}
+        return paths, bindings, support
+
+    def test_reverse_child_execution_order(self):
+        paths, bindings, support = self.binding_fixture()
         # Keep this acceptance method red when the product CLI is missing. The
         # shim independently exercises the same binding assertions afterwards.
         self.differential(paths, bindings, paths, support)
         self.differential(paths, bindings, paths, support, cli=self.reverse_cli)
-        execution_order = []
-        seen_pids = set()
-        for row in self.rows():
-            pid = row[2].rsplit("@", 1)[1]
-            if pid not in seen_pids:
-                seen_pids.add(pid)
-                execution_order.append(self.identity(row[3]))
+        execution_order = [next(iter(group["entries"]))
+                           for group in self.execution_groups(paths).values()]
         self.assertEqual(execution_order, [self.identity(path) for path in reversed(sorted(paths))])
+
+    def test_cached_base_loader_accepts_correct_binding(self):
+        paths, bindings, support = self.binding_fixture()
+        self.differential(paths, bindings, paths, support)
+        self.reverse_fixture["loader"] = "cached"
+        self.differential(paths, bindings, paths, support, cli=self.reverse_cli)
+
+    def test_duplicate_shared_helper_entry_is_rejected(self):
+        paths, bindings, support = self.binding_fixture()
+        self.make_test("src/impostor.py", token="ALPHA", marker="other")
+        self.differential(paths, bindings, paths, support)
+        self.reverse_fixture["fault"] = "duplicate"
+        with self.assertRaisesRegex(AssertionError, "entry executed in multiple subprocesses"):
+            self.differential(paths, bindings, paths, support, cli=self.reverse_cli)
+        # The right entry may be imported while the wrong definition executes.
+        # Import records alone must never make that case pass.
+        self.reverse_fixture["fault"] = "wrong_source"
+        with self.assertRaisesRegex(AssertionError, "execution escaped its selected entry"):
+            self.differential(paths, bindings, paths, support, cli=self.reverse_cli)
 
     def test_flat(self):
         path = "tests/test_flat.py"
