@@ -7,6 +7,7 @@ the caller's import environment; this script never installs a PYTHONPATH.
 
 import argparse
 import ast
+from contextlib import ExitStack
 import fnmatch
 import json
 import os
@@ -292,6 +293,48 @@ def discover(repo, path, phase):
     return value, output + result.stderr
 
 
+def prepare_logs(out, count, stack):
+    """Validate and open every log before running any test.
+
+    The directory descriptor binds all lookups and writes to the same directory.
+    No-follow opens close the link-swap window; nonblocking opens let fstat reject
+    a FIFO swapped in after validation. Existing logs are not truncated here.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    directory = os.open(out, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    stack.callback(os.close, directory)
+    expected = []
+    for index in range(count):
+        name = "%04d.log" % index
+        try:
+            info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            info = None
+        if info is not None and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+            fail(out / name, "log target must be a regular file with one link")
+        expected.append((name, info))
+
+    streams = []
+    for name, expected_info in expected:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
+        if expected_info is None:
+            flags |= os.O_EXCL
+        descriptor = os.open(name, flags, 0o600, dir_fd=directory)
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+                fail(out / name, "unsafe log target after opening")
+            if expected_info is not None and (opened.st_dev, opened.st_ino) != (
+                    expected_info.st_dev, expected_info.st_ino):
+                fail(out / name, "log target changed while opening")
+            stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        streams.append(stack.enter_context(stream))
+    return streams
+
+
 def precheck(argv):
     args, repo, paths, out = arguments(argv)
     texts = scan(repo)
@@ -327,14 +370,16 @@ def precheck(argv):
         bindings = [discover(repo, path, "bind")[0] for path in files]
         value["test_modules"] = [binding["module"] for binding in bindings]
         runs = []
-        if files:
-            out.mkdir(parents=True, exist_ok=True)
-        for index, (path, binding) in enumerate(zip(files, bindings)):
-            execution, log = discover(repo, path, "run")
-            log_path = out / ("%04d.log" % index)
-            log_path.write_text(log, encoding="utf-8")
-            runs.append({"file": path, "module": binding["module"],
-                         "exit_code": execution["exit_code"], "log_file": str(log_path)})
+        with ExitStack() as stack:
+            logs = prepare_logs(out, len(files), stack) if files else []
+            for index, (path, binding, stream) in enumerate(zip(files, bindings, logs)):
+                execution, log = discover(repo, path, "run")
+                os.ftruncate(stream.fileno(), 0)
+                stream.write(log)
+                stream.flush()
+                log_path = out / ("%04d.log" % index)
+                runs.append({"file": path, "module": binding["module"],
+                             "exit_code": execution["exit_code"], "log_file": str(log_path)})
         value["run"] = runs
         if any(run["exit_code"] for run in runs):
             value["status"] = "failed"
