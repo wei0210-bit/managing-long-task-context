@@ -30,7 +30,7 @@ PYTHONPATH=/absolute/project/src:/absolute/project/tests python3 scripts/contrac
 
 `--repo` 使用仓库绝对根路径；`--term`、`--path` 可重复，路径相对该根目录。
 默认只扫描；`--run` 按 unittest 实际发现的文件运行命中测试，调用者须提供
-正确的导入环境。日志只写显式 `--out-dir`，逐项保留命中、运行结果与范围解释。
+正确的导入环境。执行 `--run` 时须显式提供 `--out-dir`，并逐项保留命中、运行结果与范围解释。
 
 从入口追到所有受影响函数，再追到这些函数的全部调用方、包装器与公共入口，
 将需要改动的函数、文件、依赖测试和生成步骤一起纳入范围，完成范围闭包。

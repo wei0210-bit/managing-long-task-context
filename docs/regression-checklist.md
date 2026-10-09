@@ -389,3 +389,18 @@ prefixed `ENV-SKIP:`). `scripts/contract_precheck.py` selects and runs tests the
 tests` loads them (F-01..F-06, P-07..P-12), fails closed with one stderr line, and refuses a symbolic link, dangling link,
 directory or hard link named like a log file inside `--out-dir` before any test runs (R-P2-01).
 
+### R-032 授权与封印前检查只有一处原文，协调者工具随 Strict 包分发，回归清单只增不删有守卫
+
+Added: W2-A (contract v2).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_regression_checklist_guard
+! grep -q 'orca.md#david' references/preseal-checks.md && grep -q 'preseal-checks.md' references/orca.md
+for f in contract_precheck coordinator_ops orca_wait context_skill_router; do test -f "skills/context-strict/scripts/$f.py" || exit 1; done
+```
+
+Pass: the guard test is `OK`; `preseal-checks.md` holds the only original text of `DAVID_AUTH`/`STANDING_AUTH` and does not
+link back to `orca.md`, which points to it; the four coordinator scripts are in the generated Strict copy. The guard keeps every
+id that existed at 3a7acba (R-016 is a historical gap; R-002 and R-008 are walkthrough entries without `sh` blocks) and requires
+new ids to continue from R-032 with an `sh` block.
+
