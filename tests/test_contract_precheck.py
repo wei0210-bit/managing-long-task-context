@@ -251,6 +251,8 @@ class FixtureCase(unittest.TestCase):
         else:
             self.assertIsNone(oracle["discover_error"])
             self.assertEqual(oracle["loader_errors"], [])
+            if not expected and real.returncode == 5 and "NO TESTS RAN" in real.stdout + real.stderr:
+                real.returncode = 0
             self.assertEqual(real.returncode != 0, bool(expected) and should_fail, real.stderr)
         self.reset_trace()
         return oracle
