@@ -46,6 +46,7 @@ class Loader(unittest.TestLoader):
             token = getattr(case, 'TOKEN', None)
             if token is not None:
                 records.append({'token': token, 'loaded_from': source,
+                                'loaded_name': module.__name__,
                                 'defined_in': inspect.getsourcefile(type(case))})
         return suite
 loader = Loader()
@@ -97,12 +98,29 @@ class FixtureCase(unittest.TestCase):
             import os
             import unittest
             # {marker}
+            # Attach the loader's actual entry to each case without changing the
+            # suite. In particular, a helper's definition file is not its entry.
+            if not getattr(unittest.TestLoader, '_fixture_entry_traced', False):
+                original_load = unittest.TestLoader.loadTestsFromModule
+                def traced_load(loader, module, *args, **kwargs):
+                    suite = original_load(loader, module, *args, **kwargs)
+                    def attach(items):
+                        for item in items:
+                            if isinstance(item, unittest.TestSuite):
+                                attach(item)
+                            else:
+                                item._fixture_entry = module.__file__
+                    attach(suite)
+                    return suite
+                unittest.TestLoader.loadTestsFromModule = traced_load
+                unittest.TestLoader._fixture_entry_traced = True
             class {name}(unittest.TestCase):
                 TOKEN = {token!r}
                 def test_observed(self):
                     with open(os.environ['FIXTURE_TRACE'], 'a', encoding='utf-8') as stream:
                         stream.write(self.TOKEN + '\\t' + os.path.realpath(__file__) + '\\t'
-                                     + self.id() + '@' + str(os.getpid()) + '\\n')
+                                     + self.id() + '@' + str(os.getpid()) + '\\t'
+                                     + os.path.realpath(self._fixture_entry) + '\\n')
                     self.assertEqual({fail!r}, False)
         ''').format(marker=marker, name=name, token=token, fail=fail)
 
@@ -225,11 +243,11 @@ class FixtureCase(unittest.TestCase):
         self.reset_trace()
         return oracle
 
-    def differential(self, selection, bindings, tests, support=(), fail=True):
+    def differential(self, selection, bindings, tests, support=(), fail=True, cli=None):
         definitions = sorted({(token, source) for values in bindings.values()
                               for token, source in values})
         oracle = self.oracles(definitions, selection, should_fail=fail)
-        result = self.output(self.cli("--term", "NEEDLE", run=True))
+        result = self.output((cli or self.cli)("--term", "NEEDLE", run=True))
         inventory = self.inventory(result, tests, support)
         for record in oracle["records"]:
             self.assertIn(self.identity(record["loaded_from"]), inventory)
@@ -240,24 +258,40 @@ class FixtureCase(unittest.TestCase):
         self.relative_paths([item["file"] for item in executions])
         self.assertEqual(self.identities(item["file"] for item in executions), self.identities(selection))
         self.assertEqual([item["file"] for item in executions], sorted(item["file"] for item in executions))
-        # Each test method's id includes its process id; thus a merged trace still
-        # proves that every selected entry had a separate, correctly bound run.
+        modules_by_entry = {self.identity(record["loaded_from"]): record["loaded_name"]
+                            for record in oracle["records"]}
+        # These two public arrays correspond by file; child scheduling does not.
+        self.assertEqual(result["test_modules"],
+                         [modules_by_entry[self.identity(path)] for path in result["test_files"]])
+        # The trace records the actual loader entry as well as the definition and
+        # PID. Neither JSON sorting nor child execution order establishes binding.
         groups = {}
         for row in self.rows():
-            groups.setdefault(row[2].rsplit("@", 1)[1], set()).add((row[0], self.identity(row[1])))
+            pid = row[2].rsplit("@", 1)[1]
+            group = groups.setdefault(pid, {"entries": set(), "sources": set()})
+            group["entries"].add(self.identity(row[3]))
+            group["sources"].add((row[0], self.identity(row[1])))
         self.assertEqual(len(groups), len(selection), "one subprocess per selected file")
-        for entry, observed in zip(executions, groups.values()):
+        # Consume exactly one PID group per entry; identical source sets from
+        # shared helpers still belong to distinct entries and keep multiplicity.
+        groups_by_entry = {}
+        for group in groups.values():
+            self.assertEqual(len(group["entries"]), 1, "one entry per subprocess")
+            entry_id = next(iter(group["entries"]))
+            self.assertNotIn(entry_id, groups_by_entry, "entry executed in multiple subprocesses")
+            groups_by_entry[entry_id] = group["sources"]
+        self.assertEqual(set(groups_by_entry), self.identities(selection))
+        for entry in executions:
             entry_id = self.identity(entry["file"])
             sources = next(values for path, values in bindings.items() if self.identity(path) == entry_id)
             expected = {(token, self.identity(source)) for token, source in sources}
-            self.assertEqual(observed, expected, "execution escaped its selected entry")
+            self.assertEqual(groups_by_entry.pop(entry_id), expected, "execution escaped its selected entry")
             self.assertEqual(entry["exit_code"] != 0, fail)
-            self.assertEqual(entry["module"], next(module for path, module in
-                             zip(result["test_files"], result["test_modules"])
-                             if self.identity(path) == entry_id))
+            self.assertEqual(entry["module"], modules_by_entry[entry_id])
             self.assertTrue(Path(entry["log_file"]).is_absolute())
             self.assertTrue(Path(entry["log_file"]).is_file())
             self.assertEqual(self.identity(Path(entry["log_file"]).parent), self.identity(self.out))
+        self.assertEqual(groups_by_entry, {}, "unmatched subprocess traces")
         self.assertEqual(result["status"], "failed" if fail else "ok")
         self.assertEqual(list(self.repo.rglob("__pycache__")), [])
         return result
@@ -345,9 +379,10 @@ class InterfaceTests(FixtureCase):
         self.write("tests/pkg/__init__.py")
         self.make_test("tests/pkg/test_nested.py")
         value = self.output(self.cli("--term", "NEEDLE"))
-        self.assertEqual({self.identity(p): module for p, module in zip(value["test_files"], value["test_modules"])},
-                         {self.identity("tests/pkg/test_nested.py"): "pkg.test_nested",
-                          self.identity("tests/test_flat.py"): "test_flat"})
+        names = {self.identity("tests/pkg/test_nested.py"): "pkg.test_nested",
+                 self.identity("tests/test_flat.py"): "test_flat"}
+        self.selected(value, ["tests/pkg/test_nested.py", "tests/test_flat.py"])
+        self.assertEqual(value["test_modules"], [names[self.identity(p)] for p in value["test_files"]])
 
     def test_inventory_includes_support_without_selecting_it(self):
         self.make_test()
@@ -368,6 +403,76 @@ class InterfaceTests(FixtureCase):
 
 
 class DifferentialOracleTests(FixtureCase):
+    def reverse_cli(self, *args, **kwargs):
+        """A fixture-only CLI shim: reverse children, sorted JSON metadata."""
+        shim = r'''
+import json, pathlib, subprocess, sys
+config = json.loads(sys.argv[1])
+child = r"""
+import os, sys, unittest
+target = os.stat(sys.argv[1])
+class Loader(unittest.TestLoader):
+    def _match_path(self, path, full_path, pattern):
+        source = os.stat(full_path)
+        return (source.st_dev, source.st_ino) == (target.st_dev, target.st_ino)
+suite = Loader().discover('tests')
+result = unittest.TextTestRunner().run(suite)
+sys.exit(0 if result.wasSuccessful() else 1)
+"""
+out = pathlib.Path(config['out'])
+out.mkdir(parents=True, exist_ok=True)
+runs = []
+for entry in reversed(sorted(config['entries'])):
+    completed = subprocess.run([sys.executable, '-B', '-c', child, entry],
+                               capture_output=True)
+    log = out / (str(len(runs)) + '.log')
+    log.write_bytes(completed.stdout + completed.stderr)
+    runs.append({'file': entry, 'module': config['entries'][entry],
+                 'exit_code': completed.returncode, 'log_file': str(log)})
+files = sorted(config['entries'])
+print(json.dumps({'inventory': {'tests': sorted(config['tests']),
+                               'support': sorted(config['support'])},
+                  'test_files': files,
+                  'test_modules': [config['entries'][path] for path in files],
+                  'run': sorted(runs, key=lambda item: item['file']),
+                  'status': 'failed' if any(item['exit_code'] for item in runs) else 'ok'},
+                 sort_keys=True))
+'''
+        config = dict(self.reverse_fixture, out=str(self.out))
+        return self.command([sys.executable, "-B", "-c", shim, json.dumps(config)])
+
+    def test_reverse_child_execution_order(self):
+        # Include distinct definition sources and two entries sharing a helper;
+        # source equality alone cannot distinguish the latter's subprocesses.
+        paths = ["tests/test_alpha.py", "tests/pkg/test_beta.py",
+                 "tests/test_shared_one.py", "tests/test_shared_two.py"]
+        support = ["tests/pkg/__init__.py", "tests/helpers.py"]
+        self.write("tests/pkg/__init__.py")
+        self.make_test(paths[0], token="ALPHA")
+        self.make_test(paths[1], token="BETA")
+        self.make_test("tests/helpers.py", token="SHARED")
+        for path in paths[2:]:
+            self.write(path, "from helpers import Case\n")
+        bindings = {paths[0]: [("ALPHA", paths[0])],
+                    paths[1]: [("BETA", paths[1])],
+                    paths[2]: [("SHARED", "tests/helpers.py")],
+                    paths[3]: [("SHARED", "tests/helpers.py")]}
+        self.reverse_fixture = {"tests": paths, "support": support,
+                                "entries": {paths[0]: "test_alpha", paths[1]: "pkg.test_beta",
+                                            paths[2]: "test_shared_one", paths[3]: "test_shared_two"}}
+        # Keep this acceptance method red when the product CLI is missing. The
+        # shim independently exercises the same binding assertions afterwards.
+        self.differential(paths, bindings, paths, support)
+        self.differential(paths, bindings, paths, support, cli=self.reverse_cli)
+        execution_order = []
+        seen_pids = set()
+        for row in self.rows():
+            pid = row[2].rsplit("@", 1)[1]
+            if pid not in seen_pids:
+                seen_pids.add(pid)
+                execution_order.append(self.identity(row[3]))
+        self.assertEqual(execution_order, [self.identity(path) for path in reversed(sorted(paths))])
+
     def test_flat(self):
         path = "tests/test_flat.py"
         self.make_test(path)
