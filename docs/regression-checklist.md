@@ -373,3 +373,19 @@ test -f scripts/orca_wait.py && ! grep -n -- '--types' scripts/orca_wait.py
 Pass: `OK` and no `--types` in the script. `scripts/orca_wait.py` never sends a separate acknowledgement and never filters
 by type (the gap that let Orca inject prompts into the coordinator input); `coordinator_ops accept` judges a dirty
 workspace with the worker-report verifier's own exclusions.
+
+### R-031 封印前影响面预检脚本按 unittest 真实行为选择与运行测试，日志只写 --out-dir
+
+Added: W1-P1 (contract v2, frozen tests sha256 5767100e…) and W1-P2 (contract v3).
+
+```sh
+test "$(shasum -a 256 tests/test_contract_precheck.py | cut -d' ' -f1)" = 5767100e9ec84e84cbf7d69949f89a1b1bb59e94dddaee5686b66254d4d55a0a
+PYTHONPATH=src:tests python3 -m unittest tests.test_contract_precheck tests.test_contract_precheck_outdir
+PYTHONPATH=src:tests /opt/homebrew/bin/python3.12 -m unittest tests.test_contract_precheck tests.test_contract_precheck_outdir
+```
+
+Pass: the frozen acceptance tests are byte-identical and both modules are `OK` on both interpreters (at most one skip,
+prefixed `ENV-SKIP:`). `scripts/contract_precheck.py` selects and runs tests the way `python3 -m unittest discover -s
+tests` loads them (F-01..F-06, P-07..P-12), fails closed with one stderr line, and refuses a symbolic link, dangling link,
+directory or hard link named like a log file inside `--out-dir` before any test runs (R-P2-01).
+
