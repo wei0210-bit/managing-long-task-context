@@ -114,5 +114,26 @@ class RegressionChecklistRunnerTests(unittest.TestCase):
                 self.assertIn('特殊条目形状已变', (logs / (rid + '.log')).read_text())
 
 
+class R001WholeBlockTests(unittest.TestCase):
+    setUp = RegressionChecklistRunnerTests.setUp
+    run_checklist = RegressionChecklistRunnerTests.run_checklist
+
+    def test_later_success_makes_whole_block_fail_r001_acceptance(self):
+        result = self.run_checklist('### R-001 whole block\n```sh\nfalse\ntrue\n```\n')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('R-001 fail exit=0', result.stdout)
+
+    def test_single_no_match_grep_passes(self):
+        result = self.run_checklist("### R-001 grep\n```sh\nprintf '' | grep absent\n```\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('R-001 pass exit=1', result.stdout)
+
+    def test_continued_command_runs_as_whole_block(self):
+        code = "false\nprintf '%s' \\\n  '' | grep absent"
+        result = self.run_checklist('### R-001 continued\n```sh\n' + code + '\n```\n')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('R-001 pass exit=1', result.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -55,7 +55,7 @@ def run_entry(rid, retired, blocks, root, timeout):
                 continue
             for step, command in enumerate(commands, 1):
                 try:
-                    shell = ['bash', '-c'] if special in ('document-counts', 'zero-count') else ['bash', '-e', '-c']
+                    shell = ['bash', '-c'] if special is not None else ['bash', '-e', '-c']
                     process = subprocess.run(shell + [command], cwd=str(root),
                                              capture_output=True, timeout=timeout)
                     exit_code, stdout, stderr = process.returncode, process.stdout, process.stderr

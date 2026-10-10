@@ -227,7 +227,12 @@ creation time from the denial and verify that the holder has stopped. Only on Da
 direct instruction run `scripts/coordinator_ops.py lease clear-lock --store
 <absolute-context-store> --reason "<recovery reason>" --david-instruction "<David's exact
 words>"`. It refuses a live local PID, fsyncs a `clear-lock` record with the original
-lock's SHA-256 before deleting that lock, and leaves `COORDINATOR-LEASE.json` unchanged.
+lock's SHA-256, then atomically moves the current lock to a unique quarantine path
+and deletes it only when its bytes match the audited SHA-256. If the bytes changed,
+it restores the lock without overwriting a newer lock, or preserves the quarantine
+when restoration fails, appends `clear-lock-aborted`, and exits 3. Inspect the
+reported lock or quarantine path before any further recovery. It leaves
+`COORDINATOR-LEASE.json` unchanged.
 An unreadable or cross-host holder is recorded as unknown; verify it before requesting
 the instruction. Never remove a lock automatically because its age or lease has expired.
 

@@ -241,7 +241,43 @@ def clear_coordinator_lease_lock(store, reason, david_instruction):
             stream.write(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n')
             stream.flush()
             os.fsync(stream.fileno())
-        lock.unlink()
+        # Move the current path before checking its bytes: another clear-lock
+        # may have removed the audited lock and a new holder may now own it.
+        descriptor, name = tempfile.mkstemp(prefix=lock.name + '.', suffix='.quarantine',
+                                             dir=str(lock.parent))
+        os.close(descriptor)
+        quarantine = Path(name)
+        try:
+            os.rename(str(lock), str(quarantine))
+        except OSError:
+            quarantine.unlink()
+            raise
+        actual_sha256 = hashlib.sha256(quarantine.read_bytes()).hexdigest()
+        if actual_sha256 != row['lock_sha256']:
+            restored = False
+            restore_error = None
+            try:
+                # A hard link never overwrites a still newer holder's lock.
+                os.link(str(quarantine), str(lock))
+                restored = True
+            except OSError as exc:
+                restore_error = str(exc)
+            if restored:
+                quarantine.unlink()
+            aborted = {'event': 'clear-lock-aborted', 'lock_path': str(lock),
+                       'lock_sha256': row['lock_sha256'], 'actual_lock_sha256': actual_sha256,
+                       'quarantine_path': None if restored else str(quarantine),
+                       'restored': restored, 'restore_error': restore_error,
+                       'cleared_by': row['cleared_by'], 'cleared_at': utc_text(lease_now())}
+            with (lock.parent / 'COORDINATOR-LEASE.log').open('a', encoding='utf-8') as stream:
+                stream.write(json.dumps(aborted, ensure_ascii=False, separators=(',', ':')) + '\n')
+                stream.flush()
+                os.fsync(stream.fileno())
+            raise CoordinatorLeaseError('coordinator lease: clear-lock-aborted at ' + str(lock)
+                                        + '; lock bytes changed; '
+                                        + ('restored to original path' if restored
+                                           else 'preserved quarantine at ' + str(quarantine)))
+        quarantine.unlink()
         return row
     except OSError as exc:
         raise CoordinatorLeaseError('coordinator lease: clear-lock unavailable at ' + str(lock) + ': ' + str(exc)) from exc
