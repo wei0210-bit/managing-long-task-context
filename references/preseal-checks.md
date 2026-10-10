@@ -94,10 +94,10 @@ owned paths 是可写上限，不会自行扩大 scope；封印后发现漏项�
 constraints 写一行 `STANDING_AUTH: docs/agents/standing-authorizations.json@<commit> sha256=<hex>`。
 `<commit>` 固定清单所在提交，`<hex>` 是该提交清单原件字节的 SHA-256；
 不能用新清单代替封印时的依据。常设授权只由
-协调者使用，永不含合并；超出清单边界的事项仍须 David 直接授权。
+协调者使用；默认不含合并，只有清单 `merge_authorized` 为 true 且列出合并条目时，才按该条目的条件合并；超出清单边界的事项仍须 David 直接授权。
 执行者核对提交、原件摘要与适用条目，不得自行调用协调者的常设授权。
 `publish_context` 推默认分支不属于常设推送，仍需该动作的独立授权；
-推送非默认分支和开 PR 也不能扩展为合并或自动合并。
+推送非默认分支和开 PR 不能扩展为合并；任何清单都不授权自动合并（`--auto`）。
 
 封印后打开落盘 `task-contract.json`，与草稿逐条比对 objective、scope、
 constraints、全部验收标准与命令、运行环境、授权字段、版本和 seal。

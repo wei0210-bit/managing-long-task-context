@@ -354,12 +354,12 @@ Added: W1-S (contract v1, coordinator-sealed with DAVID_AUTH lines from 2026-10-
 ```sh
 python3 -c "import sys;t=open('references/preseal-checks.md',encoding='utf-8').read();ks=['verify.sh','预审','影响面','解释器','调用方','locale','3.12','task-contract.json','unittest','重入','DAVID_AUTH','STANDING_AUTH','凡读取任务库、报告或其他落盘记录的改动，合同须含一条健壮性验收'];m=[k for k in ks if k not in t];print('missing',m);sys.exit(1 if m else 0)"
 for f in references/*.md; do cmp "$f" "skills/context-strict/$f" || exit 1; done
-python3 -c "import json,sys;d=json.load(open('docs/agents/standing-authorizations.json',encoding='utf-8'));it={i['id']:i for i in d['items']};sys.exit(0 if set(it)=={'SA-PUSH-PR','SA-CI-TIMEOUT','SA-THRESHOLD'} and 'main' in it['SA-PUSH-PR']['deny_refs'] and it['SA-CI-TIMEOUT']['max']==20 and it['SA-THRESHOLD']['max_ratio']==1.5 else 1)"
+python3 -c "import json,sys;d=json.load(open('docs/agents/standing-authorizations.json',encoding='utf-8'));it={i['id']:i for i in d['items']};sys.exit(0 if {'SA-PUSH-PR','SA-CI-TIMEOUT','SA-THRESHOLD'}<=set(it) and 'main' in it['SA-PUSH-PR']['deny_refs'] and it['SA-CI-TIMEOUT']['max']==20 and it['SA-THRESHOLD']['max_ratio']==1.5 and (d['merge_authorized'] is not True or ('SA-MERGE-PR' in it and '--auto' in it['SA-MERGE-PR']['deny'])) else 1)"
 ```
 
 Pass: every command exits 0. `references/preseal-checks.md` carries every preseal check, including the mandatory
 robustness acceptance for changes that read persisted records (restored after review F-01); every reference file is
-mirrored byte for byte; the standing authorizations never include merge and keep their numeric bounds.
+mirrored byte for byte; merge is authorized only through SA-MERGE-PR and its gates (David 2026-10-10), and the standing authorizations keep their numeric bounds.
 
 ### R-030 Orca 等待脚本一次调用确认并等待，验收的工作区判定与校验器一致
 
@@ -403,4 +403,17 @@ Pass: the guard test is `OK`; `preseal-checks.md` holds the only original text o
 link back to `orca.md`, which points to it; the four coordinator scripts are in the generated Strict copy. The guard keeps every
 id that existed at 3a7acba (R-016 is a historical gap; R-002 and R-008 are walkthrough entries without `sh` blocks) and requires
 new ids to continue from R-032 with an `sh` block.
+
+### R-033 本项目常设授权清单的合并条目带质量门槛，自动合并永不授权
+
+Added: W3-SA (David 2026-10-10: 「授权合并 PR、推送默认分支、生产部署、凭据与密钥操作」→ 仅本项目常设，带质量门槛).
+
+```sh
+python3 -c "import json,sys;d=json.load(open('docs/agents/standing-authorizations.json',encoding='utf-8'));i={x['id']:x for x in d['items']};m=i['SA-MERGE-PR'];c=' '.join(m['conditions']);p=i['SA-PUSH-DEFAULT'];dp=i['SA-PROD-DEPLOY'];cr=' '.join(i['SA-CREDENTIALS']['conditions']);ok=d['merge_authorized'] is True and any('--match-head-commit' in x for x in m['allow']) and '--auto' in m['deny'] and '--admin' in m['deny'] and all(k in c for k in ('CI 全绿','独立审核','decision=pass','reproducible','回归清单全过','通知','David')) and '直接推送默认分支' in p['deny'] and '强推任何分支' in p['deny'] and dp['applicable'] is False and '预发' in ' '.join(dp['conditions']) and '回滚' in ' '.join(dp['conditions']) and '密钥不出现在输出、日志或提交中' in cr;sys.exit(0 if ok else 1)"
+! grep -q '永不含合并' references/preseal-checks.md && grep -q -- '--auto' references/preseal-checks.md
+```
+
+Pass: both commands exit 0. The merge entry requires green CI on the PR head, an independent review PASS, a reproducible
+pass acceptance record and a passing regression checklist, merges with `--match-head-commit`, and never allows `--auto`,
+`--admin` or a direct push to the default branch.
 
