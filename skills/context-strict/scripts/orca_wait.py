@@ -7,13 +7,21 @@ only heartbeat/status deliveries are acknowledged on the following wait call.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
 import time
+
+
+_lease_spec = importlib.util.spec_from_file_location(
+    'orca_wait_coordinator_lease', Path(__file__).with_name('coordinator_ops.py'))
+coordinator_lease = importlib.util.module_from_spec(_lease_spec)
+_lease_spec.loader.exec_module(coordinator_lease)
 
 
 FATAL = {'consumer_fenced', 'run_not_found', 'stable_pane_required', 'invalid_argument'}
@@ -55,6 +63,7 @@ def parser():
     cli = Parser(description=__doc__)
     cli.add_argument('command', nargs='?', choices=['power-check'])
     cli.add_argument('--run', type=nonempty)
+    cli.add_argument('--store', type=coordinator_lease.absolute)
     cli.add_argument('--ack', type=nonempty)
     cli.add_argument('--timeout-ms', type=milliseconds, default=3600000)
     cli.add_argument('--max-minutes', type=positive)
@@ -114,6 +123,19 @@ def log_entry(stream, value):
     stream.flush()
 
 
+def coordinator_store(explicit=None):
+    if explicit is not None:
+        return explicit
+    # Walk to the nearest Git top level without invoking an external process.
+    # A worktree has a .git file; an ordinary checkout has a .git directory.
+    current = Path.cwd().resolve()
+    for directory in (current, *current.parents):
+        if (directory / '.git').exists():
+            store = directory / '.prime/context'
+            return store if store.is_dir() else None
+    return None
+
+
 def decode_receipt(result):
     """Normalize CLI envelopes and direct payloads without losing delivery fields."""
     try:
@@ -147,6 +169,8 @@ def wait(args, deadline, log):
         remaining = None if deadline is None else deadline - time.monotonic()
         if remaining is not None and remaining <= 0:
             return 2
+        if args.store is not None:
+            coordinator_lease.mutate_coordinator_lease(args.store)
         timeout_ms = args.timeout_ms
         if remaining is not None:
             timeout_ms = min(timeout_ms, max(1, int(remaining * 1000)))
@@ -208,6 +232,13 @@ def main(argv=None):
         args = parser().parse_args(argv)
         if args.command != 'power-check' and args.run is None:
             raise ValueError('--run is required for waiting')
+        if args.command != 'power-check':
+            args.store = coordinator_store(args.store)
+            if args.store is not None:
+                coordinator_lease.mutate_coordinator_lease(args.store)
+    except coordinator_lease.CoordinatorLeaseError as exc:
+        print(str(exc).replace('\n', ' ').replace('\r', ' '), file=sys.stderr)
+        return 3
     except (ValueError, argparse.ArgumentTypeError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -224,6 +255,9 @@ def main(argv=None):
             warning('无法启动 caffeinate：' + str(exc))
         log = open(args.log, 'a', encoding='utf-8') if args.log else sys.stderr
         return wait(args, deadline, log)
+    except coordinator_lease.CoordinatorLeaseError as exc:
+        print(str(exc).replace('\n', ' ').replace('\r', ' '), file=sys.stderr)
+        return 3
     except OSError as exc:
         warning(str(exc))
         return 4

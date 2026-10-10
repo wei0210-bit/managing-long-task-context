@@ -5,11 +5,18 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import shlex
 import sys
 from pathlib import Path
+
+
+_lease_spec = importlib.util.spec_from_file_location(
+    'dispatch_spec_coordinator_lease', Path(__file__).with_name('coordinator_ops.py'))
+coordinator_lease = importlib.util.module_from_spec(_lease_spec)
+_lease_spec.loader.exec_module(coordinator_lease)
 
 
 def _canonical(value: object) -> bytes:
@@ -82,6 +89,7 @@ def version_proof_command(package_root: Path) -> str:
 
 
 def render_spec(args: argparse.Namespace) -> str:
+    coordinator_lease.check_coordinator_lease(Path(args.store).expanduser().resolve())
     path, contract = read_contract(Path(args.store), args.task_id)
     coordinator = Path(args.coordinator_workspace).expanduser().resolve()
     package = Path(args.package_root).expanduser().resolve()
@@ -192,6 +200,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         output = render_spec(args)
+    except coordinator_lease.CoordinatorLeaseError as exc:
+        print(str(exc).replace('\n', ' ').replace('\r', ' '), file=sys.stderr)
+        return 3
     except (OSError, ValueError, TypeError, UnicodeError) as exc:
         print(f"dispatch_spec: {exc}", file=sys.stderr)
         return 1

@@ -235,5 +235,74 @@ class OrcaWaitTests(unittest.TestCase):
                 self.assertFalse(run.called)
 
 
+    def test_coordinator_lease_denies_before_orca_or_wait_log_writes(self):
+        from tests.test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        store = self.root / 'store'
+        store.mkdir()
+        lease = store / 'COORDINATOR-LEASE.json'
+        scenarios = [json.dumps(lease_fixture(session_id='foreign', terminal_handle='foreign-window')),
+                     '{invalid coordinator lease', json.dumps(lease_fixture(session_id='foreign',
+                     heartbeat_at='2026-10-10T08:00:00Z'))]
+        with patch.dict(os.environ, {'COORDINATOR_LEASE_NOW': NOW}):
+            for scenario in scenarios:
+                with self.subTest(scenario=scenario):
+                    lease.write_text(scenario)
+                    before = store_snapshot(self.root)
+                    code, out, err, caffeine = self.execute([], '--store', str(store),
+                                                          '--log', str(self.root / 'wait.log'))
+                    self.assertEqual(code, 3)
+                    self.assertEqual(out, '')
+                    self.assertEqual(len(err.splitlines()), 1)
+                    self.assertIn('coordinator lease', err)
+                    self.assertEqual(self.calls, [])
+                    self.assertFalse(caffeine.called)
+                    self.assertEqual(store_snapshot(self.root), before)
+
+    def test_coordinator_lease_auto_acquires_and_renews_before_each_wait(self):
+        from tests.test_coordinator_lease import NOW
+        store = self.root / 'store'
+        observed = []
+        def first():
+            observed.append(json.loads((store / 'COORDINATOR-LEASE.json').read_bytes())['heartbeat_at'])
+            os.environ['COORDINATOR_LEASE_NOW'] = '2026-10-10T12:30:00Z'
+            return receipt({'timedOut': True, 'messages': []})
+        def second():
+            observed.append(json.loads((store / 'COORDINATOR-LEASE.json').read_bytes())['heartbeat_at'])
+            return receipt(BATCH)
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'wait-owner',
+                                    'ORCA_TERMINAL_HANDLE': 'wait-window', 'COORDINATOR_LEASE_NOW': NOW}):
+            code, _, _, _ = self.execute([first, second], '--store', str(store))
+        self.assertEqual(code, 0)
+        self.assertEqual(observed, [NOW, '2026-10-10T12:30:00Z'])
+        self.assertEqual(json.loads((store / 'COORDINATOR-LEASE.json').read_bytes())['session_id'], 'wait-owner')
+
+    def test_coordinator_lease_is_rechecked_after_each_delivery(self):
+        from tests.test_coordinator_lease import lease_fixture, NOW
+        store = self.root / 'store'
+        def takeover():
+            (store / 'COORDINATOR-LEASE.json').write_text(json.dumps(lease_fixture(session_id='foreign')))
+            return receipt({'timedOut': True, 'messages': []})
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'wait-owner',
+                                    'ORCA_TERMINAL_HANDLE': 'wait-window', 'COORDINATOR_LEASE_NOW': NOW}):
+            code, out, err, _ = self.execute([takeover], '--store', str(store))
+        self.assertEqual(code, 3)
+        self.assertEqual(out, '')
+        self.assertIn('foreign', err)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_git_top_level_store_discovery_and_missing_store(self):
+        checkout = self.root / 'checkout'
+        checkout.mkdir()
+        (checkout / '.git').write_text('gitdir: ../metadata')
+        child = checkout / 'nested'
+        child.mkdir()
+        with patch.object(self.module.Path, 'cwd', return_value=child):
+            self.assertIsNone(self.module.coordinator_store())
+            store = checkout / '.prime/context'
+            store.mkdir(parents=True)
+            self.assertEqual(self.module.coordinator_store(), store)
+            self.assertEqual(self.module.coordinator_store(self.root / 'explicit'), self.root / 'explicit')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -44,6 +44,7 @@ COPIED_FILES = (
     Path("tests/test_contract_precheck_outdir.py"),
     Path("scripts/coordinator_ops.py"),
     Path("tests/test_coordinator_ops.py"),
+    Path("tests/test_coordinator_lease.py"),
     Path("scripts/orca_wait.py"),
     Path("tests/test_orca_wait.py"),
     Path("scripts/context_skill_router.py"),

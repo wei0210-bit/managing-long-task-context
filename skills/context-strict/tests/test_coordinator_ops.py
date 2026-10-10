@@ -307,5 +307,48 @@ class CoordinatorOpsTests(unittest.TestCase):
         self.assertFalse((self.store / self.task / 'acceptance-records.jsonl').exists())
 
 
+    def test_coordinator_lease_blocks_all_writes_without_changing_store_or_logs(self):
+        from tests.test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from unittest.mock import patch
+        lease = self.store / 'COORDINATOR-LEASE.json'
+        scenarios = [json.dumps(lease_fixture(session_id='foreign', terminal_handle='foreign-window')),
+                     '{invalid coordinator lease', json.dumps(lease_fixture(session_id='foreign',
+                     heartbeat_at='2026-10-10T08:00:00Z'))]
+        commands = [
+            ('ingest', ['--report', self.report, '--dispatch', 'ctx_test', '--statement', 'report']),
+            ('settle', ['--resolved-by', 'review']),
+            ('checkpoint', ['--phase', 'review', '--completed', 'done', '--evidence', 'file:one',
+                            '--next-action', 'accept']),
+            ('accept', ['--workspace', self.root, '--package-root', self.package,
+                        '--logs-dir', self.logs, '--check', 'unit=' + COMMAND,
+                        '--recorded-by', 'coordinator']),
+        ]
+        with patch.dict(os.environ, {'COORDINATOR_LEASE_NOW': NOW}):
+            for scenario in scenarios:
+                lease.write_text(scenario)
+                before = store_snapshot(self.root)
+                for command, arguments in commands:
+                    with self.subTest(command=command, scenario=scenario):
+                        result = self.run_cli(command, *arguments, expected=3)
+                        self.assertIn('coordinator lease', result['error'])
+                        self.assertEqual(store_snapshot(self.root), before)
+
+    def test_write_auto_acquires_then_renews_coordinator_lease(self):
+        from tests.test_coordinator_lease import NOW
+        from unittest.mock import patch
+        lease = self.store / 'COORDINATOR-LEASE.json'
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'ops-owner',
+                                    'ORCA_TERMINAL_HANDLE': 'ops-window', 'COORDINATOR_LEASE_NOW': NOW}):
+            self.ingest()
+            value = json.loads(lease.read_bytes())
+            self.assertEqual(value['session_id'], 'ops-owner')
+            self.assertEqual(value['heartbeat_at'], NOW)
+            with patch.dict(os.environ, {'COORDINATOR_LEASE_NOW': '2026-10-10T12:30:00Z'}):
+                self.run_cli('settle', '--resolved-by', 'review')
+            renewed = json.loads(lease.read_bytes())
+            self.assertEqual(renewed['heartbeat_at'], '2026-10-10T12:30:00Z')
+            self.assertEqual(renewed['acquired_at'], NOW)
+
+
 if __name__ == '__main__':
     unittest.main()
