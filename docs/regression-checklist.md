@@ -417,3 +417,15 @@ Pass: both commands exit 0. The merge entry requires green CI on the PR head, an
 pass acceptance record and a passing regression checklist, merges with `--match-head-commit`, and never allows `--auto`,
 `--admin` or a direct push to the default branch.
 
+
+### R-034 一个任务库同一时间只有一个协调者（协调者租约）
+
+Added: W3-LEASE (David 2026-10-10: 一个工作树只有一个协调者；租约 2 小时无心跳过期、无租约时自动取得、只在过期或 David 指示并写记录时接手).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_coordinator_lease && grep -q 'LEASE_TTL_SECONDS = 7200' scripts/coordinator_ops.py && grep -q 'check_coordinator_lease' scripts/dispatch_spec.py && grep -q 'mutate_coordinator_lease' scripts/orca_wait.py
+```
+
+Pass: the command exits 0. A second session, or the same session in another terminal, is refused with exit 3 by
+`coordinator_ops` write subcommands, `orca_wait` and `dispatch_spec` without writing the task store; an expired lease
+changes hands only through `lease takeover --reason`, which appends a takeover record; a malformed lease file fails closed.

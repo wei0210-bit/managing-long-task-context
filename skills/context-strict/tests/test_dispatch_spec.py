@@ -269,5 +269,56 @@ class DispatchSpecTests(unittest.TestCase):
         self.assertNotIn("双解释器与包矩阵交给 CI", output)
 
 
+    def test_coordinator_lease_conflicts_and_invalid_files_fail_without_any_writes(self):
+        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from unittest.mock import patch
+        lease = self.store / 'COORDINATOR-LEASE.json'
+        with patch.dict(os.environ, {'COORDINATOR_LEASE_NOW': NOW}):
+            for raw in (json.dumps(lease_fixture(session_id='foreign', terminal_handle='foreign-window')),
+                        '{invalid coordinator lease'):
+                with self.subTest(raw=raw):
+                    lease.write_text(raw)
+                    before = store_snapshot(self.store)
+                    result = self.run_cli()
+                    self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout, b'')
+                    self.assertEqual(len(result.stderr.splitlines()), 1)
+                    self.assertIn(b'coordinator lease', result.stderr)
+                    self.assertEqual(store_snapshot(self.store), before)
+
+    def test_coordinator_lease_own_expired_and_released_leases_pass_read_only(self):
+        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from unittest.mock import patch
+        lease = self.store / 'COORDINATOR-LEASE.json'
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'owner', 'CLAUDE_PID': '202',
+                                    'ORCA_TERMINAL_HANDLE': 'terminal-owner', 'COORDINATOR_LEASE_NOW': NOW}):
+            for value in (lease_fixture(), lease_fixture(session_id='foreign',
+                         heartbeat_at='2026-10-10T08:00:00Z'),
+                         lease_fixture(session_id='foreign', released_at=NOW)):
+                with self.subTest(value=value):
+                    lease.write_text(json.dumps(value))
+                    before = store_snapshot(self.store)
+                    self.output()
+                    self.assertEqual(store_snapshot(self.store), before)
+
+
+    def test_coordinator_lease_checks_the_same_expanded_store_as_contract_reader(self):
+        from types import SimpleNamespace
+        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from unittest.mock import patch
+        (self.store / 'COORDINATOR-LEASE.json').write_text(json.dumps(lease_fixture(session_id='foreign')))
+        args = SimpleNamespace(store='~/store', task_id='STEP4-58',
+                               coordinator_workspace=str(self.root / 'coordinator'),
+                               package_root=str(STRICT), worker_workspace=None, owned_paths=None,
+                               role='executor', baseline_commit='c595043', expected_manifest='a' * 64)
+        before = store_snapshot(self.store)
+        with patch.dict(os.environ, {'COORDINATOR_LEASE_NOW': NOW}), \
+                patch.object(Path, 'expanduser', autospec=True,
+                             side_effect=lambda path: self.store if str(path) == '~/store' else path):
+            with self.assertRaises(GENERATOR['coordinator_lease'].CoordinatorLeaseError):
+                GENERATOR['render_spec'](args)
+        self.assertEqual(store_snapshot(self.store), before)
+
+
 if __name__ == "__main__":
     unittest.main()

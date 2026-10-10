@@ -66,6 +66,8 @@ Acceptance conclusions are read through `brief()` and the status command;
 Generate the spec from the sealed contract with `scripts/dispatch_spec.py`;
 add only role-whitelisted context and the live Orca preamble:
 
+Before dispatching, check the coordinator lease with `scripts/coordinator_ops.py lease status --store <absolute-context-store>` and acquire or renew it with `lease acquire`; a foreign holder, including another terminal in the same session, requires an explicit recorded `lease takeover --reason` after expiration or with `--david-instruction "<David's exact words>"`.
+
 ```sh
 python3 scripts/dispatch_spec.py --store /absolute/project/.prime/context --task-id TASK-001 --coordinator-workspace /absolute/project --package-root /absolute/pinned-package --role executor --expected-manifest <retained-manifest-sha256> --baseline-commit <baseline-commit> --owned-paths references/orca.md
 ```
@@ -217,6 +219,8 @@ Re-check every load-bearing claim in a report against originals (Git state, test
 the output files) before relying on it, then run the completion gate.
 
 ## Coordinator takeover
+
+Before rebinding the Run or writing the task store, check `scripts/coordinator_ops.py lease status --store <absolute-context-store>` and use `lease takeover --reason` only after expiration or with `--david-instruction "<David's exact words>"`, retaining the append-only coordinator takeover record.
 
 If the coordinator exits mid-run, a new session rebinds the Run with Orca's `run-use`
 (exact flags from Orca's guide for the installed build; Orca fences the old
