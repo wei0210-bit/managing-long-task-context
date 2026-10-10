@@ -236,7 +236,7 @@ class OrcaWaitTests(unittest.TestCase):
 
 
     def test_coordinator_lease_denies_before_orca_or_wait_log_writes(self):
-        from tests.test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
         store = self.root / 'store'
         store.mkdir()
         lease = store / 'COORDINATOR-LEASE.json'
@@ -259,7 +259,7 @@ class OrcaWaitTests(unittest.TestCase):
                     self.assertEqual(store_snapshot(self.root), before)
 
     def test_coordinator_lease_auto_acquires_and_renews_before_each_wait(self):
-        from tests.test_coordinator_lease import NOW
+        from test_coordinator_lease import NOW
         store = self.root / 'store'
         observed = []
         def first():
@@ -277,7 +277,7 @@ class OrcaWaitTests(unittest.TestCase):
         self.assertEqual(json.loads((store / 'COORDINATOR-LEASE.json').read_bytes())['session_id'], 'wait-owner')
 
     def test_coordinator_lease_is_rechecked_after_each_delivery(self):
-        from tests.test_coordinator_lease import lease_fixture, NOW
+        from test_coordinator_lease import lease_fixture, NOW
         store = self.root / 'store'
         def takeover():
             (store / 'COORDINATOR-LEASE.json').write_text(json.dumps(lease_fixture(session_id='foreign')))
@@ -300,7 +300,7 @@ class OrcaWaitTests(unittest.TestCase):
             self.assertIsNone(self.module.coordinator_store())
             store = checkout / '.prime/context'
             store.mkdir(parents=True)
-            self.assertEqual(self.module.coordinator_store(), store)
+            self.assertEqual(self.module.coordinator_store(), store.resolve())
             self.assertEqual(self.module.coordinator_store(self.root / 'explicit'), self.root / 'explicit')
 
 

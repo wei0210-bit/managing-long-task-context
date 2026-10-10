@@ -308,7 +308,7 @@ class CoordinatorOpsTests(unittest.TestCase):
 
 
     def test_coordinator_lease_blocks_all_writes_without_changing_store_or_logs(self):
-        from tests.test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
         from unittest.mock import patch
         lease = self.store / 'COORDINATOR-LEASE.json'
         scenarios = [json.dumps(lease_fixture(session_id='foreign', terminal_handle='foreign-window')),
@@ -334,7 +334,7 @@ class CoordinatorOpsTests(unittest.TestCase):
                         self.assertEqual(store_snapshot(self.root), before)
 
     def test_write_auto_acquires_then_renews_coordinator_lease(self):
-        from tests.test_coordinator_lease import NOW
+        from test_coordinator_lease import NOW
         from unittest.mock import patch
         lease = self.store / 'COORDINATOR-LEASE.json'
         with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'ops-owner',

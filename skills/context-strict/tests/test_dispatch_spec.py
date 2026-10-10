@@ -270,7 +270,7 @@ class DispatchSpecTests(unittest.TestCase):
 
 
     def test_coordinator_lease_conflicts_and_invalid_files_fail_without_any_writes(self):
-        from tests.test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
         from unittest.mock import patch
         lease = self.store / 'COORDINATOR-LEASE.json'
         with patch.dict(os.environ, {'COORDINATOR_LEASE_NOW': NOW}):
@@ -287,7 +287,7 @@ class DispatchSpecTests(unittest.TestCase):
                     self.assertEqual(store_snapshot(self.store), before)
 
     def test_coordinator_lease_own_expired_and_released_leases_pass_read_only(self):
-        from tests.test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
         from unittest.mock import patch
         lease = self.store / 'COORDINATOR-LEASE.json'
         with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'owner', 'CLAUDE_PID': '202',
@@ -304,7 +304,7 @@ class DispatchSpecTests(unittest.TestCase):
 
     def test_coordinator_lease_checks_the_same_expanded_store_as_contract_reader(self):
         from types import SimpleNamespace
-        from tests.test_coordinator_lease import lease_fixture, store_snapshot, NOW
+        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
         from unittest.mock import patch
         (self.store / 'COORDINATOR-LEASE.json').write_text(json.dumps(lease_fixture(session_id='foreign')))
         args = SimpleNamespace(store='~/store', task_id='STEP4-58',
