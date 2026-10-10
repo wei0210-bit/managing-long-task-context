@@ -9,6 +9,7 @@
 - Every entry has a command or walkthrough step and an explicit pass criterion.
 - Run every non-retired entry from the repository root. A round passes only when all of
   them pass; report each entry's result separately.
+  Run the checklist with `python3 scripts/regression_checklist.py`.
 
 ## Entries
 
@@ -153,7 +154,8 @@ Added: #52.
 python3 scripts/sync_context_strict_skill.py && git status --short --untracked-files=no
 ```
 
-Pass: after the round's commit, the command prints nothing. Untracked design artifacts
+Pass: after the round's commit, `git status` prints nothing; the sync script's
+`Synchronized Context Strict` success message does not count. Untracked design artifacts
 `.gitattributes`, `.githooks/`, and `.prime/` do not count.
 
 ### R-012 Dispatch spec generator reproduces the sealed contract
