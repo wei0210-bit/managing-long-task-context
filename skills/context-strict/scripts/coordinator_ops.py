@@ -156,20 +156,131 @@ def check_coordinator_lease(store):
 
 @contextmanager
 def coordinator_lease_lock(store):
-    store = Path(store)
+    store = Path(store).resolve()
     lock = store / 'COORDINATOR-LEASE.lock'
     owned = False
     try:
         store.mkdir(parents=True, exist_ok=True)
         descriptor = os.open(str(lock), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         owned = True
-        os.close(descriptor)
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            row = {'schema': 'coordinator-lease-lock/v1', **coordinator_identity(),
+                   'created_at': utc_text(lease_now())}
+            stream.write(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n')
+            stream.flush()
+            os.fsync(stream.fileno())
         yield
+    except FileExistsError as exc:
+        if owned:
+            raise CoordinatorLeaseError('coordinator lease: lock/write unavailable: ' + str(exc)) from exc
+        holder = read_coordinator_lock(lock)
+        detail = (json.dumps(holder, ensure_ascii=False, separators=(',', ':'))
+                  if holder is not None else 'unreadable lock')
+        raise CoordinatorLeaseError('coordinator lease: lock exists at ' + str(lock) + '; holder=' + detail
+                                    + '; 核实持有进程已停止后，经 David 指示用 lease clear-lock') from exc
     except OSError as exc:
         raise CoordinatorLeaseError('coordinator lease: lock/write unavailable: ' + str(exc)) from exc
     finally:
         if owned:
             lock.unlink()
+
+
+def parse_coordinator_lock(raw):
+    """Invalid or legacy lock bytes have no trustworthy holder identity."""
+    try:
+        value = json.loads(raw)
+        if not isinstance(value, dict) or value.get('schema') != 'coordinator-lease-lock/v1':
+            return None
+        if any(not isinstance(value.get(key), str) or not value[key].strip()
+               for key in ('session_id', 'host')):
+            return None
+        if type(value.get('pid')) is not int or value['pid'] <= 0:
+            return None
+        if 'terminal_handle' not in value or (value['terminal_handle'] is not None
+                                              and not isinstance(value['terminal_handle'], str)):
+            return None
+        lease_time(value.get('created_at'), 'created_at')
+        return value
+    except (ValueError, UnicodeError, RecursionError):
+        return None
+
+
+def read_coordinator_lock(lock):
+    try:
+        return parse_coordinator_lock(lock.read_bytes())
+    except OSError:
+        return None
+
+
+def clear_coordinator_lease_lock(store, reason, david_instruction):
+    if not reason or not reason.strip() or not david_instruction or not david_instruction.strip():
+        raise CoordinatorLeaseError('coordinator lease: clear-lock requires reason and David instruction')
+    lock = Path(store).resolve() / 'COORDINATOR-LEASE.lock'
+    try:
+        raw = lock.read_bytes()
+        holder = parse_coordinator_lock(raw)
+        alive = 'unknown'
+        if holder is not None and holder['host'] == socket.gethostname():
+            try:
+                os.kill(holder['pid'], 0)
+                alive = True
+            except ProcessLookupError:
+                alive = False
+            except PermissionError:
+                alive = True
+            except OverflowError:
+                # An out-of-range PID cannot describe a local OS process.
+                holder = None
+        if alive is True:
+            raise CoordinatorLeaseError('coordinator lease: clear-lock refused: local holder is alive at ' + str(lock))
+        row = {'event': 'clear-lock', 'lock_path': str(lock),
+               'lock_sha256': hashlib.sha256(raw).hexdigest(), 'lock_content': holder,
+               'holder_alive': alive, 'reason': reason, 'david_instruction': david_instruction,
+               'cleared_by': coordinator_identity(), 'cleared_at': utc_text(lease_now())}
+        with (lock.parent / 'COORDINATOR-LEASE.log').open('a', encoding='utf-8') as stream:
+            stream.write(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Move the current path before checking its bytes: another clear-lock
+        # may have removed the audited lock and a new holder may now own it.
+        descriptor, name = tempfile.mkstemp(prefix=lock.name + '.', suffix='.quarantine',
+                                             dir=str(lock.parent))
+        os.close(descriptor)
+        quarantine = Path(name)
+        try:
+            os.rename(str(lock), str(quarantine))
+        except OSError:
+            quarantine.unlink()
+            raise
+        actual_sha256 = hashlib.sha256(quarantine.read_bytes()).hexdigest()
+        if actual_sha256 != row['lock_sha256']:
+            restored = False
+            restore_error = None
+            try:
+                # A hard link never overwrites a still newer holder's lock.
+                os.link(str(quarantine), str(lock))
+                restored = True
+            except OSError as exc:
+                restore_error = str(exc)
+            if restored:
+                quarantine.unlink()
+            aborted = {'event': 'clear-lock-aborted', 'lock_path': str(lock),
+                       'lock_sha256': row['lock_sha256'], 'actual_lock_sha256': actual_sha256,
+                       'quarantine_path': None if restored else str(quarantine),
+                       'restored': restored, 'restore_error': restore_error,
+                       'cleared_by': row['cleared_by'], 'cleared_at': utc_text(lease_now())}
+            with (lock.parent / 'COORDINATOR-LEASE.log').open('a', encoding='utf-8') as stream:
+                stream.write(json.dumps(aborted, ensure_ascii=False, separators=(',', ':')) + '\n')
+                stream.flush()
+                os.fsync(stream.fileno())
+            raise CoordinatorLeaseError('coordinator lease: clear-lock-aborted at ' + str(lock)
+                                        + '; lock bytes changed; '
+                                        + ('restored to original path' if restored
+                                           else 'preserved quarantine at ' + str(quarantine)))
+        quarantine.unlink()
+        return row
+    except OSError as exc:
+        raise CoordinatorLeaseError('coordinator lease: clear-lock unavailable at ' + str(lock) + ': ' + str(exc)) from exc
 
 
 def write_coordinator_lease(store, value):
@@ -247,6 +358,9 @@ def mutate_coordinator_lease(store, action='acquire', reason=None, david_instruc
 
 
 def lease_command(args):
+    if args.lease_action == 'clear-lock':
+        return {'command': 'lease', 'action': 'clear-lock',
+                'record': clear_coordinator_lease_lock(args.store, args.reason, args.david_instruction)}
     if args.lease_action == 'status':
         value = read_coordinator_lease(args.store)
         now = lease_now()
@@ -464,13 +578,13 @@ def parser():
     commands = cli.add_subparsers(dest='command', required=True)
     lease = commands.add_parser('lease')
     actions = lease.add_subparsers(dest='lease_action', required=True)
-    for action in ('status', 'acquire', 'renew', 'release', 'takeover'):
+    for action in ('status', 'acquire', 'renew', 'release', 'takeover', 'clear-lock'):
         sub = actions.add_parser(action)
         sub.add_argument('--store', type=absolute, required=True)
         sub.set_defaults(function=lease_command, reason=None, david_instruction=None)
-        if action == 'takeover':
+        if action in ('takeover', 'clear-lock'):
             sub.add_argument('--reason', type=nonempty, required=True)
-            sub.add_argument('--david-instruction', type=nonempty)
+            sub.add_argument('--david-instruction', type=nonempty, required=action == 'clear-lock')
     for name, function in [('ingest', ingest), ('settle', settle), ('checkpoint', checkpoint), ('accept', accept)]:
         sub = commands.add_parser(name)
         sub.add_argument('--store', type=absolute, required=True)

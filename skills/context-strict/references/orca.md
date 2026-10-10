@@ -222,6 +222,20 @@ the output files) before relying on it, then run the completion gate.
 
 Before rebinding the Run or writing the task store, check `scripts/coordinator_ops.py lease status --store <absolute-context-store>` and use `lease takeover --reason` only after expiration or with `--david-instruction "<David's exact words>"`, retaining the append-only coordinator takeover record.
 
+If a stopped process leaves `COORDINATOR-LEASE.lock`, read the lock path, holder and
+creation time from the denial and verify that the holder has stopped. Only on David's
+direct instruction run `scripts/coordinator_ops.py lease clear-lock --store
+<absolute-context-store> --reason "<recovery reason>" --david-instruction "<David's exact
+words>"`. It refuses a live local PID, fsyncs a `clear-lock` record with the original
+lock's SHA-256, then atomically moves the current lock to a unique quarantine path
+and deletes it only when its bytes match the audited SHA-256. If the bytes changed,
+it restores the lock without overwriting a newer lock, or preserves the quarantine
+when restoration fails, appends `clear-lock-aborted`, and exits 3. Inspect the
+reported lock or quarantine path before any further recovery. It leaves
+`COORDINATOR-LEASE.json` unchanged.
+An unreadable or cross-host holder is recorded as unknown; verify it before requesting
+the instruction. Never remove a lock automatically because its age or lease has expired.
+
 If the coordinator exits mid-run, a new session rebinds the Run with Orca's `run-use`
 (exact flags from Orca's guide for the installed build; Orca fences the old
 coordinator), then runs `checked_resume()` for the task. Only the session bound to the

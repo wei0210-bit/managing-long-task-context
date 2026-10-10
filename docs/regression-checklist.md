@@ -9,6 +9,7 @@
 - Every entry has a command or walkthrough step and an explicit pass criterion.
 - Run every non-retired entry from the repository root. A round passes only when all of
   them pass; report each entry's result separately.
+  Run the checklist with `python3 scripts/regression_checklist.py`.
 
 ## Entries
 
@@ -153,7 +154,8 @@ Added: #52.
 python3 scripts/sync_context_strict_skill.py && git status --short --untracked-files=no
 ```
 
-Pass: after the round's commit, the command prints nothing. Untracked design artifacts
+Pass: after the round's commit, `git status` prints nothing; the sync script's
+`Synchronized Context Strict` success message does not count. Untracked design artifacts
 `.gitattributes`, `.githooks/`, and `.prime/` do not count.
 
 ### R-012 Dispatch spec generator reproduces the sealed contract
@@ -429,3 +431,37 @@ PYTHONPATH=src:tests python3 -m unittest tests.test_coordinator_lease && grep -q
 Pass: the command exits 0. A second session, or the same session in another terminal, is refused with exit 3 by
 `coordinator_ops` write subcommands, `orca_wait` and `dispatch_spec` without writing the task store; an expired lease
 changes hands only through `lease takeover --reason`, which appends a takeover record; a malformed lease file fails closed.
+
+### R-035 残留协调者租约锁只在 David 指示下清除，且绝不删除被替换的新锁
+
+Added: W3-FOLLOW (W3-LEASE review finding F01; W3-FOLLOW review finding F01; David 2026-10-10: 「要你把三项都做完（推荐）」).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_coordinator_lease.StaleLockRecoveryTests tests.test_coordinator_lease.StaleLockRaceTests && grep -q 'clear-lock-aborted' scripts/coordinator_ops.py
+```
+
+Pass: the command exits 0. `lease clear-lock` needs a reason and David's exact words, refuses a live local holder,
+fsyncs an audit row before removing the lock, and when the lock bytes changed after the audit it leaves the newer lock in
+place (or keeps a named quarantine file), appends `clear-lock-aborted` and exits 3. No path removes a lock by age or expiry.
+
+### R-036 回归清单执行器逐条判定，前序失败不被后序成功掩盖
+
+Added: W3-FOLLOW (W3-LEASE review deferred item; W3-FOLLOW review finding F02).
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_regression_checklist_runner
+```
+
+Pass: `OK`. `scripts/regression_checklist.py` runs ordinary entries with `bash -e`, keeps R-001 as one `bash -c` block,
+judges R-007 and R-026 command by command, skips retired entries and reports every entry separately. This entry runs only
+the runner's own tests; it must never call the runner on this checklist, which would run this entry again.
+
+### R-037 生成的 Strict 包没有已跟踪文件漂移（按退出码判定）
+
+Added: W3-FOLLOW (R-011 judges drift by reading `git status` output; this entry fails by exit code).
+
+```sh
+python3 scripts/sync_context_strict_skill.py >/dev/null && test -z "$(git status --short --untracked-files=no)"
+```
+
+Pass: the command exits 0 after the round's commit.

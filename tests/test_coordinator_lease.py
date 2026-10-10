@@ -237,5 +237,254 @@ class LeaseRobustnessTests(LeaseTestCase):
         self.assertEqual(self.read(), lease_fixture())
 
 
+def lock_fixture(**overrides):
+    return dict({'schema': 'coordinator-lease-lock/v1', 'session_id': 'lock-owner',
+                 'pid': 101, 'terminal_handle': 'lock-terminal', 'host': socket.gethostname(),
+                 'created_at': NOW}, **overrides)
+
+
+class StaleLockRecoveryTests(LeaseTestCase):
+    def lock_path(self):
+        return self.store / 'COORDINATOR-LEASE.lock'
+
+    def write_lock(self, **overrides):
+        self.lock_path().write_text(json.dumps(lock_fixture(**overrides)) + '\n')
+
+    def clear(self, expected=0):
+        return self.cli('clear-lock', '--reason', 'stopped holder',
+                        '--david-instruction', 'David: 清除此测试锁', expected=expected)
+
+    def operations(self):
+        import runpy
+        return runpy.run_path(str(SCRIPT))
+
+    def test_lock_records_holder_and_fsyncs_before_yield(self):
+        from unittest import mock
+        ops = self.operations()
+        with mock.patch.dict(os.environ, self.env), mock.patch('os.fsync', wraps=os.fsync) as fsync:
+            with ops['coordinator_lease_lock'](self.store):
+                raw = self.lock_path().read_text()
+                self.assertEqual(len(raw.splitlines()), 1)
+                record = json.loads(raw)
+                self.assertEqual(record, lock_fixture(session_id='owner', terminal_handle='terminal-owner'))
+                self.assertTrue(fsync.called)
+        self.assertFalse(self.lock_path().exists())
+
+    def test_conflict_names_absolute_path_holder_and_recovery(self):
+        self.write_lock()
+        before = store_snapshot(self.store)
+        result = self.cli('acquire', expected=3)
+        for value in (str(self.lock_path().resolve()), 'lock-owner', 'lock-terminal', NOW,
+                      '核实持有进程已停止后，经 David 指示用 lease clear-lock'):
+            self.assertIn(value, result.stderr)
+        self.assertEqual(store_snapshot(self.store), before)
+
+    def test_unreadable_lock_conflict_is_not_removed(self):
+        self.lock_path().write_bytes(b'{broken')
+        before = store_snapshot(self.store)
+        result = self.cli('acquire', expected=3)
+        self.assertIn('unreadable lock', result.stderr)
+        self.assertEqual(store_snapshot(self.store), before)
+
+    def test_clear_requires_both_nonempty_parameters(self):
+        self.write_lock()
+        before = store_snapshot(self.store)
+        for extra in [(), ('--reason', 'why'), ('--david-instruction', 'David: yes'),
+                      ('--reason', ' ', '--david-instruction', 'David: yes'),
+                      ('--reason', 'why', '--david-instruction', ' ')]:
+            self.cli('clear-lock', *extra, expected=2)
+            self.assertEqual(store_snapshot(self.store), before)
+
+    def test_absent_lock_is_exit_three_and_writes_nothing(self):
+        self.clear(expected=3)
+        self.assertEqual(store_snapshot(self.store), {})
+
+    def test_live_local_pid_is_refused_and_lock_unchanged(self):
+        self.write_lock(pid=os.getpid())
+        before = store_snapshot(self.store)
+        self.clear(expected=3)
+        self.assertEqual(store_snapshot(self.store), before)
+
+    def test_permission_error_means_live_holder(self):
+        from unittest import mock
+        self.write_lock(pid=os.getpid())
+        ops = self.operations()
+        before = store_snapshot(self.store)
+        with mock.patch('os.kill', side_effect=PermissionError):
+            with self.assertRaises(ops['CoordinatorLeaseError']):
+                ops['clear_coordinator_lease_lock'](self.store, 'why', 'David: yes')
+        self.assertEqual(store_snapshot(self.store), before)
+
+    def test_stopped_holder_is_audited_before_unlink_and_lease_unchanged(self):
+        from unittest import mock
+        child = subprocess.Popen([sys.executable, '-c', 'pass'])
+        child.wait()
+        self.write_lock(pid=child.pid)
+        self.write()
+        lease_before = (self.path.read_bytes(), self.path.stat().st_mtime_ns)
+        raw = self.lock_path().read_bytes()
+        self.log.write_text('{"earlier":true}\n')
+        unlink = Path.unlink
+        ops = self.operations()
+        with mock.patch.dict(os.environ, self.env), mock.patch('os.fsync', wraps=os.fsync) as fsync:
+            def observed_unlink(path, *args, **kwargs):
+                if path.resolve() == self.lock_path().resolve():
+                    self.assertTrue(fsync.called)
+                    self.assertEqual(len(self.log.read_text().splitlines()), 2)
+                return unlink(path, *args, **kwargs)
+            with mock.patch.object(Path, 'unlink', observed_unlink):
+                ops['clear_coordinator_lease_lock'](self.store, 'stopped holder', 'David: 清除此测试锁')
+        self.assertFalse(self.lock_path().exists())
+        self.assertEqual((self.path.read_bytes(), self.path.stat().st_mtime_ns), lease_before)
+        row = json.loads(self.log.read_text().splitlines()[-1])
+        self.assertEqual(row['event'], 'clear-lock')
+        self.assertEqual(row['lock_path'], str(self.lock_path().resolve()))
+        self.assertEqual(row['lock_sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(row['lock_content'], json.loads(raw))
+        self.assertIs(row['holder_alive'], False)
+        self.assertEqual(row['reason'], 'stopped holder')
+        self.assertEqual(row['david_instruction'], 'David: 清除此测试锁')
+        self.assertEqual(row['cleared_by']['session_id'], 'owner')
+        self.assertEqual(row['cleared_at'], NOW)
+
+    def test_failed_audit_write_or_fsync_preserves_lock(self):
+        from unittest import mock
+        ops = self.operations()
+        self.write_lock(host='other-host')
+        raw = self.lock_path().read_bytes()
+        self.log.mkdir()
+        self.clear(expected=3)
+        self.assertEqual(self.lock_path().read_bytes(), raw)
+        self.log.rmdir()
+        with mock.patch('os.fsync', side_effect=OSError('audit fsync failed')):
+            with self.assertRaises(ops['CoordinatorLeaseError']):
+                ops['clear_coordinator_lease_lock'](self.store, 'why', 'David: yes')
+        self.assertEqual(self.lock_path().read_bytes(), raw)
+
+    def test_cross_host_and_invalid_records_are_unknown_and_do_not_change_lease(self):
+        self.write()
+        lease_before = self.path.read_bytes()
+        for record in [lock_fixture(host='other-host'), None, [],
+                       lock_fixture(pid=True), lock_fixture(pid=2 ** 64), lock_fixture(created_at='bad')]:
+            with self.subTest(record=record):
+                self.lock_path().write_text(json.dumps(record))
+                self.clear()
+                row = json.loads(self.log.read_text().splitlines()[-1])
+                self.assertEqual(row['holder_alive'], 'unknown')
+                self.assertEqual(row['lock_content'], record if isinstance(record, dict)
+                                 and record.get('host') == 'other-host' else None)
+                self.assertEqual(self.path.read_bytes(), lease_before)
+        self.lock_path().write_bytes(b'{invalid json')
+        self.clear()
+        row = json.loads(self.log.read_text().splitlines()[-1])
+        self.assertEqual(row['holder_alive'], 'unknown')
+        self.assertIsNone(row['lock_content'])
+
+
+class StaleLockRaceTests(LeaseTestCase):
+    def operations(self):
+        import runpy
+        return runpy.run_path(str(SCRIPT))
+
+    def test_audited_old_lock_cannot_remove_new_live_holder_lock(self):
+        from unittest import mock
+        import select
+        lock = self.store / 'COORDINATOR-LEASE.lock'
+        old = (json.dumps(lock_fixture(host='stopped-other-host')) + '\n').encode()
+        lock.write_bytes(old)
+        self.write()
+        lease_before = self.path.read_bytes()
+        # Pause A immediately after its audit fsync, using a pipe rather than time.
+        program = '''import os, runpy, sys
+from unittest import mock
+ops = runpy.run_path(sys.argv[1])
+original_fsync = os.fsync
+paused = False
+def pause_after_audit(fd):
+    global paused
+    original_fsync(fd)
+    if not paused:
+        paused = True
+        print('audit-fsynced', flush=True)
+        if sys.stdin.readline().strip() != 'continue':
+            raise RuntimeError('missing continuation')
+with mock.patch('os.fsync', pause_after_audit):
+    raise SystemExit(ops['main'](sys.argv[2:]))
+'''
+        worker = subprocess.Popen([sys.executable, '-c', program, str(SCRIPT),
+                                   'lease', 'clear-lock', '--store', str(self.store),
+                                   '--reason', 'clear A', '--david-instruction', 'David: 测试清锁'],
+                                  env=self.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True)
+        def stop_worker():
+            if worker.poll() is None:
+                worker.kill()
+            worker.communicate()
+        self.addCleanup(stop_worker)
+        self.assertTrue(select.select([worker.stdout], [], [], 20)[0], 'A never audited')
+        self.assertEqual(worker.stdout.readline().strip(), 'audit-fsynced')
+        self.cli('clear-lock', '--reason', 'clear B', '--david-instruction', 'David: 测试清锁')
+        self.assertFalse(lock.exists())
+        ops = self.operations()
+        with mock.patch.dict(os.environ, {**self.env, 'CLAUDE_PID': str(os.getpid())}):
+            held = ops['coordinator_lease_lock'](self.store)
+            held.__enter__()
+        def release_holder():
+            try:
+                held.__exit__(None, None, None)
+            except FileNotFoundError:
+                pass  # Preserve the assertion failure on the defective baseline.
+        self.addCleanup(release_holder)
+        new = lock.read_bytes()
+        self.assertEqual(json.loads(new)['pid'], os.getpid())
+        stdout, stderr = worker.communicate('continue\n', timeout=20)
+        self.assertTrue(lock.exists(), 'A deleted the new live holder lock')
+        self.assertEqual(lock.read_bytes(), new)
+        self.assertEqual(worker.returncode, 3, stdout + stderr)
+        self.assertEqual(len(stderr.splitlines()), 1, stderr)
+        self.assertIn('clear-lock-aborted', stderr)
+        self.assertEqual(self.path.read_bytes(), lease_before)
+        rows = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual([row['event'] for row in rows],
+                         ['clear-lock', 'clear-lock', 'clear-lock-aborted'])
+        self.assertEqual(rows[-1]['lock_sha256'], hashlib.sha256(old).hexdigest())
+        self.assertEqual(rows[-1]['actual_lock_sha256'], hashlib.sha256(new).hexdigest())
+        self.assertTrue(rows[-1]['restored'])
+
+    def test_failed_restore_preserves_quarantined_and_new_path_locks(self):
+        from unittest import mock
+        lock = self.store / 'COORDINATOR-LEASE.lock'
+        lock.write_text(json.dumps(lock_fixture(host='stopped-other-host')))
+        original_rename = os.rename
+        original_fsync = os.fsync
+        moved, quarantined = [], []
+        audited = False
+        replacement = b'new holder bytes'
+        newest = b'newer holder bytes'
+        def replace_after_audit(fd):
+            nonlocal audited
+            original_fsync(fd)
+            if not audited:
+                audited = True
+                lock.write_bytes(replacement)
+        def occupy_after_move(source, destination):
+            original_rename(source, destination)
+            moved.append(Path(destination))
+            quarantined.append(Path(destination).read_bytes())
+            lock.write_bytes(newest)
+        ops = self.operations()
+        with mock.patch('os.fsync', replace_after_audit), mock.patch('os.rename', occupy_after_move):
+            with self.assertRaises(ops['CoordinatorLeaseError']):
+                ops['clear_coordinator_lease_lock'](self.store, 'race', 'David: 测试清锁')
+        self.assertEqual(lock.read_bytes(), newest)
+        self.assertEqual(quarantined, [replacement])
+        self.assertEqual(moved[0].read_bytes(), replacement)
+        row = json.loads(self.log.read_text().splitlines()[-1])
+        self.assertEqual(row['event'], 'clear-lock-aborted')
+        self.assertEqual(row['actual_lock_sha256'], hashlib.sha256(replacement).hexdigest())
+        self.assertFalse(row['restored'])
+        self.assertEqual(row['quarantine_path'], str(moved[0]))
+
+
 if __name__ == '__main__':
     unittest.main()
