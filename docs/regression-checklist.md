@@ -404,3 +404,16 @@ link back to `orca.md`, which points to it; the four coordinator scripts are in 
 id that existed at 3a7acba (R-016 is a historical gap; R-002 and R-008 are walkthrough entries without `sh` blocks) and requires
 new ids to continue from R-032 with an `sh` block.
 
+### R-033 本项目常设授权清单的合并条目带质量门槛，自动合并永不授权
+
+Added: W3-SA (David 2026-10-10: 「授权合并 PR、推送默认分支、生产部署、凭据与密钥操作」→ 仅本项目常设，带质量门槛).
+
+```sh
+python3 -c "import json,sys;d=json.load(open('docs/agents/standing-authorizations.json',encoding='utf-8'));i={x['id']:x for x in d['items']};m=i['SA-MERGE-PR'];sys.exit(0 if d['merge_authorized'] is True and '--auto' in m['deny'] and len(m['conditions'])>=4 and '直接推送默认分支' in i['SA-PUSH-DEFAULT']['deny'] else 1)"
+! grep -q '永不含合并' references/preseal-checks.md && grep -q -- '--auto' references/preseal-checks.md
+```
+
+Pass: both commands exit 0. The merge entry requires green CI on the PR head, an independent review PASS, a reproducible
+pass acceptance record and a passing regression checklist, merges with `--match-head-commit`, and never allows `--auto`,
+`--admin` or a direct push to the default branch.
+

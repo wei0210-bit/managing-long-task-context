@@ -1,61 +1,130 @@
 {
-  "schema": "standing-authorizations/v1",
-  "grant": {
-    "question": "项目级常设授权清单放哪些？",
-    "choice": "推荐清单（推荐）",
-    "date": "2026-10-08",
-    "session": "67f469da-a1cd-49c8-acbf-98a903fecc70",
-    "coordinator": "coordinator-opus",
-    "contract_version": 1,
-    "covers": "docs/agents/standing-authorizations.json 的三项内容：推送分支和开 PR（不合并）、CI 超时上限上调不超过一倍、阈值放宽到实测值 +50% 以内"
+ "schema": "standing-authorizations/v1",
+ "grant": {
+  "question": "项目级常设授权清单放哪些？",
+  "choice": "推荐清单（推荐）",
+  "date": "2026-10-08",
+  "session": "67f469da-a1cd-49c8-acbf-98a903fecc70",
+  "coordinator": "coordinator-opus",
+  "contract_version": 1,
+  "covers": "docs/agents/standing-authorizations.json 的三项内容：推送分支和开 PR（不合并）、CI 超时上限上调不超过一倍、阈值放宽到实测值 +50% 以内"
+ },
+ "use_by": "coordinator-only",
+ "merge_authorized": true,
+ "items": [
+  {
+   "id": "SA-PUSH-PR",
+   "allow": [
+    "推送非默认分支",
+    "开 PR"
+   ],
+   "deny_refs": [
+    "main",
+    "默认分支"
+   ],
+   "force": false,
+   "deny": [
+    "--auto",
+    "删除远端分支",
+    "在默认分支 publish_context"
+   ]
   },
-  "use_by": "coordinator-only",
-  "merge_authorized": false,
-  "items": [
-    {
-      "id": "SA-PUSH-PR",
-      "allow": [
-        "推送非默认分支",
-        "开 PR"
-      ],
-      "deny_refs": [
-        "main",
-        "默认分支"
-      ],
-      "force": false,
-      "deny": [
-        "gh pr merge",
-        "--auto",
-        "删除远端分支",
-        "在默认分支 publish_context"
-      ]
-    },
-    {
-      "id": "SA-CI-TIMEOUT",
-      "files": ".github/workflows/*.yml",
-      "key": "timeout-minutes",
-      "anchor": {
-        "commit": "b0db61f",
-        "value": 10
-      },
-      "max": 20,
-      "conditions": [
-        "仅可上调 timeout-minutes，按固定基线最多增加一倍，不得滚动翻倍",
-        "其他 CI 内容变更不在此项授权内"
-      ]
-    },
-    {
-      "id": "SA-THRESHOLD",
-      "max_ratio": 1.5,
-      "measured": "使用原测量方式在合同要求的各解释器实测，取各解释器实测最大值；放宽后的阈值不得超过该最大值的 1.5 倍",
-      "deny": [
-        "改测量方式",
-        "删断言"
-      ],
-      "conditions": [
-        "封印前逐一记录各解释器命令、版本、实测值与所选阈值",
-        "仅覆盖数值阈值调整，不覆盖其他质量底线豁免"
-      ]
-    }
-  ]
+  {
+   "id": "SA-CI-TIMEOUT",
+   "files": ".github/workflows/*.yml",
+   "key": "timeout-minutes",
+   "anchor": {
+    "commit": "b0db61f",
+    "value": 10
+   },
+   "max": 20,
+   "conditions": [
+    "仅可上调 timeout-minutes，按固定基线最多增加一倍，不得滚动翻倍",
+    "其他 CI 内容变更不在此项授权内"
+   ]
+  },
+  {
+   "id": "SA-THRESHOLD",
+   "max_ratio": 1.5,
+   "measured": "使用原测量方式在合同要求的各解释器实测，取各解释器实测最大值；放宽后的阈值不得超过该最大值的 1.5 倍",
+   "deny": [
+    "改测量方式",
+    "删断言"
+   ],
+   "conditions": [
+    "封印前逐一记录各解释器命令、版本、实测值与所选阈值",
+    "仅覆盖数值阈值调整，不覆盖其他质量底线豁免"
+   ]
+  },
+  {
+   "id": "SA-MERGE-PR",
+   "allow": [
+    "gh pr merge --squash --match-head-commit <已验证提交>"
+   ],
+   "deny": [
+    "--auto",
+    "--admin",
+    "绕过分支保护"
+   ],
+   "conditions": [
+    "PR 头提交的 CI 全绿",
+    "PR 内每个任务的独立审核结论为 PASS，或为 PASS_WITH_FINDINGS 且发现均已处理",
+    "PR 内每个任务都有 decision=pass 且 reproducible=true 的验收记录",
+    "集成提交上回归清单全过",
+    "合并后推送一条通知给 David（项目、PR 号、合并提交）"
+   ]
+  },
+  {
+   "id": "SA-PUSH-DEFAULT",
+   "allow": [
+    "默认分支只经 SA-MERGE-PR 合并进入"
+   ],
+   "deny": [
+    "直接推送默认分支",
+    "强推任何分支"
+   ],
+   "conditions": [
+    "只在 SA-MERGE-PR 的条件全部满足时发生"
+   ]
+  },
+  {
+   "id": "SA-PROD-DEPLOY",
+   "applicable": false,
+   "note": "本项目当前没有生产环境，记为不适用",
+   "conditions": [
+    "若将来出现生产环境：先部署到预发并验证",
+    "事先写明回滚方案",
+    "部署后回读确认",
+    "通知 David"
+   ]
+  },
+  {
+   "id": "SA-CREDENTIALS",
+   "conditions": [
+    "只做合同写明的那一项凭据或密钥操作",
+    "密钥不出现在输出、日志或提交中",
+    "不新增明文存储",
+    "完成后通知 David"
+   ]
+  }
+ ],
+ "additional_grants": [
+  {
+   "david_words": "授权合并 PR、推送默认分支、生产部署、凭据与密钥操作",
+   "date": "2026-10-10",
+   "session": "eb629ee5-bc6b-4737-9ec6-c8a5b2cfaab9",
+   "coordinator": "coordinator-opus-eb629ee5",
+   "question": "这次授权（合并 PR、推送默认分支、生产部署、凭据与密钥操作）的范围是？",
+   "choice": "仅本项目常设（推荐）",
+   "covers": "本项目（managing-long-task-context）的 SA-MERGE-PR、SA-PUSH-DEFAULT、SA-PROD-DEPLOY、SA-CREDENTIALS 四个条目"
+  },
+  {
+   "date": "2026-10-10",
+   "session": "eb629ee5-bc6b-4737-9ec6-c8a5b2cfaab9",
+   "coordinator": "coordinator-opus-eb629ee5",
+   "question": "若为常设授权，执行时要不要带质量门槛？",
+   "choice": "带质量门槛（推荐）",
+   "covers": "上述四个条目的 conditions"
+  }
+ ]
 }
