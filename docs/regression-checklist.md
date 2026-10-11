@@ -465,3 +465,15 @@ python3 scripts/sync_context_strict_skill.py >/dev/null && test -z "$(git status
 ```
 
 Pass: the command exits 0 after the round's commit.
+
+### R-038 封印前检查要求包内测试在包目录外运行，规程要求派工前写第一个检查点
+
+Added: W3-TAIL (W3-LEASE CI failure hidden by in-package runs; W3-FOLLOW ran without a checkpoint; David 2026-10-11: 「授权你完成后续」).
+
+```sh
+python3 -c "import re,sys;p=open('references/preseal-checks.md',encoding='utf-8').read();s=re.search(r'^## 数值阈值与执行环境\n(.*?)(?=^## )',p,re.S|re.M).group(1);o=open('references/orca.md',encoding='utf-8').read();d=re.search(r'^## Dispatch spec\n(.*?)(?=^## )',o,re.S|re.M).group(1);sys.exit(0 if all(k in s for k in ('包目录外','unittest discover -s','from tests.')) and all(k in d for k in ('first checkpoint','coordinator_ops.py checkpoint','worker-start')) else 1)" && ! grep -q 'timeout=30' tests/test_experience_distribution.py
+```
+
+Pass: the command exits 0. The preseal rules require package tests to run from outside the package as CI does, the
+dispatch section requires the first checkpoint before `worker-start`, and the distribution test keeps its 60-second
+subprocess limits.
