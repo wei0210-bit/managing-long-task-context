@@ -477,3 +477,15 @@ python3 -c "import re,sys;p=open('references/preseal-checks.md',encoding='utf-8'
 Pass: the command exits 0. The preseal rules require package tests to run from outside the package as CI does, the
 dispatch section requires the first checkpoint before `worker-start`, and the distribution test keeps its 60-second
 subprocess limits.
+
+### R-039 规程写明删除工作树时先归档证据、保留分支
+
+Added: W3-NOTE (CLEAN-01 on 2026-10-11: `orca worktree rm` deleted 45 of 67 checked-out branches asynchronously; David 2026-10-11: 「把后续两项完成」).
+
+```sh
+python3 -c "import re,sys;o=open('references/orca.md',encoding='utf-8').read();s=re.search(r'^## Coordinator: acceptance-record workflow[^\n]*\n(.*?)(?=^## )',o,re.S|re.M).group(1);sys.exit(0 if all(k in s for k in ('orca worktree rm','--force','git worktree list','orca worktree list','.context-reports','recorded commit','David')) else 1)"
+```
+
+Pass: the command exits 0. The acceptance-record section says that removing a worktree needs David's direct authorization,
+that `.context-reports/` is archived and verified first, and that branches deleted by `orca worktree rm` (with or without
+`--force`) are recreated at their recorded commits and rechecked after a short delay.
