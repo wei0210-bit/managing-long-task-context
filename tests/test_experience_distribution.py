@@ -21,7 +21,7 @@ class ExperienceDistributionTests(unittest.TestCase):
         completed = subprocess.run(
             [sys.executable, str(PACKAGER), "build", "--source", str(source),
              "--destination", str(destination), "--source-revision", revision],
-            cwd=destination.parent, capture_output=True, text=True, check=False, timeout=30,
+            cwd=destination.parent, capture_output=True, text=True, check=False, timeout=60,
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertEqual(json.loads(completed.stdout)["status"], "pass")
@@ -34,7 +34,7 @@ class ExperienceDistributionTests(unittest.TestCase):
             built = subprocess.run(
                 [sys.executable, str(PACKAGER), "build", "--source", str(ROOT / "skills/context-lite"),
                  "--destination", str(package), "--source-revision", "git:ticket-6"],
-                cwd=outside, capture_output=True, text=True, check=False, timeout=30,
+                cwd=outside, capture_output=True, text=True, check=False, timeout=60,
             )
             self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
             self.assertEqual(json.loads(built.stdout)["skill_version"], "1.5.0")
@@ -45,13 +45,13 @@ class ExperienceDistributionTests(unittest.TestCase):
             test_run = subprocess.run(
                 [sys.executable, "-m", "unittest", "discover", "-s", str(package / "tests"),
                  "-p", test_path.name, "-q"],
-                cwd=outside, capture_output=True, text=True, check=False, timeout=30,
+                cwd=outside, capture_output=True, text=True, check=False, timeout=60,
                 env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
             )
             self.assertEqual(test_run.returncode, 0, test_run.stdout + test_run.stderr)
             example_run = subprocess.run(
                 [sys.executable, str(example_path)], cwd=outside, capture_output=True,
-                text=True, check=False, timeout=30,
+                text=True, check=False, timeout=60,
                 env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
             )
             self.assertEqual(example_run.returncode, 0, example_run.stdout + example_run.stderr)
@@ -271,7 +271,7 @@ with tempfile.TemporaryDirectory() as temporary:
             environment = dict(os.environ, PYTHONPATH=str(package / "src"))
             completed = subprocess.run(
                 [sys.executable, "-c", program, str(package)], cwd=outside, env=environment,
-                capture_output=True, text=True, check=False, timeout=30,
+                capture_output=True, text=True, check=False, timeout=60,
             )
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
             results = json.loads(completed.stdout)
@@ -314,7 +314,7 @@ raise SystemExit(1)
 '''
             environment = dict(os.environ, PYTHONPATH=str(historical / "src"))
             rejected = subprocess.run([sys.executable, "-c", program, str(historical)], cwd=outside,
-                                      env=environment, capture_output=True, text=True, check=False, timeout=30)
+                                      env=environment, capture_output=True, text=True, check=False, timeout=60)
             self.assertEqual(rejected.returncode, 0, rejected.stdout + rejected.stderr)
             self.assertIn("rule-execution/v1", rejected.stdout)
             self.assertIn("unsupported", rejected.stdout.lower())

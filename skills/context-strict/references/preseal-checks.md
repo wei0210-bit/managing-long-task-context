@@ -48,6 +48,11 @@ owned paths 是可写上限，不会自行扩大 scope；封印后发现漏项�
 运行及测试步骤；仓库通过不代表包内通过。逐个运行要求的解释器与包内步骤，
 保留各自结果；环境差异或无法执行的检查须明确记录并在封印前解决。
 
+凡合同含包内测试，须像 CI 那样先构建完整包，再从包目录外的工作目录设置
+`PYTHONPATH=<包>/src:<包>/tests` 运行 `python -m unittest discover -s <包>/tests`。
+在仓库根目录可直接运行 `T="$(python3 -c 'import tempfile;print(tempfile.mkdtemp())')" && python3 scripts/skill_package.py build --source skills/context-strict --destination "$T/context-strict" --source-revision "git:$(git rev-parse HEAD)" && (cd "$T" && PYTHONPATH="$T/context-strict/src:$T/context-strict/tests" python3 -m unittest discover -s "$T/context-strict/tests")`；
+在包目录内运行会掩盖 `from tests.` 一类导入错误，不能作为包外运行的验收证据。
+
 ## 先写真实行为验收测试
 
 解析、读盘、遍历与状态机等失败路径多的任务，先写以真实行为为基准的验收
