@@ -324,6 +324,16 @@ alignment in the same checkout because it may overwrite unpublished sidecars.
 Secret checks use six known markers; secrets outside that list can still be copied
 and pushed under the existing publication authorization.
 
+Removing a worktree requires David's direct authorization. Archive its
+`.context-reports/` first, because task-store records point there, and verify the
+copy. `orca worktree rm` also deletes the checked-out local branch asynchronously,
+with or without `--force`, keeping only branches Orca cannot prove merged. Record
+each branch's commit before removal, wait until the directory is gone and the
+worktree is absent from both `git worktree list` and `orca worktree list`, then
+recreate any missing branch at its recorded commit. Recheck after a short delay,
+because the deletion can land after the first recreation, and recreate any branch
+that has disappeared again at its recorded commit.
+
 ## Schema 2 experience sharing (Strict 0.13.0 / Lite 1.5.0)
 
 The coordinator is the single experience writer. Receivers must not initialize
