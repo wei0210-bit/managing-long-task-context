@@ -96,6 +96,10 @@ from the dispatch or handoff material, never an automatically derived expected
 value. Only the coordinator initializes binding; without it recovery returns
 `BINDING_MISSING` and null context.
 
+After `publish_contract` and `init-binding`, write the first checkpoint with
+`scripts/coordinator_ops.py checkpoint` before `worker-start`, so the task store
+never lacks a checkpoint while a worker runs.
+
 ## Worker report contract
 
 A worker report is a durable evidence source that the coordinator checks before
