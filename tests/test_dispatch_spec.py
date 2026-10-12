@@ -269,6 +269,33 @@ class DispatchSpecTests(unittest.TestCase):
         self.assertNotIn("双解释器与包矩阵交给 CI", output)
 
 
+    def test_reviewer_origin_copy_requirements_bind_the_requested_baseline(self) -> None:
+        for baseline in ("fce3c53", "0123abc"):
+            with self.subTest(baseline=baseline):
+                output = self.output("--baseline-commit", baseline, role="reviewer").decode()
+                paragraphs = [paragraph for paragraph in output.split("\n\n")
+                              if "git rev-parse origin/main" in paragraph]
+                self.assertEqual(len(paragraphs), 1)
+                paragraph = paragraphs[0]
+                for requirement in (
+                    "会写盘的命令只在所有 Git 工作树之外的独立 Git 副本里运行",
+                    "副本须有名为 origin 的远端",
+                    "URL 取审核工作树 `git remote get-url origin` 的输出",
+                    "并先 `git fetch origin`",
+                    "跑任何检查前用 `git rev-parse origin/main`",
+                    f"基线提交 {baseline} 是同一提交",
+                    "R-003 等回归条目执行 `git fetch origin main` 并与 origin/main 比较",
+                    "副本缺 origin 就会失败",
+                    "两者不同时停下问协调者",
+                    "不得自行改用别的基线或伪造 origin/main",
+                ):
+                    with self.subTest(requirement=requirement):
+                        self.assertIn(requirement, paragraph)
+                depth = output.index("验收深度：")
+                self.assertEqual(output.index(paragraph), output.index("\n\n", depth) + 2)
+                executor = self.output("--baseline-commit", baseline, role="executor").decode()
+                self.assertNotIn("git rev-parse origin/main", executor)
+
     def test_coordinator_lease_conflicts_and_invalid_files_fail_without_any_writes(self):
         from test_coordinator_lease import lease_fixture, store_snapshot, NOW
         from unittest.mock import patch

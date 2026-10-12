@@ -102,6 +102,12 @@ def render_spec(args: argparse.Namespace) -> str:
             "Review the sealed scope against the baseline and original evidence.\n\n"
             "验收深度：审核者跑与改动相关的定向测试，并在 python3 上抽查一次仓库全量；"
             "双解释器与包矩阵交给 CI；协调者在集成提交上复跑合同命令；CI 全绿才合并。"
+            "\n\n会写盘的命令只在所有 Git 工作树之外的独立 Git 副本里运行；"
+            "副本须有名为 origin 的远端，URL 取审核工作树 `git remote get-url origin` 的输出，"
+            "并先 `git fetch origin`；跑任何检查前用 `git rev-parse origin/main` "
+            f"确认它与本说明的基线提交 {args.baseline_commit} 是同一提交。"
+            "R-003 等回归条目执行 `git fetch origin main` 并与 origin/main 比较，副本缺 origin 就会失败；"
+            "两者不同时停下问协调者，不得自行改用别的基线或伪造 origin/main。"
         )
     else:
         ownership = "\n".join(f"  - {item}" for item in owned) or "  - None declared."
