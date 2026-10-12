@@ -489,3 +489,15 @@ python3 -c "import re,sys;o=open('references/orca.md',encoding='utf-8').read();s
 Pass: the command exits 0. The acceptance-record section says that removing a worktree needs David's direct authorization,
 that `.context-reports/` is archived and verified first, and that branches deleted by `orca worktree rm` (with or without
 `--force`) are recreated at their recorded commits and rechecked after a short delay.
+
+### R-040 审核派工说明要求独立副本带指向基线的 origin/main
+
+Added: W3-ORIGIN (independent copies in W3-FOLLOW and W3-NOTE had no `origin`, so R-003 could not run; David 2026-10-12: 「把留给后续的也完成」).
+
+```sh
+out="$(python3 -m unittest discover -s tests -p test_dispatch_spec.py -k test_reviewer_origin_copy_requirements_bind_the_requested_baseline 2>&1)" && printf '%s\n' "$out" | grep -q '^Ran 1 test'
+```
+
+Pass: the command exits 0 and runs one test. The reviewer dispatch spec requires writing checks to run in an independent
+Git copy whose `origin` has the reviewer worktree's URL, and `git rev-parse origin/main` to equal the named baseline
+commit before any check; the executor spec does not carry this paragraph.
