@@ -10,6 +10,7 @@
 - Run every non-retired entry from the repository root. A round passes only when all of
   them pass; report each entry's result separately.
   Run the checklist with `python3 scripts/regression_checklist.py`.
+  验证单个条目（如刚追加的条目）用 `python3 scripts/regression_checklist.py --only R-xxx`，条目缺失、已退役或无命令块时退出 2。
 
 ## Entries
 
@@ -501,3 +502,30 @@ out="$(python3 -m unittest discover -s tests -p test_dispatch_spec.py -k test_re
 Pass: the command exits 0 and runs one test. The reviewer dispatch spec requires writing checks to run in an independent
 Git copy whose `origin` has the reviewer worktree's URL, and `git rev-parse origin/main` to equal the named baseline
 commit before any check; the executor spec does not carry this paragraph.
+
+### R-041 回归清单执行器 --only 对缺失条目报错、空白命令块判失败
+
+Added: W3-ONLY (in W3-ORIGIN the coordinator's append of R-040 was blocked by the sandbox, an ad-hoc `sed` extraction of
+the missing entry produced an empty command and `bash -e -c ""` printed exit 0; David 2026-10-13: 「前面还有过程中的问题，里面的内容你分析原因；第三点你也处理了」).
+
+```sh
+python3 - <<'PY'
+import subprocess, sys, tempfile
+from pathlib import Path
+t = Path(tempfile.mkdtemp()); c = t / 'c.md'; F = '`' * 3
+c.write_text('### R-100 x\n\nAdded: x\n\n' + F + 'sh\ntrue\n' + F + '\n\nPass: x\n\n'
+             '### R-101 x\n\nAdded: x\n\n' + F + 'sh\n \n' + F + '\n\nPass: x\n', encoding='utf-8')
+def run(*a):
+    p = subprocess.run([sys.executable, 'scripts/regression_checklist.py', '--root', str(t), '--checklist', str(c), *a],
+                       capture_output=True, text=True)
+    return p.returncode, p.stdout, p.stderr
+missing, single, blank = run('--only', 'R-999'), run('--only', 'R-100'), run('--only', 'R-101')
+print(missing, single, blank)
+sys.exit(0 if (missing[0] == 2 and missing[1] == '' and 'R-999' in missing[2] and 'usage:' not in missing[2]
+               and single[:2] == (0, 'R-100 pass exit=0\n') and blank[:2] == (1, 'R-101 fail exit=2\n')) else 1)
+PY
+```
+
+Pass: the command exits 0. On a temporary checklist, `--only` with a missing ID exits 2 with that ID on stderr, no
+argparse usage text and nothing on stdout; `--only` with a passing entry prints `R-100 pass exit=0`; an entry whose only
+`sh` block is blank prints `R-101 fail exit=2`. Like R-036, this entry never runs the runner on this checklist.

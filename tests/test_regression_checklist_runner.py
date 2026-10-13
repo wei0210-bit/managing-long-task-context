@@ -135,5 +135,109 @@ class R001WholeBlockTests(unittest.TestCase):
         self.assertIn('R-001 pass exit=1', result.stdout)
 
 
+class OnlyAndBlankTests(unittest.TestCase):
+    setUp = RegressionChecklistRunnerTests.setUp
+    run_checklist = RegressionChecklistRunnerTests.run_checklist
+
+    def test_only_runs_selected_entries_in_checklist_order_once_and_logs_them(self):
+        logs = self.root / 'logs'
+        content = ('### R-100 first\n```sh\necho first >> order\n```\n'
+                   '### R-101 second\n```sh\necho second >> order; false\n```\n'
+                   '### R-102 excluded\n```sh\ntouch excluded\n```\n')
+        result = self.run_checklist(content, '--only', 'R-101', '--only', 'R-100',
+                                    '--only', 'R-100', '--log-dir', str(logs))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout, 'R-100 pass exit=0\nR-101 fail exit=1\n')
+        self.assertEqual(result.stderr, '')
+        self.assertEqual((self.root / 'order').read_text(), 'first\nsecond\n')
+        self.assertFalse((self.root / 'excluded').exists())
+        summary = json.loads((logs / 'summary.json').read_text())
+        self.assertEqual([row['id'] for row in summary['entries']], ['R-100', 'R-101'])
+        self.assertEqual(summary['exit_code'], 1)
+        self.assertEqual({path.name for path in logs.iterdir()},
+                         {'R-100.log', 'R-101.log', 'summary.json'})
+
+    def test_only_single_entry_passes(self):
+        result = self.run_checklist('### R-100 first\n```sh\ntouch selected\n```\n'
+                                    '### R-101 excluded\n```sh\nfalse\n```\n',
+                                    '--only', 'R-100')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'R-100 pass exit=0\n')
+        self.assertEqual(result.stderr, '')
+        self.assertTrue((self.root / 'selected').exists())
+
+    def test_only_reports_all_invalid_ids_before_running_or_writing_summary(self):
+        content = ('### R-100 valid\n```sh\ntouch ran\n```\n'
+                   '### R-102 retired\nAdded: x\nRetired (#1, obsolete)\n'
+                   '```sh\ntouch retired\n```\n'
+                   '### R-103 manual\nWalkthrough: read it.\n')
+        bad = [('R-999', '条目不存在'), ('R-102', '条目已退役'),
+               ('R-103', '没有 sh 命令块')]
+        for selection in [[item] for item in bad] + [bad]:
+            with self.subTest(selection=selection):
+                args = ['--only', 'R-100']
+                for rid, reason in selection:
+                    args.extend(['--only', rid, '--only', rid])
+                logs = self.root / 'logs'
+                result = self.run_checklist(content, *args, '--log-dir', str(logs))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr, ''.join(
+                    rid + ': ' + reason + '\n' for rid, reason in selection))
+                self.assertFalse((self.root / 'ran').exists())
+                self.assertFalse((self.root / 'retired').exists())
+                self.assertFalse((logs / 'summary.json').exists())
+
+    def test_only_matches_ids_literally_without_padding_or_case_changes(self):
+        for rid in ['R-40', 'r-040', 'R-040 ']:
+            with self.subTest(rid=rid):
+                result = self.run_checklist('### R-040 valid\n```sh\ntouch ran\n```\n',
+                                            '--only', rid)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr, rid + ': 条目不存在\n')
+                self.assertFalse((self.root / 'ran').exists())
+
+    def test_blank_blocks_fail_in_full_and_only_runs_including_mixed_blocks(self):
+        for code in ['', '  \t', '\n \t\n']:
+            for selected in [False, True]:
+                with self.subTest(code=code, selected=selected):
+                    logs = self.root / 'logs'
+                    args = ['--only', 'R-100'] if selected else []
+                    result = self.run_checklist('### R-100 blank\n```sh\n' + code + '\n```\n',
+                                                *args, '--log-dir', str(logs))
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stdout, 'R-100 fail exit=2\n')
+                    self.assertEqual(result.stderr, 'R-100: 空白命令块\n')
+                    row = json.loads((logs / 'summary.json').read_text())['entries'][0]
+                    self.assertEqual(row['blocks'],
+                                     [{'index': 1, 'step': 1, 'exit_code': 2, 'pass': False}])
+        for blocks in [('false', ' ', 'touch after'), (' ', 'touch after', 'false')]:
+            for selected in [False, True]:
+                with self.subTest(blocks=blocks, selected=selected):
+                    content = '### R-100 mixed\n' + ''.join(
+                        '```sh\n' + code + '\n```\n' for code in blocks)
+                    args = ['--only', 'R-100'] if selected else []
+                    result = self.run_checklist(content, *args)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stdout, 'R-100 fail exit=2\n')
+                    self.assertEqual(result.stderr, 'R-100: 空白命令块\n')
+                    self.assertTrue((self.root / 'after').exists())
+
+    def test_blank_blocks_do_not_call_bash_and_precede_special_rules(self):
+        import runpy
+        from unittest.mock import patch
+        run_entry = runpy.run_path(str(SCRIPT))['run_entry']
+        for rid in ['R-100', 'R-001', 'R-007', 'R-026']:
+            with self.subTest(rid=rid), patch('subprocess.run') as bash:
+                bash.return_value = subprocess.CompletedProcess([], 0, b'', b'')
+                row, output = run_entry(rid, False, [' \t\n'], self.root, 1)
+                bash.assert_not_called()
+                self.assertEqual(row['status'], 'fail')
+                self.assertEqual(row['exit_code'], 2)
+                self.assertEqual(row['error'], '空白命令块')
+                self.assertEqual(output, (rid + ': 空白命令块\n').encode('utf-8'))
+
+
 if __name__ == '__main__':
     unittest.main()
