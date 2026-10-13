@@ -113,6 +113,17 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertEqual(source, "worktree-default")
         self.assertEqual(resolved, (repo / ".prime" / "context").resolve())
 
+    def test_new_legend_records_agreements_and_experience_without_execution_instructions(self) -> None:
+        repo = _init_repo(self.root / "legend")
+        legend = project_store.ensure_legend(repo).read_text(encoding="utf-8")
+        self.assertIn("当时约定", legend)
+        self.assertIn("报告差异", legend)
+        self.assertIn("只记录", legend)
+        for instruction in ("停下", "门禁", "才能选用", "再交接", "不拿来交接"):
+            self.assertNotIn(instruction, legend)
+        self.assertIn("只追加", legend)
+        self.assertIn("不要把密钥、令牌或私钥", legend)
+
     def test_relative_contract_and_union_and_migrate(self) -> None:
         repo = _init_repo(self.root / "rel")
         base = _publish_local_task(repo)

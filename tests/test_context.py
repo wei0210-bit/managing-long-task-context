@@ -516,6 +516,25 @@ class ContextSkillTests(unittest.TestCase):
         self.assertEqual(estimate["semantics"], "heuristic-not-guaranteed")
         self.assertLessEqual(estimate["range_low"], estimate["range_high"])
 
+    def test_brief_token_estimate_weights_cjk_without_becoming_a_gate(self) -> None:
+        self.contract["task_id"] = "ASCII-001"
+        self.contract["objective"] = "A" * 120
+        context.publish_contract(self.contract, confirmed_by="publisher", base_dir=self.base)
+        ascii_diagnostics = context.brief_diagnostics("ASCII-001", base_dir=self.base)
+
+        self.contract["task_id"] = "CJK00-001"
+        self.contract["objective"] = "界" * 120
+        context.publish_contract(self.contract, confirmed_by="publisher", base_dir=self.base)
+        cjk_diagnostics = context.brief_diagnostics("CJK00-001", base_dir=self.base)
+
+        self.assertEqual(ascii_diagnostics["status"], "ready")
+        self.assertEqual(cjk_diagnostics["status"], "ready")
+        self.assertGreater(cjk_diagnostics["text"]["cjk_chars"], ascii_diagnostics["text"]["cjk_chars"])
+        self.assertGreater(
+            cjk_diagnostics["token_estimate"]["range_low"],
+            ascii_diagnostics["token_estimate"]["range_low"],
+        )
+
     def test_brief_diagnostics_reports_mandatory_overflow_without_hiding_item(self) -> None:
         self.publish()
         required = context.record(

@@ -70,8 +70,45 @@ class LedgerReportTests(unittest.TestCase):
         self.publish()
         result = context.bind(self.base).checked_resume('LEDGER')
         self.assertEqual(result['diagnostic']['status'], 'unknown')
+        self.assertIn('BINDING_MISSING', result['diagnostic']['codes'])
         self.assertEqual(result['context']['task_id'], 'LEDGER')
         self.assertFalse(result['resume_gate']['blocking'])
+        self.assert_observational_next_action(result['diagnostic'])
+
+    def assert_observational_next_action(self, diagnostic):
+        action = diagnostic['next_action']
+        self.assertIsInstance(action, str)
+        self.assertTrue(action.strip())
+        self.assertNotRegex(action.lower(), r'\b(resume|continue|stop|block|proceed|allow|permit)\b')
+
+    def test_public_resume_reports_identity_mismatch_with_available_ledger(self):
+        self.publish()
+        # This existing directory is outside the loaded package: a real identity
+        # mismatch, independent of whether these tests run in a built package.
+        workspace = Path(self.temporary.name)
+        client = context.bind(self.base, package_root=workspace, workspace_root=workspace)
+        results = {
+            'bound': client.checked_resume('LEDGER'),
+            'module': context.checked_resume('LEDGER', package_root=workspace,
+                workspace_root=workspace, base_dir=self.base),
+        }
+        for entry, result in results.items():
+            with self.subTest(entry=entry):
+                self.assertEqual(result['diagnostic']['status'], 'fail')
+                self.assertIn('RUNTIME_PATH_MISMATCH', result['diagnostic']['codes'])
+                self.assertEqual(result['context']['task_id'], 'LEDGER')
+                self.assertFalse(result['resume_gate']['blocking'])
+                self.assert_observational_next_action(result['diagnostic'])
+
+    def test_module_resume_without_binding_reports_unknown_with_available_ledger(self):
+        self.publish()
+        result = context.checked_resume('LEDGER', package_root=Path(__file__).resolve().parents[1],
+            workspace_root=Path(self.temporary.name), base_dir=self.base)
+        self.assertEqual(result['diagnostic']['status'], 'unknown')
+        self.assertIn('BINDING_MISSING', result['diagnostic']['codes'])
+        self.assertEqual(result['context']['task_id'], 'LEDGER')
+        self.assertFalse(result['resume_gate']['blocking'])
+        self.assert_observational_next_action(result['diagnostic'])
 
     def test_expired_evidence_is_reported_and_remains_unverified(self):
         self.publish()
