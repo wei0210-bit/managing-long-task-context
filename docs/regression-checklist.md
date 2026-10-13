@@ -10,6 +10,7 @@
 - Run every non-retired entry from the repository root. A round passes only when all of
   them pass; report each entry's result separately.
   Run the checklist with `python3 scripts/regression_checklist.py`.
+  验证单个条目（如刚追加的条目）用 `python3 scripts/regression_checklist.py --only R-xxx`，条目缺失、已退役或无命令块时退出 2。
 
 ## Entries
 

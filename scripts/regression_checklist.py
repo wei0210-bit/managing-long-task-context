@@ -45,6 +45,11 @@ def run_entry(rid, retired, blocks, root, timeout):
     if not retired and blocks:
         row['status'] = 'pass'
         for index, code in enumerate(blocks, 1):
+            if not code.strip():
+                row.update(status='fail', exit_code=2, error='空白命令块')
+                row['blocks'].append({'index': index, 'step': 1, 'exit_code': 2, 'pass': False})
+                outputs.append((rid + ': 空白命令块\n').encode('utf-8'))
+                continue
             special = SPECIAL_ENTRIES.get(rid)
             commands = code.splitlines() if special == 'document-counts' else (
                 code.strip().split('; ') if special == 'zero-count' else [code])
@@ -89,6 +94,7 @@ def main(argv=None):
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--log-dir', type=Path)
     parser.add_argument('--timeout', type=float, default=900)
+    parser.add_argument('--only', action='append', help='run only this exact entry ID (repeatable)')
     args = parser.parse_args(argv)
     try:
         if args.timeout <= 0:
@@ -98,6 +104,22 @@ def main(argv=None):
         if not checklist.is_absolute():
             checklist = root / checklist
         parsed = entries(checklist.read_text(encoding='utf-8'))
+        if args.only:
+            by_id = {rid: (retired, blocks) for rid, retired, blocks in parsed}
+            errors = []
+            selected = set(args.only)
+            for rid in dict.fromkeys(args.only):
+                if rid not in by_id:
+                    errors.append(rid + ': 条目不存在')
+                elif by_id[rid][0]:
+                    errors.append(rid + ': 条目已退役')
+                elif not by_id[rid][1]:
+                    errors.append(rid + ': 没有 sh 命令块')
+            if errors:
+                for error in errors:
+                    print(error, file=sys.stderr)
+                return 2
+            parsed = [entry for entry in parsed if entry[0] in selected]
         if args.log_dir:
             args.log_dir.mkdir(parents=True, exist_ok=True)
         rows = []
