@@ -1,61 +1,19 @@
 ---
 authority: AUTHORITATIVE_NOW
-task: context-strict-real-migration-hardening
-current_phase: phase-1-migration-truth-and-preflight
-plan_path: docs/superpowers/plans/2026-09-16-context-strict-real-migration-hardening.md
-plan_sha256: 16356e68940f5e47e5a0ed932435e3b8a105019227294f8b1ff38983d9e97e0f
-package_manifest_sha256: 222246a2a7b2d3bd368c019bf38aecca67023603a6b1629886df5b6c2538bc9b
-package_source_revision: git:8e86db6cb058ff931790483941320228aa9ff9fb
-baseline_head: 16c06eede42544eb7a4f0271b3590728352e2426
-implementation_head: 0f9fdd1ab708a20e57bc9e73bdb294a7ded8d0af
-verified_head: 8e86db6cb058ff931790483941320228aa9ff9fb
-verified_at: 2026-09-17T03:22:23Z
-updated_at: 2026-09-19T13:06:07Z
+task: STRICT-LEDGER
+baseline_head: 5c7827feba609ecb3f6d529a9b23cd847b87107d
+package_version: 1.0.0
 ---
 
-# 项目恢复入口
+# Context Strict 项目事实入口
 
-## 当前权威依据
+当前实现将 Strict 精简为多 agent 共用账本。会话、计划、派工、等待、执行与审核由
+Orca 负责；Strict 保留事实、来源、证据指针、有效期、检查点、合同封印与历史、报告登记、
+验收记录、共享存储、经验记录和包身份诊断。健康与证据报告只反映缺失、过期、未验证事实。
 
-- 当前唯一方案：[Context Strict 真实迁移第一阶段](docs/superpowers/plans/2026-09-16-context-strict-real-migration-hardening.md)。授权只在该方案 frontmatter 与 Decision Record 中定义；本入口只导航，不授予权限。
-- `baseline_head` 是本轮实施起点，`implementation_head` 是包含实现的提交，`verified_head` 是最后一次完整校验实际运行的提交。
-- `current_head` 由 `handoff_preflight.py` 实时读取，不写入本文件；`documentation_head`、`merge_head` 只出现在提交后外部回读的验收记录中，缺失即 UNKNOWN。
-- 值为 `null` 的字段表示尚无事实；preflight 按 UNKNOWN 处理，不猜测、不补填。
-- `package_manifest_sha256` 是以 `package_source_revision` 从 `skills/context-strict` 重建的完整包 manifest；不同构建来源的包按 STALE 处理。
+本轮批准依据为 STRICT-LEDGER 原始合同与 David 2026-10-14 的批准清单；共享账本位于
+`context-skill-for-Orca/.prime/context/STRICT-LEDGER/`。交付证据在执行工作树
+`.context-reports/STRICT-LEDGER/`，不进入 Git。合并、全局安装及仓库外规则更新由协调者另行处理。
 
-## 状态标签
-
-- HISTORICAL_ONLY：只供追溯，不是当前事实。SUPERSEDED：人工标注的已替代资料。
-- STALE：plan、package 或引用摘要不一致，或 `verified_head` 之后出现非允许列表变更。
-- UNKNOWN：缺少完成比较所需的原件或可信解析器。NOT_RUN：尚未运行。BLOCKED：只用于具体外部阻塞。
-- `brief_diagnostics().usable=true` 只证明结构可用，不等于事实仍是当前事实。
-
-## 迁移结论口径
-
-- 迁移前先选定 `strict_protocol` 或 `manual_fallback`，不得省略或静默切换。
-- 分别报告 `information_recovery`、`control_transfer`、`source_retirement`；第一阶段 `archive_allowed=false`，不归档旧会话。
-- `material_integrity=pass` 不等于信息恢复；只有 `clientThreadId`、自报成功或普通消息不能证明控制权转移。
-
-## 历史资料
-
-- SUPERSEDED / HISTORICAL_ONLY：[short-session-handoff.md v0.39](docs/superpowers/plans/short-session-handoff.md)，其内嵌 Node 校验器已退出权威校验链。
-- HISTORICAL_ONLY：[发布前对抗复审](docs/validation/2026-09-16-prelanding-security-review.md)、[Agent 冷读取初测](docs/validation/2026-09-16-agent-pilot-report.md)、[Skill 验收](docs/validation/2026-09-16-skill-acceptance-report.md)。
-- HISTORICAL_ONLY：v0.39 恢复入口原文见提交 `16c06ee` 中的 `CONTEXT.md`；更早入口见 [CONTEXT-v0.36](docs/validation/archive/CONTEXT-v0.36.md)。
-- 历史 checkpoint、旧候选包和旧评审只作回归输入，不冒充当前结论。
-
-## 未验证与授权边界
-
-- NAT-01（授权的 manual fallback 冷恢复）与 EVAL-01（代理行为评估）：NOT_RUN。
-- 真实宿主迁移与可信接管、token/费用/自然项目收益：NOT_RUN/UNKNOWN；远程 CI：PASS。
-- 未授权：v2 回执、归档旧会话、修改共享 `context_doctor.py` 或 Lite 接口、NAT-01、EVAL-01、真实宿主迁移，以及后续新的合并、推送或部署。
-- 推送非默认分支和开 PR 见 `docs/agents/standing-authorizations.json`。
-- 本地验证证据：`docs/superpowers/evidence/context-strict-migration/RUN-20260917-ci-herestring-8e86db6/`（当前 `verified_head` 的完整重验）。更早的 `RUN-20260917-phase1-0f9fdd1/` 与该重验重复，已删除。远程 CI：run 35178996161（证据提交）与 PR #26 required check run 35179382768 均 success。
-- 合并后状态回读：`docs/superpowers/evidence/context-strict-migration/RUN-20260919-status-correction/`；在 `2026-09-19T09:34:27Z` 回读时，PR #25 已合并为 `f5b5fc1`，PR #26 已合并为 `59604f5`，且当时远程 `main` 指向 `59604f5`。该值是带时间点的历史观察，不冒充实时 `current_head`。
-- 已知风险：`test_truth_sources` 中 3 个既有锁时序测试在高负载主机上曾失败一次，重跑通过，源码未改动。
-- CI 修复：三处 `printf | grep -q` 在 `pipefail` 下的 EPIPE 误报（run 35175710471 attempt 1）已改为 here-string；本地复现、完整重验、证据提交 CI run 35178996161 与 PR #26 required check 均通过；PR #26 已合并。
-
-## 下一步
-
-First action: 若要继续完成 T5，先单独授权并定义 NAT-01 或 EVAL-01 的安全 fixture；在此之前保持真实宿主迁移、控制接管和归档为 NOT_RUN/UNKNOWN。任何后续新的推送、合并或部署仍须单独授权。
-
-推送非默认分支和开 PR 见 `docs/agents/standing-authorizations.json`。
+历史迁移方案、旧派工模板和原始验收报告保留供追溯，均为 HISTORICAL_ONLY，不能充当当前执行规程。
+当前能力说明见根 `SKILL.md`；回归条目退役记录见 `docs/regression-checklist.md`。

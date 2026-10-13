@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # H1 执行合同 v1：基线归档与 0.8.1 增量移植
 
 发布者：调度会话（Cursor / Claude）。日期：2026-09-22。执行者：sonnet-xhigh-executor。

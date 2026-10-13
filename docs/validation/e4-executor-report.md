@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # E4 native-host boundary executor report
 
 Scope is limited to two conservative capability-entry modules, their focused

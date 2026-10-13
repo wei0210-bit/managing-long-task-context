@@ -30,38 +30,20 @@ COPIED_FILES = (
     Path("assets/truth-source-contract.example.json"),
     Path("assets/experience-candidate.schema.json"),
     Path("assets/experience-validation.schema.json"),
-    Path("assets/rule-execution.schema.json"),
     Path("examples/strict_completion.py"),
     Path("examples/truth_source_contract.py"),
     Path("examples/experience_review.py"),
     Path("examples/experience_candidates.py"),
-    Path("examples/rule_execution.py"),
-    Path("examples/experience_rule_gate.py"),
-    Path("examples/independent_validation.py"),
-    Path("examples/short_session_handoff.py"),
     Path("references/production-failure-patterns.md"),
-    Path("references/independent-validation.md"),
     Path("references/runtime-identity.md"),
-    Path("references/handoff.md"),
     Path("references/bot-pipeline-handoff.md"),
     Path("references/agent-role-handoff.md"),
-    Path("references/orca.md"),
-    Path("references/preseal-checks.md"),
-    Path("references/host-codex-cli.md"),
-    Path("references/host-native.md"),
-    Path("scripts/handoff_preflight.py"),
-    Path("scripts/dispatch_spec.py"), Path("tests/test_dispatch_spec.py"),
-    Path("scripts/contract_precheck.py"),
-    Path("tests/test_contract_precheck.py"),
-    Path("tests/test_contract_precheck_outdir.py"),
     Path("scripts/coordinator_ops.py"),
     Path("tests/test_coordinator_ops.py"),
-    Path("tests/test_coordinator_lease.py"),
-    Path("scripts/orca_wait.py"),
-    Path("tests/test_orca_wait.py"),
     Path("scripts/context_skill_router.py"),
     Path("tests/test_context_skill_router.py"),
     Path("scripts/context_status.py"), Path("tests/test_resume_gate.py"),
+    Path("tests/test_ledger_reports.py"),
     Path("tests/test_update_item_verified_at.py"),
     Path("tests/test_brief_rendering.py"),
     Path("scripts/package_lineage.py"),
@@ -77,18 +59,10 @@ COPIED_FILES = (
     Path("tests/test_contract_history.py"),
     Path("src/managing_long_task_context/truth_sources.py"),
     Path("src/managing_long_task_context/runtime_identity.py"),
-    Path("src/managing_long_task_context/handoff.py"),
-    Path("src/managing_long_task_context/host_codex_cli.py"),
-    Path("src/managing_long_task_context/host_records.py"),
-    Path("src/managing_long_task_context/host_codex_native.py"),
-    Path("src/managing_long_task_context/host_claude_native.py"),
     Path("src/managing_long_task_context/_identity_core.py"),
     Path("src/managing_long_task_context/_experience_store.py"),
     Path("src/managing_long_task_context/experience.py"),
-    Path("src/managing_long_task_context/rule_execution.py"),
     Path("tests/test_context.py"),
-    Path("tests/test_completion_upgrade.py"),
-    Path("tests/test_dynamic_context_scenario.py"),
     Path("tests/test_evidence.py"),
     Path("tests/test_production_feedback.py"),
     Path("tests/test_truth_sources.py"),
@@ -97,25 +71,11 @@ COPIED_FILES = (
     Path("tests/test_context_experience_cli.py"),
     Path("tests/test_experience_review.py"),
     Path("tests/test_experience_cross_checkout.py"),
-    Path("tests/test_rule_execution.py"),
-    Path("tests/test_experience_rule_gate.py"),
-    Path("tests/test_independent_validation.py"),
-    Path("tests/test_handoff_activation.py"),
-    Path("tests/test_handoff_protocol.py"),
-    Path("tests/handoff_test_authority.py"),
-    Path("tests/test_handoff_codex_cli.py"),
-    Path("tests/handoff_codex_fixture.py"),
-    Path("tests/test_handoff_host_records.py"),
-    Path("tests/handoff_host_records_fixture.py"),
-    Path("tests/handoff_gate_fixtures.py"),
-    Path("tests/test_handoff_codex_native.py"),
-    Path("tests/test_handoff_claude_native.py"),
-    Path("tests/test_handoff_preflight.py"),
     Path("tests/fixtures/truth_source_pilot.md"),
 )
 
 # Independent expectation: Strict-only preflight files, never derived from the sync script.
-PREFLIGHT_FILES = (Path("scripts/handoff_preflight.py"), Path("tests/test_handoff_preflight.py"))
+PREFLIGHT_FILES = ()
 
 
 class ContextStrictDistributionTests(unittest.TestCase):
@@ -129,12 +89,10 @@ class ContextStrictDistributionTests(unittest.TestCase):
             (ROOT / "skills/context-lite/tests/test_context_lite_validator.py").read_bytes(),
         )
         for package in (STRICT, ROOT / "skills/context-lite"):
-            for filename in ("context_doctor.py", "context_experience.py", "context_identity_core.py", "skill_package.py", "context_usage.py"):
+            for filename in ("context_doctor.py", "context_experience.py", "context_identity_core.py", "skill_package.py"):
                 with self.subTest(package=package.name, file=filename):
                     self.assertEqual((package / "scripts" / filename).read_bytes(),
                                      (ROOT / "scripts" / filename).read_bytes())
-            for relative in ("tests/test_context_usage.py", "references/context-usage.md"):
-                self.assertEqual((package / relative).read_bytes(), (ROOT / relative).read_bytes())
         self.assertEqual((ROOT / "scripts/context_identity_core.py").read_bytes(),
                          (ROOT / "src/managing_long_task_context/_identity_core.py").read_bytes())
         self.assertEqual((ROOT / "scripts/context_experience.py").read_bytes(),
@@ -176,28 +134,7 @@ class ContextStrictDistributionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_distributed_independent_validation_example_executes_from_skill_root(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "examples/independent_validation.py"],
-            cwd=STRICT,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_coordinator_tools_are_required_and_mirrored(self) -> None:
-        declaration = json.loads((STRICT / "skill-package.json").read_bytes())
-        for relative in (
-            "scripts/contract_precheck.py", "tests/test_contract_precheck.py",
-            "tests/test_contract_precheck_outdir.py", "scripts/coordinator_ops.py",
-            "tests/test_coordinator_ops.py", "scripts/orca_wait.py", "tests/test_orca_wait.py",
-            "tests/test_coordinator_lease.py",
-            "scripts/context_skill_router.py", "tests/test_context_skill_router.py",
-        ):
-            with self.subTest(path=relative):
-                self.assertEqual(declaration["required_paths"].count(relative), 1)
-                self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
 
     def test_distribution_includes_truth_source_files(self) -> None:
         required = (
@@ -219,9 +156,6 @@ class ContextStrictDistributionTests(unittest.TestCase):
             Path("src/managing_long_task_context/truth_sources.py"),
             Path("tests/test_truth_sources.py"),
             Path("tests/fixtures/truth_source_pilot.md"),
-            Path("examples/independent_validation.py"),
-            Path("references/independent-validation.md"),
-            Path("tests/test_independent_validation.py"),
         ):
             self.assertEqual(COPIED_FILES.count(relative), 1)
 
@@ -263,35 +197,8 @@ class ContextStrictDistributionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
-    def test_dist_01_preflight_script_and_tests_are_byte_identical_generated_copies(self) -> None:
-        for relative in PREFLIGHT_FILES:
-            with self.subTest(path=str(relative)):
-                self.assertEqual((STRICT / relative).read_bytes(), (ROOT / relative).read_bytes())
 
-    def test_dist_02_preflight_is_listed_exactly_once_in_independent_and_sync_lists(self) -> None:
-        sync_copied_files = run_path(ROOT / "scripts/sync_context_strict_skill.py")["COPIED_FILES"]
-        declaration = json.loads((STRICT / "skill-package.json").read_text(encoding="utf-8"))
-        for relative in PREFLIGHT_FILES:
-            with self.subTest(path=str(relative)):
-                self.assertEqual(COPIED_FILES.count(relative), 1)
-                self.assertEqual(sync_copied_files.count(relative), 1)
-                self.assertEqual(declaration["required_paths"].count(relative.as_posix()), 1)
-        self.assertEqual(COPIED_FILES, sync_copied_files)
 
-    def test_dist_03_lite_sources_tools_and_built_package_never_contain_preflight(self) -> None:
-        lite = ROOT / "skills" / "context-lite"
-        self.assertEqual(sorted(path.name for path in lite.rglob("*handoff_preflight*")), [])
-        self.assertNotIn("handoff_preflight.py", run_path(ROOT / "scripts/sync_context_tools.py")["TOOLS"])
-        with tempfile.TemporaryDirectory() as temporary:
-            package = Path(temporary) / "context-lite"
-            completed = subprocess.run(
-                [sys.executable, str(ROOT / "scripts/skill_package.py"), "build", "--source", str(lite),
-                 "--destination", str(package), "--source-revision", "test:lite-boundary"],
-                capture_output=True, text=True, timeout=60,
-            )
-            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
-            manifest = json.loads((package / "skill-manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual([entry["path"] for entry in manifest["files"] if "handoff_preflight" in entry["path"]], [])
 
     def test_dist_04_second_sync_of_a_copied_tree_writes_no_new_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

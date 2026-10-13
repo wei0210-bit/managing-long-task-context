@@ -15,6 +15,7 @@
 ## Entries
 
 ### R-001 `references/orca.md` never settles an Orca Task as accepted
+Retired (STRICT-LEDGER, Orca 执行规程移出 Strict)
 
 Added: #39. Orca settles a Task as soon as a valid `worker_done` arrives and has no
 accepted state.
@@ -47,6 +48,7 @@ remains authoritative. Fail if any one of them forbids copying the criteria, all
 paraphrase or summary, or omits the path or digest.
 
 ### R-003 `SKILL.md` deletes no lines relative to `main`
+Retired (STRICT-LEDGER, 获准精简 SKILL，旧只增不删断言退役)
 
 Added: #39.
 
@@ -65,8 +67,9 @@ Added: #39.
 python3 -m unittest discover -s tests
 ```
 
-Pass: the run ends with `OK`, and the test count is at least the count recorded by the
-previous round (704 at #39).
+Pass: the run ends with `OK`; record the retained test count. STRICT-LEDGER retires
+the old 704-test floor with the approved deletion of execution/session tests; retained
+ledger tests must still all pass.
 
 ### R-005 The generated Strict package has no drift
 Retired (#52, superseded by R-011: untracked task-store design artifacts cause false failures)
@@ -90,6 +93,7 @@ git check-ignore -v .context-reports/issue-0/example.json
 Pass: exit code 0 and the matching rule is `.context-reports/` in `.gitignore`.
 
 ### R-007 Entry files point to the maintained root sources
+Retired (STRICT-LEDGER, 入口改为账本职责，不再指向 Orca 规程)
 
 Added: #39.
 
@@ -104,6 +108,7 @@ Pass: the first command prints nothing (exit code 1), and each of the other thre
 reports a count of at least 1 for both files.
 
 ### R-008 The three "copy acceptance criteria verbatim" rules agree
+Retired (STRICT-LEDGER, 交接改为携带账本路径与读取原始合同)
 
 Added: PILOT-A.
 
@@ -160,6 +165,7 @@ Pass: after the round's commit, `git status` prints nothing; the sync script's
 `.gitattributes`, `.githooks/`, and `.prime/` do not count.
 
 ### R-012 Dispatch spec generator reproduces the sealed contract
+Retired (STRICT-LEDGER, 派工生成归 Orca)
 
 Added: #58.
 
@@ -173,6 +179,7 @@ criterion byte for byte, attaches the contract path and seal digest, keeps the l
 command that runs against the given package root.
 
 ### R-013 恢复门禁不通过时仍返回 context 且总状态非 pass
+Retired (STRICT-LEDGER, 恢复只报告账本健康，不控制执行)
 
 Added: #45.
 
@@ -193,6 +200,7 @@ PYTHONPATH=src:tests python3 -m unittest tests.test_resume_gate.ReadOnlyEntryTes
 Pass: `OK`.
 
 ### R-015 SKILL.md 发布流程含 init-binding
+Retired (STRICT-LEDGER, 身份绑定不再是派工前置条件)
 
 Added: #45 (absorbs #55).
 
@@ -213,6 +221,7 @@ PYTHONPATH=src:tests python3 -m unittest tests.test_contract_history
 Pass: `OK`.
 
 ### R-018 `worker-report` 只依据封印命令与协调者复跑报告
+Retired (STRICT-LEDGER, 封印命令验证器退役，执行方报告只登记)
 
 Added: #53 (absorbed by #46), approved design section 14.
 
@@ -255,6 +264,7 @@ stored-form digest, restores current absolute paths, and checks source drift.
 Shared-root forks are admitted; receiver overwrite is a preservation test.
 
 ### R-022 旧格式经验库与规则执行行为不变
+Retired (STRICT-LEDGER, 规则执行退役；旧经验格式仍有单独测试覆盖)
 
 Added: #47, approved design r4.
 
@@ -293,6 +303,7 @@ load for brief, audit and gate; the fixtures that need such contracts build them
 writing and sealing directly, with every original assertion kept.
 
 ### R-025 PERF-04 按相对空载基线判定，过期用例不依赖真实时间
+Retired (STRICT-LEDGER, 执行门禁与迁移性能场景退役)
 
 Added: STEP8-TESTFIX (contract v3, David authorized the quality-floor change on 2026-10-07).
 
@@ -320,6 +331,7 @@ version from `pyproject.toml`, so a version bump changes only `pyproject.toml`,
 `skill-package.json` and their synchronized copies.
 
 ### R-027 协调者入账、检查点与验收一条命令且去重
+Retired (STRICT-LEDGER, 验收复跑子命令退役；入账与检查点单独覆盖)
 
 Added: IMP-OPS (contract v1).
 
@@ -332,6 +344,7 @@ deferred items; `checkpoint` without evidence exits 2; `accept` never records `p
 when a check exits non-zero or the workspace is dirty.
 
 ### R-028 Orca 规程含封印前检查与验收深度，审核者说明含验收深度
+Retired (STRICT-LEDGER, 验收深度和派工流程归 Orca)
 
 Added: IMP-DOC (contract v1, David confirmed the seal on 2026-10-08).
 
@@ -351,6 +364,7 @@ Known gap: section A names `scripts/contract_precheck.py`, which is not in this 
 with `grep -rn` over `tests/` by hand.
 
 ### R-029 封印前检查规范是单一来源，健壮性验收为强制项
+Retired (STRICT-LEDGER, 封印前检查退役)
 
 Added: W1-S (contract v1, coordinator-sealed with DAVID_AUTH lines from 2026-10-08).
 
@@ -365,6 +379,7 @@ robustness acceptance for changes that read persisted records (restored after re
 mirrored byte for byte; merge is authorized only through SA-MERGE-PR and its gates (David 2026-10-10), and the standing authorizations keep their numeric bounds.
 
 ### R-030 Orca 等待脚本一次调用确认并等待，验收的工作区判定与校验器一致
+Retired (STRICT-LEDGER, 等待归 Orca，验收复跑退役)
 
 Added: W1-O (contract v2).
 
@@ -378,6 +393,7 @@ by type (the gap that let Orca inject prompts into the coordinator input); `coor
 workspace with the worker-report verifier's own exclusions.
 
 ### R-031 封印前影响面预检脚本按 unittest 真实行为选择与运行测试，日志只写 --out-dir
+Retired (STRICT-LEDGER, 封印前预检脚本退役)
 
 Added: W1-P1 (contract v2, frozen tests sha256 5767100e…) and W1-P2 (contract v3).
 
@@ -393,6 +409,7 @@ tests` loads them (F-01..F-06, P-07..P-12), fails closed with one stderr line, a
 directory or hard link named like a log file inside `--out-dir` before any test runs (R-P2-01).
 
 ### R-032 授权与封印前检查只有一处原文，协调者工具随 Strict 包分发，回归清单只增不删有守卫
+Retired (STRICT-LEDGER, 授权检查与执行工具退役；编号守卫另有测试)
 
 Added: W2-A (contract v2).
 
@@ -408,6 +425,7 @@ id that existed at 3a7acba (R-016 is a historical gap; R-002 and R-008 are walkt
 new ids to continue from R-032 with an `sh` block.
 
 ### R-033 本项目常设授权清单的合并条目带质量门槛，自动合并永不授权
+Retired (STRICT-LEDGER, 常设授权文件从 Strict 删除)
 
 Added: W3-SA (David 2026-10-10: 「授权合并 PR、推送默认分支、生产部署、凭据与密钥操作」→ 仅本项目常设，带质量门槛).
 
@@ -422,6 +440,7 @@ pass acceptance record and a passing regression checklist, merges with `--match-
 
 
 ### R-034 一个任务库同一时间只有一个协调者（协调者租约）
+Retired (STRICT-LEDGER, 协调者租约归 Orca)
 
 Added: W3-LEASE (David 2026-10-10: 一个工作树只有一个协调者；租约 2 小时无心跳过期、无租约时自动取得、只在过期或 David 指示并写记录时接手).
 
@@ -434,6 +453,7 @@ Pass: the command exits 0. A second session, or the same session in another term
 changes hands only through `lease takeover --reason`, which appends a takeover record; a malformed lease file fails closed.
 
 ### R-035 残留协调者租约锁只在 David 指示下清除，且绝不删除被替换的新锁
+Retired (STRICT-LEDGER, 协调者租约锁删除逻辑退役)
 
 Added: W3-FOLLOW (W3-LEASE review finding F01; W3-FOLLOW review finding F01; David 2026-10-10: 「要你把三项都做完（推荐）」).
 
@@ -468,6 +488,7 @@ python3 scripts/sync_context_strict_skill.py >/dev/null && test -z "$(git status
 Pass: the command exits 0 after the round's commit.
 
 ### R-038 封印前检查要求包内测试在包目录外运行，规程要求派工前写第一个检查点
+Retired (STRICT-LEDGER, 封印前检查和派工流程退役；包外测试仍为本轮验收项)
 
 Added: W3-TAIL (W3-LEASE CI failure hidden by in-package runs; W3-FOLLOW ran without a checkpoint; David 2026-10-11: 「授权你完成后续」).
 
@@ -480,6 +501,7 @@ dispatch section requires the first checkpoint before `worker-start`, and the di
 subprocess limits.
 
 ### R-039 规程写明删除工作树时先归档证据、保留分支
+Retired (STRICT-LEDGER, 工作树生命周期归 Orca)
 
 Added: W3-NOTE (CLEAN-01 on 2026-10-11: `orca worktree rm` deleted 45 of 67 checked-out branches asynchronously; David 2026-10-11: 「把后续两项完成」).
 
@@ -492,6 +514,7 @@ that `.context-reports/` is archived and verified first, and that branches delet
 `--force`) are recreated at their recorded commits and rechecked after a short delay.
 
 ### R-040 审核派工说明要求独立副本带指向基线的 origin/main
+Retired (STRICT-LEDGER, 派工生成与强制独立副本验证退役)
 
 Added: W3-ORIGIN (independent copies in W3-FOLLOW and W3-NOTE had no `origin`, so R-003 could not run; David 2026-10-12: 「把留给后续的也完成」).
 
@@ -529,3 +552,13 @@ PY
 Pass: the command exits 0. On a temporary checklist, `--only` with a missing ID exits 2 with that ID on stderr, no
 argparse usage text and nothing on stdout; `--only` with a passing entry prints `R-100 pass exit=0`; an entry whose only
 `sh` block is blank prints `R-101 fail exit=2`. Like R-036, this entry never runs the runner on this checklist.
+
+### R-042 账本只报告缺失、过期与未验证状态，移除会话与执行控制
+
+Added: STRICT-LEDGER (David 2026-10-14 批准删减清单)。
+
+```sh
+python3 -m unittest discover -s tests -p test_ledger_reports.py
+```
+
+Pass: OK；四种旧 stage 均只读且不阻断、不调用宿主回调、不写任务库，缺失资料保持 unknown，超预算摘要带诊断，旧交接控制 API 不存在。

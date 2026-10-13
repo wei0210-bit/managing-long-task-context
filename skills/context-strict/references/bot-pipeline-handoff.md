@@ -1,29 +1,13 @@
-# Multi-bot / assistant pipeline handoff
+# Shared ledger information
 
-## Why
+Orca owns role assignment, session transfer, dispatch, waiting, execution and review.
+Carry an absolute task-store or `task-contract.json` path so every participant reads the
+same original agreement. Include task id, original evidence/report pointers, current
+checkpoint and next action when available. The sealed contract is a record of the
+agreement; its acceptance criteria are read verbatim rather than reconstructed from chat.
 
-Multiple bots do not share one chat transcript. Without a shared sealed store, each
-stage retells goals and acceptance criteria and silently drifts. Context Strict's
-`.prime/context/<task-id>/` pack is the shared truth.
-
-## Rule
-
-1. Publisher (often plan / controller) creates or points to
-   `<project>/.prime/context/<task-id>/` with a sealed `task-contract.json` (or the
-   package's contract filename).
-2. Every handoff message to another bot includes the **absolute** task-dir path and/or
-   contract path.
-3. Downstream reads the contract first, then acts (implement or review).
-4. Reviewers judge primarily against the sealed acceptance / verification criteria.
-5. Missing path or unreadable/unsealed contract → stop; feedback the upstream bot.
-
-## Example path shapes
-
-- `/Users/you/proj/.prime/context/NPI-PHASE1-01/`
-- `/Users/you/proj/.prime/context/NPI-PHASE1-01/task-contract.json`
-
-## Out of scope
-
-This reference does not replace `brief()`, `gate()`, or `short-session-handoff/v1`.
-It defines the minimum message-level requirement so Strict remains meaningful across
-bots that only communicate by handoff packs.
+`brief` and `brief_diagnostics` summarize that ledger, including omissions, stale facts
+and uncertainty. These reports impose no execution or session-transfer conditions.
+Record results with their sources and timestamps; distinguish observed results from
+claims and unverified assumptions. A worker report records its command logs and outcomes;
+Orca handles its lifecycle messages. Strict does not rerun acceptance commands.

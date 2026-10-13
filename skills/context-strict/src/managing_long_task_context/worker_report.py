@@ -1,6 +1,6 @@
-"""Host-bound checks of sealed commands and coordinator-local report artifacts.
+"""Read-only registration helpers for worker-report artifacts.
 
-These handlers verify files and revision binding, not execution authenticity.
+These helpers report file metadata and preserve declarations; they do not verify execution.
 Only trusted host code constructs them; report JSON never supplies a handler.
 """
 
@@ -130,43 +130,9 @@ def _read_report(root, evidence):
     return report, ev.check(ev.PASS)
 
 
-def _git(root, *arguments):
-    result = subprocess.run(["git", "-C", str(root), *arguments], capture_output=True,
-                            check=False, timeout=ev.GIT_TIMEOUT_SECONDS)
-    if result.returncode != 0:
-        raise OSError("git observation failed")
-    return result.stdout
-
-
 def _excluded(path):
+    """Classify ledger metadata when observing a recorded Git revision."""
     return path.startswith(".prime/") or path in _EXCLUDED
-
-
-def _revision_is_clean(root, revision):
-    try:
-        head = _git(root, "rev-parse", "--verify", "HEAD").decode("ascii").strip()
-        if head != revision["commit"] or revision["dirty"]:
-            return False
-        # -z avoids quoting/newline ambiguity; rename records include both paths.
-        raw = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-        records = raw.split(b"\x00")
-        index = 0
-        while index < len(records) - 1:
-            record = records[index]
-            index += 1
-            if len(record) < 4 or record[2:3] != b" ":
-                return False
-            paths = [record[3:].decode("utf-8", "surrogateescape")]
-            if b"R" in record[:2] or b"C" in record[:2]:
-                if index >= len(records) - 1 or not records[index]:
-                    return False
-                paths.append(records[index].decode("utf-8", "surrogateescape"))
-                index += 1
-            if any(not _excluded(path) for path in paths):
-                return False
-        return not records[-1]
-    except (OSError, ValueError, UnicodeError, subprocess.TimeoutExpired):
-        return False
 
 
 def worker_report_handlers(workspace_root):
@@ -193,31 +159,8 @@ def worker_report_handlers(workspace_root):
         return {"resolve": result, "integrity_and_freshness": integrity, "scope": scope}
 
     def verify(evidence, criterion, resolution):
-        claim = criterion.get("worker_report_claim")
-        commands = claim.get("commands") if isinstance(claim, Mapping) else None
-        if not isinstance(commands, list) or not commands or any(not _text(c) for c in commands):
-            return ev.check(ev.UNKNOWN, "NO_SEALED_COMMANDS")
-        report, result = _read_report(root, evidence)
-        if report is None:
-            return ev.check(ev.UNKNOWN, "REPORT_UNVERIFIED", *result["codes"])
-        required = [item for item in report["checks"] if item["command"] in commands]
-        if any(item["exit_code"] != 0 for item in required):
-            return ev.check(ev.FAIL, "COMMAND_FAILED")
-        if any(not any(item["command"] == command for item in required) for command in commands):
-            return ev.check(ev.UNKNOWN, "COMMAND_MISSING")
-        if not _revision_is_clean(root, report["code_revision"]):
-            return ev.check(ev.UNKNOWN, "REVISION_MISMATCH")
-        for item in required:
-            path, result = _path(root, item["output_file"])
-            if path is None:
-                return ev.check(ev.UNKNOWN, "OUTPUT_UNVERIFIED")
-            raw, result = _read_bytes(root, path)
-            expected = item["output_sha256"]
-            if raw is None or result["status"] != ev.PASS or hashlib.sha256(raw).hexdigest() != expected:
-                return ev.check(ev.UNKNOWN, "OUTPUT_UNVERIFIED")
-        if report["outcome_claim"] != "succeeded":
-            return ev.check(ev.FAIL, "OUTCOME_NOT_SUCCEEDED")
-        return ev.check(ev.PASS)
+        # Compatibility report: artifact integrity does not verify execution.
+        return ev.check(ev.UNKNOWN, "EXECUTION_NOT_VERIFIED")
 
     resolvers = {kind: {"capability": ev.BUILTIN_RESOLVER_CAPABILITIES[kind], "handler": handler}
                  for kind, handler in ev.default_resolvers().items()}

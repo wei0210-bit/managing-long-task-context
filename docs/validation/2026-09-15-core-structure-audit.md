@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # 核心结构只读审计
 
 日期：2026-09-15。范围：根 `src/managing_long_task_context/__init__.py` 的静态结构、关键共享状态、近期相关提交、代表性既有回归。未修改实现、运行环境或生产状态。此文件为按需证据，不是第二份开发计划；计划见 [short-session-handoff.md](../superpowers/plans/short-session-handoff.md)。

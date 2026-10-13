@@ -251,7 +251,7 @@ def _read_records(paths):
             return [], 'record_integrity'
         records, previous, identifiers = [], None, set()
         for line in raw.splitlines():
-            record = _core()._strict_handoff_json_load(line)
+            record = _core()._strict_ledger_json_load(line)
             if not _shape(record):
                 return [], 'record_integrity'
             expected = record.get('record_digest')
@@ -415,9 +415,10 @@ def _reproducible(revision, criteria):
     return not reasons, reasons
 
 
-def record_acceptance(task_id, *, evidence_map, resolvers, verifiers, watched_paths,
-                      recorded_by, base_dir, workspace_root, validation_resolver=None, rule_runtime=None):
-    """Run completion and explicitly append its point-in-time result, or refuse a race."""
+def record_acceptance(task_id, *, evidence_map=None, resolvers=None, verifiers=None, watched_paths,
+                      recorded_by, base_dir, workspace_root, validation_resolver=None, rule_runtime=None,
+                      acceptance_report=None):
+    """Append a declared acceptance result; Strict does not rerun or approve execution."""
     core = _core()
     root = Path(workspace_root)
     if not root.is_absolute():
@@ -432,9 +433,8 @@ def record_acceptance(task_id, *, evidence_map, resolvers, verifiers, watched_pa
     if integrity:
         raise _error('RECORD_ORDER' if integrity == 'record_order' else 'RECORD_INTEGRITY')
     pre, contract = _observe(task_id, paths, root, watched)
-    report = core.gate(task_id, stage='completion', emit=False, evidence_map=deepcopy(evidence_map),
-        resolvers=resolvers, verifiers=verifiers, validation_resolver=validation_resolver,
-        rule_runtime=rule_runtime, base_dir=base_dir)
+    report = deepcopy(acceptance_report) if acceptance_report is not None else core.gate(
+        task_id, stage='completion', emit=False, evidence_map=deepcopy(evidence_map), base_dir=base_dir)
     criteria, error = _criteria(contract, report, evidence_map, root, paths['root'])
     if error:
         return {'appended': False, 'reason': error}

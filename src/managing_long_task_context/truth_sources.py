@@ -14,7 +14,7 @@ from typing import AbstractSet, Any, Callable, Mapping, Union
 
 
 CAPABILITY = "truth-sources/v1"
-SUPPORTED_CAPABILITIES = frozenset({CAPABILITY, "evidence-handlers/v1", "rule-execution/v1", "short-session-handoff/v1"})
+SUPPORTED_CAPABILITIES = frozenset({CAPABILITY, "evidence-handlers/v1"})
 TRUTH_ROOT_FIELDS = frozenset({"schema", "items"})
 TRUTH_ITEM_FIELDS = frozenset({
     "id", "purpose", "source_ref", "owner", "max_age_seconds",
@@ -104,12 +104,6 @@ def validate_truth_source_contract(
     ) and len(set(capabilities)) == len(capabilities) if isinstance(capabilities, list) else False
     if has_capabilities and not valid_capabilities:
         errors.append("contract.required_capabilities must be a non-empty list of unique non-empty strings")
-    if valid_capabilities:
-        assert isinstance(capabilities, list)
-        for capability in capabilities:
-            if capability not in supported_capabilities:
-                errors.append(f"contract.required_capabilities has unsupported capability: {capability}")
-
     has_truth_capability = valid_capabilities and CAPABILITY in capabilities
     if has_sources and not has_truth_capability:
         errors.append("contract.truth_sources requires required_capabilities truth-sources/v1")

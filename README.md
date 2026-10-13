@@ -1,168 +1,19 @@
-# Context Skills
+# Context ledger skills
 
-Choose manually; this MVP does not auto-classify a task or transfer a task between
-the two skills.
+Context Strict 1.0.0 gives multiple agents a shared factual ledger: typed facts,
+provenance, evidence pointers, TTLs, checkpoints, agreement seals/history, worker
+reports and acceptance records. Missing or stale information appears in read-only
+reports. Orca owns sessions, plans, dispatch, waiting, code execution and review.
 
-## Continuous integration
+Read [SKILL.md](SKILL.md) for the ledger API and [CONTEXT.md](CONTEXT.md) for the
+current project entry. [Context Lite](skills/context-lite/SKILL.md) automatically
+serves a single low-risk primary agent needing multi-turn context recovery.
 
-[CI](.github/workflows/ci.yml) runs on pushes to `main`, pull requests targeting
-`main`, and manual dispatch. A single Ubuntu / Python 3.12 job runs every unittest
-(including distribution consistency and historical compatibility), then builds,
-hash-verifies, and fully diagnoses both skill packages outside the checkout.
-It fetches full Git history so historical compatibility checks can read older revisions.
-No synchronization writer runs before the checks, so source/mirror drift fails CI.
+The maintained Strict sources are at the repository root. Run
+`python3 scripts/sync_context_strict_skill.py` to regenerate `skills/context-strict`;
+run `python3 scripts/sync_context_tools.py` for shared Lite tools. Full packages
+are built/verified with `scripts/skill_package.py`, including their manifests.
 
-The job has read-only repository permissions, a five-minute timeout and cancellation
-of superseded branch runs. It installs no project dependencies, calls no models,
-and does not deploy or update globally installed skills. A green result is repository
-test/package evidence, not proof of natural Agent effectiveness or business completion.
-
-## Versioned packages
-
-Each distributable skill has a `skill-package.json`. Build a complete copy and
-verify its generated manifest before installation or evaluation:
-
-```sh
-python3 scripts/skill_package.py build \
-  --source skills/context-strict \
-  --destination /tmp/context-strict-package \
-  --source-revision git:<exact-commit>
-python3 scripts/skill_package.py verify --package /tmp/context-strict-package
-```
-
-The build receipt includes the manifest SHA-256. Freeze that hash with the eval or
-installation receipt; copying only `SKILL.md` is not a valid package.
-
-## Short-session handoff
-
-Context Strict 0.8.0 adds the opt-in `short-session-handoff/v1` capability. Its
-public flow is `prepare_handoff` → `validate_handoff` → `activate_handoff`,
-with explicit cancel and read-only status calls. The capability must be sealed in
-the task contract, and activation requires host-provided identity, authorization,
-and content verification. Start with the runnable
-[`examples/short_session_handoff.py`](examples/short_session_handoff.py) example
-and the [handoff reference](references/handoff.md).
-
-Context Lite 1.4.0 provides a lower-risk `flush` / `cold-check` path for an
-already validated `NOW.md`. It returns inert recovery material for independent
-re-observation; it does not inherit chat history, permissions, credentials,
-processes, or control. See the
-[`skills/context-lite/references/short-session.md`](skills/context-lite/references/short-session.md)
-procedure.
-
-The local Codex CLI transport and native-host inventories are bounded adapters,
-not proof of production takeover. Real Codex/Claude native-host switching,
-non-POSIX process-tree guarantees, natural-project effectiveness, and token or
-cost savings remain unverified. See the [Codex CLI boundary](references/host-codex-cli.md)
-and [native-host boundary](references/host-native.md).
-
-Those real-path claims can now collect prospective evidence without turning the
-record into a pass. Use `scripts/real_validation.py` with the
-[real-evidence templates](docs/validation/real-evidence/README.md) to start one
-observation per task and append native-control, task-outcome, provider-usage,
-and billing events. Existing event IDs are never overwritten, and status keeps
-all three claims `UNKNOWN` until a separate evaluation reviews the originals
-and comparable observations.
-
-## Executable evidence contracts
-
-New Strict contracts should enable `evidence-handlers/v1`. The sealed
-`evidence_handlers.types` mapping binds every required evidence kind to stable resolver
-and verifier capability IDs. `publish_contract()` rejects an incomplete mapping before
-writing the contract; release and later gates require matching runtime handlers.
-
-The built-in resolver kinds are `file`, `git-commit`, `test-report`, and `url`. A test
-category such as “integration test” normally uses `test-report`; truly custom kinds remain
-supported when both custom capabilities and callable handlers are supplied. See
-[`assets/task-contract.example.json`](assets/task-contract.example.json) and the complete
-[`examples/strict_completion.py`](examples/strict_completion.py) flow.
-
-## Production context controls
-
-New contracts use an atomically published read-only file guard, block
-release/resume/handoff when mandatory brief content cannot fit, and report every
-omitted mandatory item. The file mode is an error-prevention layer; the sealed
-digest and gate remain authoritative.
-
-Bind long-running tools to an absolute store before changing directories:
-
-```python
-ctx = context.bind("/absolute/project/.prime/context")
-```
-
-Use `externalize_item()` to shorten an unchanged fact without replacing its ID,
-controls, evidence, or verification time. For a causal chain that one execution must
-prove, opt into `required_hops_mode: "single-evidence-ordered"`; legacy contracts keep
-aggregate hop coverage. Detailed failure modes and boundaries live in
-[`references/production-failure-patterns.md`](references/production-failure-patterns.md).
-
-## Runtime identity and diagnostics
-
-Complete packages include `scripts/context_doctor.py`. Use
-`check --mode full --package-root <absolute-package>` after installation/update;
-use identity-only checks and checked recovery during tasks. Strict callers must
-explicitly select their Python module path (`PYTHONPATH=<package>/src`); diagnostics
-do not silently repair a wrong import. Unknown or conflicting identities return
-no recovery content, and legacy APIs keep their existing behavior.
-
-See [runtime identity](references/runtime-identity.md) for binding initialization,
-CLI/Python examples, limitations, upgrade handling, and acceptance checks. These
-checks do not prove completion or replace existing evidence gates.
-
-## Manual routing
-
-`scripts/context_skill_router.py` accepts explicit task characteristics and returns
-`NO_SKILL`, `LITE_RECOMMENDED`, or `STRICT_REQUIRED`. It never injects a skill or
-authorizes an external action. Lite/Strict selection remains a user decision, and
-the route must be recomputed when scope or risk changes.
-
-```json
-{
-  "risk_facts_complete": true,
-  "multi_turn": true,
-  "single_primary_agent": true,
-  "high_risk": false,
-  "auditability_required": false,
-  "frozen_acceptance": false,
-  "independent_validation": false,
-  "external_side_effects": false,
-  "multiple_state_writers": false
-}
-```
-
-```sh
-python3 scripts/context_skill_router.py --input task-characteristics.json
-```
-
-| Choose | Use it for | Local copy path |
-| --- | --- | --- |
-| Lite | One primary agent, low-risk multi-turn recovery, and a compact Markdown checkpoint. | `skills/context-lite/` |
-| Strict | Multi-agent work, external side effects, auditability, frozen acceptance, or independent validation. | `skills/context-strict/` |
-
-The live boundary is [Context Lite](skills/context-lite/SKILL.md),
-[Context Strict](skills/context-strict/SKILL.md), and root `references/`.
-Both skills are independently installable. The root Strict sources
-remain the compatibility and development source; run
-`python3 scripts/sync_context_strict_skill.py` before validating or publishing the
-`skills/context-strict/` distribution. Transfer is not implemented in this MVP.
-
-## Context Strict truth sources
-
-Truth sources are optional controls for local originals whose current bytes matter to a
-task decision. Start with
-[`assets/truth-source-contract.example.json`](assets/truth-source-contract.example.json),
-then use the public lifecycle demonstrated by
-[`examples/truth_source_contract.py`](examples/truth_source_contract.py):
-
-```bash
-python3 examples/truth_source_contract.py
-```
-
-The lifecycle is publish → observe every declared source → release. A declared change
-must be marked dirty, then re-read and observed by its owner before handoff can pass.
-Briefs carry paths and control metadata only; executors read originals themselves.
-Unknown or failed truth observations block the gate, but do not substitute for completion
-evidence. The runtime does not retain raw bytes, infer changes automatically, authenticate
-actors, or provide an event hash chain. Upgrade every participating runtime before
-declaring `truth-sources/v1`; without the declaration, no truth-source scan or prompt block
-is added.
+Validation uses `python3 -m unittest discover -s tests`, Python 3.12, package tests
+from outside the package, and `scripts/regression_checklist.py`. Historical controls
+retired by STRICT-LEDGER remain labelled in [the regression checklist](docs/regression-checklist.md).

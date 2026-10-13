@@ -1,4 +1,4 @@
-"""Project-rooted Context Strict store: relative paths, upload gate, align."""
+"""Project-rooted shared ledger: relative paths, publication and alignment."""
 
 from __future__ import annotations
 
@@ -46,9 +46,9 @@ snapshot.json：由事件重建的当前上下文。看现在有哪些事实。�
 快照里的条目：观察、已核实事实、假设、决定、问题，以及有效、未核实、冲突、被取代。假设不当成已核实事实。冲突或过期的条目不拿来交接。
 latest_checkpoint：这一阶段完成了什么、阻塞、下一步。交接从最新检查点继续。
 真源指纹：某份项目文件当时的内容。文件字节变了就标脏，重新核对后再交接。
-证据与 gate 结果：验收项有没有被原件支持。完成以门禁结论为准。证据信封本身不算证明。
+证据与账本报告：记录验收声明、原件指针和未验证事项；执行与审核由 Orca 管理。
 经验库：经审核才能选用的项目规则。不自动变成任务事实。合同点名之后才在门禁里生效。放在 `.prime/experience/`。
-checked_resume：确认读到的是这个项目、这个任务、这版技能包。对不上就不返回上下文。
+checked_resume：分别返回包与任务身份诊断、可读的账本摘要；身份差异只报告。
 
 不要把密钥、令牌或私钥放进这些文件。
 """

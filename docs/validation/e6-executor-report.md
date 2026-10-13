@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # E6 执行者报告：本地 usage 观察与压力建议
 
 执行时间（UTC）：2026-09-15T14:30:40Z。执行合同 SHA-256 已在开始时实测为 `74be2152547da2fd8ebd4bbfc169805cdfb41de2d7d898a32797399c957ccf9a`。范围只限 `scripts/context_usage.py`、`tests/test_context_usage.py`、`references/context-usage.md` 与两份既有观察文档的追加；未修改同步、包、CI 或共享状态，未安装、提交、发送、抓价格、调用模型、读完整真实聊天或执行业务动作。

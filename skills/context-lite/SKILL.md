@@ -5,7 +5,7 @@ description: Use when a single primary agent needs low-risk, multi-turn task rec
 
 # Context Lite
 
-Use this Skill only after the user manually selects Lite. It records enough task
+Use this Skill automatically for single-primary-agent, low-risk multi-turn work. It records enough task
 context to resume safely; it does not audit work, prove completion, or replace
 live project observation.
 
@@ -41,10 +41,6 @@ version with `--expected-now-sha256`. It returns inert reading material, never e
 procedure in [references/short-session.md](references/short-session.md); independently
 observe and restate every claim before accepting work. Do not use `finish` as rollover:
 keep the old task record until the task actually ends.
-
-For host-supplied window/usage signals, use `scripts/context_usage.py` as described
-in [references/context-usage.md](references/context-usage.md). It only advises;
-missing usage is unknown. Never scan chats or call a model to generate signals.
 
 ## Use When
 

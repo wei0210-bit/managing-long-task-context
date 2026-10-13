@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # 接手材料：后续设计与实施程序（2026-10-06）
 
 写于原协调者会话（终端 term_1cce21fa-a872-4144-afd0-9a82d17bb3c4）上下文接近耗尽时。接手者是新的 Claude Code 协调者会话；执行者与审核者按 David 的规则用 Codex gpt-6.1-sol high。David 的常设授权：除删除文件等安全性操作外，决策按协调者的推荐直接执行；合并 PR 与放宽质量底线仍按全局 CLAUDE.md 的规则。全程用中文向 David 汇报。

@@ -1,7 +1,7 @@
 [project]
 name = "managing-long-task-context"
-version = "0.15.4"
-description = "Context Strict library for fact-grounded context control in long multi-agent tasks"
+version = "1.0.0"
+description = "Context Strict library for a shared factual ledger in long multi-agent tasks"
 requires-python = ">=3.10"
 dependencies = []
 

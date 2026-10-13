@@ -142,69 +142,14 @@ class CoordinatorOpsTests(unittest.TestCase):
         self.run_cli('settle', '--resolved-by', 'review-verified')
         self.assertEqual(before, (self.store / self.task / 'events.jsonl').read_bytes())
 
-    def test_checkpoint_requires_evidence(self):
-        self.run_cli('checkpoint', '--phase', 'review', '--completed', 'reviewed', '--next-action', 'accept', expected=2)
 
-    def test_checkpoint_records_repeated_evidence_and_blockers(self):
-        self.run_cli('checkpoint', '--phase', 'review', '--completed', 'reviewed', '--evidence', 'file:one',
-            '--evidence', 'file:two', '--blocker', 'pending', '--next-action', 'accept')
-        snapshot = json.loads((self.store / self.task / 'snapshot.json').read_text())
-        checkpoint = snapshot['latest_checkpoint']
-        self.assertEqual(checkpoint['evidence_added'], ['file:one', 'file:two'])
-        self.assertEqual(checkpoint['blockers'], ['pending'])
 
-    def test_accept_real_gate_passes_and_covers_every_criterion(self):
-        result = self.accept()
-        self.assertEqual(result['decision'], 'pass', result)
-        records = (self.store / self.task / 'acceptance-records.jsonl').read_text().splitlines()
-        self.assertEqual(len(records), 1)
-        record = json.loads(records[0])
-        self.assertEqual(record['decision'], 'pass')
-        self.assertEqual([c['criterion_id'] for c in record['criteria']], ['AC-01', 'AC-02'])
-        report = json.loads(Path(result['report_path']).read_text())
-        self.assertEqual(report['checks'][0]['output_sha256'], hashlib.sha256(b'OK\n').hexdigest())
-        self.assertEqual(report['code_revision']['commit'], self.git('rev-parse', 'HEAD').strip())
-        snapshot = json.loads((self.store / self.task / 'snapshot.json').read_text())
-        self.assertEqual(snapshot['latest_checkpoint']['phase'], 'acceptance')
 
-    def test_accept_failed_check_cannot_pass(self):
-        (self.logs / 'unit.exit').write_text('1\n')
-        result = self.accept(expected=1)
-        self.assertNotEqual(result['decision'], 'pass')
-        self.assertNotEqual(json.loads((self.store / self.task / 'acceptance-records.jsonl').read_text())['decision'], 'pass')
 
-    def test_accept_uses_explicit_workspace_from_another_cwd(self):
-        result = self.run_cli('accept', '--workspace', self.root, '--package-root', self.package,
-            '--logs-dir', self.logs, '--check', 'unit=' + COMMAND, '--watched-path', 'code.py',
-            '--recorded-by', 'coordinator', cwd=self.package)
-        self.assertEqual(result['decision'], 'pass')
 
-    def test_accept_failed_extra_unsealed_check_cannot_pass(self):
-        (self.logs / 'extra.log').write_text('failed\n')
-        (self.logs / 'extra.exit').write_text('2\n')
-        result = self.accept('--check', 'extra=unsealed command', expected=1)
-        self.assertNotEqual(result['decision'], 'pass')
-        self.assertNotEqual(json.loads((self.store / self.task / 'acceptance-records.jsonl').read_text())['decision'], 'pass')
 
-    def test_accept_dirty_tracked_or_untracked_workspace_cannot_pass(self):
-        for path in ('code.py', 'untracked.txt'):
-            with self.subTest(path=path):
-                (self.root / path).write_text('dirty\n')
-                self.assertNotEqual(self.accept(expected=1)['decision'], 'pass')
-                records = (self.store / self.task / 'acceptance-records.jsonl').read_text().splitlines()
-                self.assertTrue(all(json.loads(r)['decision'] != 'pass' for r in records))
 
-    def test_accept_missing_command_cannot_pass(self):
-        result = self.run_cli('accept', '--workspace', self.root, '--package-root', self.package, '--logs-dir', self.logs,
-            '--check', 'unit=different command', '--watched-path', 'code.py', '--recorded-by', 'coordinator', expected=1)
-        self.assertNotEqual(result['decision'], 'pass')
 
-    def test_invalid_arguments_and_logs_exit_two_without_acceptance_write(self):
-        for check in ('../unit=' + COMMAND, 'unit', '=command'):
-            self.accept('--check', check, expected=2)
-        (self.logs / 'unit.exit').write_text('not-an-exit-code\n')
-        self.accept(expected=2)
-        self.assertFalse((self.store / self.task / 'acceptance-records.jsonl').exists())
 
     def test_relative_report_and_mismatched_dispatch_rejected(self):
         self.run_cli('ingest', '--report', 'worker.json', '--dispatch', 'ctx_test', '--statement', 'report', expected=2)
@@ -219,135 +164,15 @@ class CoordinatorOpsTests(unittest.TestCase):
         self.git('add', '.gitignore')
         self.git('commit', '-qm', 'expose validator exclusions')
 
-    def test_accept_unignored_validator_exclusions_can_pass(self):
-        self.expose_validator_exclusions()
-        self.assertIn('.prime/', self.git('status', '--porcelain'))
-        result = self.accept()
-        self.assertEqual(result['decision'], 'pass', result)
-        self.assertFalse(json.loads(Path(result['report_path']).read_text())['code_revision']['dirty'])
-
-    def test_accept_unignored_near_exclusion_paths_cannot_pass(self):
-        self.expose_validator_exclusions()
-        for path in ('.githooks/other', '.gitattributes.bak'):
-            with self.subTest(path=path):
-                target = self.root / path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text('dirty\n')
-                self.assertNotEqual(self.accept(expected=1)['decision'], 'pass')
-                # Track this probe before the next iteration, so it cannot mask
-                # an incorrect exclusion of the second path.
-                self.git('add', path)
-                self.git('commit', '-qm', 'track completed dirty probe')
-
-    def test_actor_written_to_ingest_settle_and_checkpoint_events(self):
-        self.run_cli('ingest', '--report', self.report, '--dispatch', 'ctx_test',
-            '--statement', 'blocked', '--blocking', '--actor', 'executor-alice')
-        self.assertTrue(all(i['actor'] == 'executor-alice' for i in self.items().values()))
-        self.run_cli('settle', '--resolved-by', 'review', '--actor', 'reviewer-bob')
-        self.run_cli('checkpoint', '--phase', 'review', '--completed', 'done',
-            '--evidence', 'file:one', '--next-action', 'accept', '--actor', 'coordinator-carol')
-        snapshot = json.loads((self.store / self.task / 'snapshot.json').read_text())
-        self.assertEqual(snapshot['latest_checkpoint']['actor'], 'coordinator-carol')
-        events = [json.loads(line) for line in (self.store / self.task / 'events.jsonl').read_text().splitlines()]
-        self.assertEqual(events[-2]['actor'], 'reviewer-bob')
-        self.assertEqual(events[-1]['actor'], 'coordinator-carol')
-
-    def test_blank_actor_rejected_without_writing_events(self):
-        before = (self.store / self.task / 'events.jsonl').read_bytes()
-        for command, arguments in [
-            ('ingest', ['--report', self.report, '--dispatch', 'ctx_test', '--statement', 'report']),
-            ('settle', ['--resolved-by', 'review']),
-            ('checkpoint', ['--phase', 'review', '--completed', 'done', '--evidence', 'file:one', '--next-action', 'accept']),
-        ]:
-            with self.subTest(command=command):
-                self.run_cli(command, *arguments, '--actor', ' \t ', expected=2)
-        self.assertEqual(before, (self.store / self.task / 'events.jsonl').read_bytes())
-
-    def test_accept_top_level_with_trailing_space_reaches_next_validation(self):
-        # v2 checks this script's boundary; the underlying API still strips paths.
-        import importlib.util
-        from unittest.mock import patch
-        spec = importlib.util.spec_from_file_location('coordinator_ops_path_test', SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        root = self.root / 'workspace '
-        root.mkdir()
-        subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True, capture_output=True)
-        args = module.parser().parse_args(['accept', '--store', str(self.store), '--task', self.task,
-            '--workspace', str(root), '--package-root', str(self.package), '--logs-dir', str(root),
-            '--check', 'unit=' + COMMAND, '--recorded-by', 'coordinator'])
-        class ReachedContractRead(Exception):
-            pass
-        with patch.object(module, 'read_json', side_effect=ReachedContractRead):
-            with self.assertRaises(ReachedContractRead):
-                module.accept(args)
-
-    def test_accept_subdirectory_workspace_rejected(self):
-        child = self.root / 'subdirectory'
-        child.mkdir()
-        self.run_cli('accept', '--workspace', child, '--package-root', self.package,
-            '--logs-dir', self.logs, '--check', 'unit=' + COMMAND,
-            '--recorded-by', 'coordinator', expected=2)
-        self.assertFalse((self.store / self.task / 'acceptance-records.jsonl').exists())
-
-    def test_accept_missing_clean_validator_exits_two(self):
-        # Load the actual built package, then simulate an older package API.
-        bootstrap = ('import runpy, sys; '
-            'import managing_long_task_context.worker_report as w; '
-            'del w._revision_is_clean; '
-            'sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")')
-        result = subprocess.run([sys.executable, '-c', bootstrap, str(SCRIPT), 'accept',
-            '--store', str(self.store), '--task', self.task, '--workspace', str(self.root),
-            '--package-root', str(self.package), '--logs-dir', str(self.logs),
-            '--check', 'unit=' + COMMAND, '--recorded-by', 'coordinator'],
-            capture_output=True, text=True,
-            env={**os.environ, 'PYTHONPATH': str(self.package / 'src')})
-        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-        self.assertIn('clean', json.loads(result.stdout)['error'])
-        self.assertFalse((self.store / self.task / 'acceptance-records.jsonl').exists())
 
 
-    def test_coordinator_lease_blocks_all_writes_without_changing_store_or_logs(self):
-        from test_coordinator_lease import lease_fixture, store_snapshot, NOW
-        from unittest.mock import patch
-        lease = self.store / 'COORDINATOR-LEASE.json'
-        scenarios = [json.dumps(lease_fixture(session_id='foreign', terminal_handle='foreign-window')),
-                     '{invalid coordinator lease', json.dumps(lease_fixture(session_id='foreign',
-                     heartbeat_at='2026-10-10T08:00:00Z'))]
-        commands = [
-            ('ingest', ['--report', self.report, '--dispatch', 'ctx_test', '--statement', 'report']),
-            ('settle', ['--resolved-by', 'review']),
-            ('checkpoint', ['--phase', 'review', '--completed', 'done', '--evidence', 'file:one',
-                            '--next-action', 'accept']),
-            ('accept', ['--workspace', self.root, '--package-root', self.package,
-                        '--logs-dir', self.logs, '--check', 'unit=' + COMMAND,
-                        '--recorded-by', 'coordinator']),
-        ]
-        with patch.dict(os.environ, {'COORDINATOR_LEASE_NOW': NOW}):
-            for scenario in scenarios:
-                lease.write_text(scenario)
-                before = store_snapshot(self.root)
-                for command, arguments in commands:
-                    with self.subTest(command=command, scenario=scenario):
-                        result = self.run_cli(command, *arguments, expected=3)
-                        self.assertIn('coordinator lease', result['error'])
-                        self.assertEqual(store_snapshot(self.root), before)
 
-    def test_write_auto_acquires_then_renews_coordinator_lease(self):
-        from test_coordinator_lease import NOW
-        from unittest.mock import patch
-        lease = self.store / 'COORDINATOR-LEASE.json'
-        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'ops-owner',
-                                    'ORCA_TERMINAL_HANDLE': 'ops-window', 'COORDINATOR_LEASE_NOW': NOW}):
-            self.ingest()
-            value = json.loads(lease.read_bytes())
-            self.assertEqual(value['session_id'], 'ops-owner')
-            self.assertEqual(value['heartbeat_at'], NOW)
-            with patch.dict(os.environ, {'COORDINATOR_LEASE_NOW': '2026-10-10T12:30:00Z'}):
-                self.run_cli('settle', '--resolved-by', 'review')
-            renewed = json.loads(lease.read_bytes())
-            self.assertEqual(renewed['heartbeat_at'], '2026-10-10T12:30:00Z')
-            self.assertEqual(renewed['acquired_at'], NOW)
+
+
+
+
+
+
 
 
 if __name__ == '__main__':

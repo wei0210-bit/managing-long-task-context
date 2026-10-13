@@ -60,7 +60,7 @@ jobs:
             )
           done
 
-      - name: Run Strict package doctor and handoff example
+      - name: Run Strict package doctor and ledger example
         run: |
           package="$RUNNER_TEMP/context-strict"
           test -f "$package/skill-manifest.json"
@@ -68,7 +68,7 @@ jobs:
             check --mode full --package-root "$package"
           (
             cd "$RUNNER_TEMP"
-            PYTHONPATH="$package/src" python "$package/examples/short_session_handoff.py"
+            PYTHONPATH="$package/src" python "$package/examples/strict_completion.py"
           )
 
       - name: Run every Strict test from the complete package

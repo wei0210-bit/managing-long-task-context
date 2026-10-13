@@ -46,7 +46,6 @@ _IDENTITY_MANIFEST_BEFORE, _IDENTITY_DIGEST_BEFORE = _identity_import_manifest()
 from . import _identity_core
 from . import evidence as _evidence_module
 from . import truth_sources as _truth_sources_module
-from . import rule_execution as _rule_execution_module
 from . import experience as _experience_module
 from . import _experience_store as _experience_store_module
 from .experience import bind_experience
@@ -57,8 +56,6 @@ from .evidence import (
     MAX_CLOCK_SKEW_SECONDS,
     canonical_json_bytes,
     evidence_handlers_enabled,
-    evaluate_evidence,
-    runtime_evidence_handler_errors,
     validate_evidence_handler_contract,
 )
 from .truth_sources import (
@@ -69,18 +66,7 @@ from .truth_sources import (
     truth_sources_enabled,
     validate_truth_source_contract,
 )
-from .rule_execution import (
-    evaluate_rule_execution,
-    recheck_rule_sources,
-    rule_execution_enabled,
-    validate_rule_execution_contract,
-)
 from . import runtime_identity as _runtime_identity_module
-from . import handoff as _handoff_module
-from . import host_codex_cli as _host_codex_cli_module
-from . import host_records as _host_records_module
-from . import host_codex_native as _host_codex_native_module
-from . import host_claude_native as _host_claude_native_module
 from . import project_store as _project_store_module
 from .runtime_identity import _capture_baseline, checked_resume, runtime_identity
 from .project_store import (
@@ -145,7 +131,7 @@ _PROCESS_LOCKS: dict[str, threading.Lock] = {}
 
 
 class ContextError(RuntimeError):
-    """Raised when a context quality rule blocks an operation."""
+    """Raised for invalid ledger data or unavailable storage."""
 
 
 class _EventReadError(ContextError):
@@ -223,7 +209,6 @@ def _paths(task_id: str, base_dir: str | Path | None = None) -> dict[str, Path]:
         "events": root / "events.jsonl",
         "snapshot": root / "snapshot.json",
         "lock": root / ".lock",
-        "handoff_root": root / "handoff",
     }
 
 
@@ -325,12 +310,30 @@ def _atomic_write_json(
             temp.unlink(missing_ok=True)
 
 
+def _strict_ledger_json_load(raw: bytes) -> Any:
+    """Decode protocol JSON without lossy duplicate-key or constant coercion."""
+    def no_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON key: {key}")
+            value[key] = item
+        return value
+
+    try:
+        return json.loads(
+            raw.decode("utf-8"), object_pairs_hook=no_duplicate_pairs,
+            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+        )
+    except RecursionError as exc:
+        raise ValueError("JSON nesting exceeds the protocol limit") from exc
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ContextError(f"missing required file: {path}") from exc
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, UnicodeError, RecursionError) as exc:
         raise ContextError(f"cannot read valid JSON from {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise ContextError(f"expected JSON object in {path}")
@@ -354,126 +357,6 @@ def _canonical_contract_input(contract: Mapping[str, Any]) -> bytes:
 
 def _contract_digest(contract: Mapping[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(_canonical_contract(contract)).hexdigest()
-
-
-def _validate_independent_validation_inputs(
-    independent_validation_required: bool | None, validation_resolver: Any,
-) -> None:
-    """Validate host-owned independence inputs; JSON never supplies a callable."""
-    if independent_validation_required is not None and type(independent_validation_required) is not bool:
-        raise TypeError("independent_validation_required must be a boolean or None")
-    if validation_resolver is not None and not callable(validation_resolver):
-        raise TypeError("validation_resolver must be callable or None")
-
-
-def _all_criteria_require_independent_validation(contract: Mapping[str, Any]) -> bool:
-    criteria = contract.get("acceptance_criteria")
-    return (
-        isinstance(criteria, list)
-        and bool(criteria)
-        and all(isinstance(item, Mapping) and item.get("independent_validation_required") is True for item in criteria)
-    )
-
-
-def _independence_downgraded(
-    previous: Mapping[str, Any], candidate: Mapping[str, Any],
-) -> bool:
-    old_criteria = previous.get("acceptance_criteria")
-    new_criteria = candidate.get("acceptance_criteria")
-    if not isinstance(old_criteria, list) or not isinstance(new_criteria, list):
-        return False
-    new_by_id = {
-        item.get("id"): item for item in new_criteria
-        if isinstance(item, Mapping) and isinstance(item.get("id"), str)
-    }
-    return any(
-        isinstance(old, Mapping)
-        and old.get("independent_validation_required") is True
-        and (
-            not isinstance(new_by_id.get(old.get("id")), Mapping)
-            or new_by_id[old.get("id")].get("independent_validation_required") is not True
-        )
-        for old in old_criteria
-    )
-
-
-def _gate_independence_policy_error(
-    contract: Mapping[str, Any], independent_validation_required: bool | None,
-) -> str | None:
-    if independent_validation_required is True and not _all_criteria_require_independent_validation(contract):
-        return "host independent_validation_required=true conflicts with stored contract"
-    return None
-
-
-def _mark_independence_callback_changed(report: dict[str, Any]) -> None:
-    """A callback changed the sealed baseline, so its apparent proof is unusable."""
-    criteria = report.get("criteria")
-    if not isinstance(criteria, Mapping):
-        return
-    for result in criteria.values():
-        if not isinstance(result, dict):
-            continue
-        independence = result.get("independent_validation")
-        if not isinstance(independence, dict) or independence.get("assurance") != "verified":
-            continue
-        independence["status"] = "unknown"
-        independence["assurance"] = "unknown"
-        independence["codes"] = ["VALIDATION_CALLBACK_CHANGED_BASELINE"]
-        if result.get("status") == "pass":
-            result["status"] = "unknown"
-
-
-def _recheck_independent_validation_times(
-    report: dict[str, Any], contract: Mapping[str, Any], now: datetime,
-) -> list[str]:
-    """Invalidate verified receipts that are no longer current at completion."""
-    criteria = report.get("criteria")
-    stored_criteria = contract.get("acceptance_criteria")
-    if not isinstance(criteria, Mapping) or not isinstance(stored_criteria, list):
-        return []
-    baselines = {
-        item.get("id"): item for item in stored_criteria
-        if isinstance(item, Mapping) and isinstance(item.get("id"), str)
-    }
-    errors: list[str] = []
-    for identifier, result in criteria.items():
-        if not isinstance(identifier, str) or not isinstance(result, dict):
-            continue
-        independence = result.get("independent_validation")
-        baseline = baselines.get(identifier)
-        if (
-            not isinstance(independence, dict)
-            or independence.get("assurance") != "verified"
-            or not isinstance(baseline, Mapping)
-        ):
-            continue
-        validated_at = _parse_explicit_utc_timestamp(independence.get("validated_at"))
-        expires_at = _parse_explicit_utc_timestamp(independence.get("expires_at"))
-        code: str | None = None
-        if validated_at is None or expires_at is None:
-            code = "MISSING_OR_INVALID_VALIDATION_TIME"
-        elif validated_at > now or expires_at < now or expires_at < validated_at:
-            code = "VALIDATION_RECEIPT_NOT_CURRENT"
-        else:
-            maximum_age = baseline.get("max_evidence_age_seconds")
-            if type(maximum_age) is int and now - validated_at > timedelta(seconds=maximum_age):
-                code = "VALIDATION_RECEIPT_STALE"
-        if code is None:
-            continue
-        independence["status"] = "unknown"
-        independence["assurance"] = "unknown"
-        independence["codes"] = [code]
-        if result.get("status") == "pass":
-            result["status"] = "unknown"
-        errors.append(f"criterion {identifier} independent validation is unknown: ['{code}']")
-    return errors
-
-
-def _completion_context_token(task_id: str, base_dir: str | Path | None) -> bytes | None:
-    try:
-        return canonical_json_bytes(_read_json(_paths(task_id, base_dir)["snapshot"]))
-    except ContextError:
-        return None
 
 
 def _version_key(value: Any) -> tuple[int, str]:
@@ -507,8 +390,6 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
     if not isinstance(criteria, list) or not criteria:
         errors.append("contract.acceptance_criteria must contain publisher-written criteria")
         errors.extend(validate_truth_source_contract(contract))
-        errors.extend(validate_evidence_handler_contract(contract))
-        errors.extend(validate_rule_execution_contract(contract))
         return errors
 
     actor_roles = contract.get("actor_roles")
@@ -606,26 +487,8 @@ def _validate_contract_shape(contract: Mapping[str, Any]) -> list[str]:
                             f"{prefix}.evidence_freshness_by_type entries require non-empty kinds and non-negative integer windows"
                         )
 
-        independent = criterion.get("independent_validation_required")
-        if independent is not None and not isinstance(independent, bool):
-            errors.append(f"{prefix}.independent_validation_required must be a boolean")
-        if independent is True:
-            validators = []
-            if isinstance(actor_roles, Mapping):
-                validators = [
-                    actor
-                    for actor, roles in actor_roles.items()
-                    if isinstance(roles, list) and "validator" in roles
-                ]
-            if not validators:
-                errors.append(
-                    f"{prefix}.independent_validation_required needs contract.actor_roles with a validator"
-                )
-
         errors.extend(_criterion_revision_shape_errors(criterion, prefix))
     errors.extend(validate_truth_source_contract(contract))
-    errors.extend(validate_evidence_handler_contract(contract))
-    errors.extend(validate_rule_execution_contract(contract))
     return errors
 
 
@@ -1090,16 +953,6 @@ def _apply_event(snapshot: dict[str, Any], event: Mapping[str, Any]) -> dict[str
             }
     elif event_type in {"truth-source-dirtied", "truth-source-observed"}:
         result = _apply_truth_control_event(result, event)
-    elif event_type in {"handoff_prepared", "handoff_activated", "handoff_cancelled"}:
-        handoff_error = _handoff_module.validate_protocol_event(payload, task_id=task_id)
-        if handoff_error is not None:
-            raise ContextError(handoff_error)
-        result["handoff_control_seen"] = True
-    elif event_type in _host_records_module.EVENT_TYPES:
-        host_error = _host_records_module.validate_host_event(payload, task_id=task_id)
-        if host_error is not None:
-            raise ContextError(host_error)
-        result = _host_records_module.apply_host_event(result, event)
     elif event_type in {"item-recorded", "item-updated", "item-externalized"}:
         item = payload.get("item")
         if isinstance(item, dict) and isinstance(item.get("id"), str):
@@ -1136,67 +989,6 @@ def _append_event_locked(paths: Mapping[str, Path], snapshot: dict[str, Any], ev
         handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
-    updated = _apply_event(snapshot, event)
-    _atomic_write_json(paths["snapshot"], updated)
-    return updated
-
-
-def _publish_handoff_event_locked(
-    task_id: str, paths: Mapping[str, Path], snapshot: dict[str, Any], event: dict[str, Any],
-) -> dict[str, Any]:
-    """Publish one control fact atomically; ordinary event append remains unchanged."""
-    if event.get("event_type") not in {"handoff_prepared", "handoff_activated", "handoff_cancelled", *_host_records_module.EVENT_TYPES}:
-        raise ContextError("atomic handoff publisher received a non-control event")
-    event_path = paths["events"]
-    try:
-        info = event_path.lstat()
-    except OSError as exc:
-        raise ContextError("handoff event log is unavailable for atomic publication") from exc
-    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-        raise ContextError("handoff event log is unsafe for atomic publication")
-    # Validate the old canonical log and the final bounded size before creating
-    # a replacement.  This is the same strict reader used by handoff replay.
-    old_events, old_digest = _read_handoff_events_bounded(event_path, task_id=task_id)
-    line = json.dumps(event, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
-    if len(line) > _handoff_module.MAX_EVENT_BYTES:
-        raise ContextError("handoff control event exceeds byte limit")
-    if len(old_events) >= _handoff_module.MAX_EVENTS:
-        raise ContextError("handoff event log exceeds event limit")
-    try:
-        with event_path.open("rb") as handle:
-            old_bytes = handle.read(_handoff_module.MAX_LOG_BYTES + 1)
-    except OSError as exc:
-        raise ContextError("handoff event log is unreadable for atomic publication") from exc
-    if len(old_bytes) > _handoff_module.MAX_LOG_BYTES:
-        raise ContextError("handoff event log exceeds byte limit")
-    if hashlib.sha256(old_bytes).hexdigest() != old_digest:
-        raise ContextError("handoff event log changed before atomic publication")
-    if len(old_bytes) + len(line) > _handoff_module.MAX_LOG_BYTES:
-        raise ContextError("handoff event log exceeds byte limit")
-    fd: int | None = None
-    temporary: Path | None = None
-    try:
-        fd, temporary_name = tempfile.mkstemp(prefix=".handoff-events-", dir=event_path.parent)
-        temporary = Path(temporary_name)
-        os.fchmod(fd, stat.S_IMODE(info.st_mode))
-        with os.fdopen(fd, "wb", closefd=True) as handle:
-            fd = None
-            handle.write(old_bytes)
-            handle.write(line)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, event_path)
-        temporary = None
-    except OSError as exc:
-        raise ContextError("handoff control event atomic publication failed") from exc
-    finally:
-        if fd is not None:
-            os.close(fd)
-        if temporary is not None:
-            try:
-                temporary.unlink()
-            except OSError:
-                pass
     updated = _apply_event(snapshot, event)
     _atomic_write_json(paths["snapshot"], updated)
     return updated
@@ -1297,7 +1089,7 @@ def _load_committed_task_view_locked(task_id: str, paths: Mapping[str, Path]) ->
     contract = _read_json(paths["contract"])
     errors = _validate_sealed_contract(contract)
     if errors:
-        raise ContextError("release gate failed: " + "; ".join(errors))
+        raise ContextError("contract record invalid: " + "; ".join(errors))
     try:
         snapshot = _read_json(paths["snapshot"])
     except ContextError:
@@ -1375,75 +1167,6 @@ def _new_event(task_id: str, event_type: str, actor: str, payload: Mapping[str, 
         "created_at": _now(),
         "payload": _json_clone(payload),
     }
-
-
-def _require_handoff_write_authorization(
-    task_id: str, *, base_dir: str | Path | None, operation: str,
-    arguments: Mapping[str, Any], runtime_identity: Any, write_authorizer: Any,
-) -> dict[str, Any] | None:
-    """Run the runtime-only handoff fence before a public writer mutates files."""
-    return _handoff_module.authorize_direct_write(
-        task_id, base_dir=base_dir, operation=operation, arguments=arguments,
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-    )
-
-
-def _recheck_handoff_write_authorization_locked(
-    task_id: str, *, base_dir: str | Path | None, fence: Mapping[str, Any] | None,
-) -> None:
-    """Recheck an out-of-lock runtime observation immediately before mutation."""
-    resolved_base, _ = _resolve_base_dir(base_dir)
-    if fence is None:
-        paths = _paths(task_id, resolved_base)
-        if not paths["handoff_root"].exists():
-            return
-        view = _handoff_strict_task_view_locked(task_id, paths)
-        controls, error = _handoff_module._control_events(view["events"], task_id=task_id)
-        if error is not None or controls:
-            raise ContextError("HANDOFF_WRITE_FENCED: handoff became enabled before write")
-        raise ContextError("HANDOFF_WRITE_FENCED: handoff authority directory is unavailable")
-    view = _handoff_strict_task_view_locked(task_id, _paths(task_id, resolved_base))
-    capture = fence.get("capture")
-    record = fence.get("record")
-    authorization = fence.get("authorization")
-    phase = fence.get("phase")
-    if not isinstance(capture, Mapping) or not isinstance(record, Mapping) or not isinstance(authorization, Mapping):
-        raise ContextError("HANDOFF_WRITE_FENCED: write observation is malformed")
-    if (
-        phase == "activated" and authorization.get("role") == "controller"
-        and authorization.get("subject_session_ref") != record.get("target_session_ref")
-    ):
-        raise ContextError("HANDOFF_WRITE_FENCED: activated controller identity changed before write")
-    if (
-        phase == "cancelled" and authorization.get("role") == "controller"
-        and authorization.get("subject_session_ref") != record.get("source_session_ref")
-    ):
-        raise ContextError("HANDOFF_WRITE_FENCED: cancelled controller identity changed before write")
-    handoff_id = record.get("handoff_id")
-    if not isinstance(handoff_id, str):
-        raise ContextError("HANDOFF_WRITE_FENCED: handoff record identity is invalid")
-    stored_record, stored_digest = _read_handoff_json(
-        _paths(task_id, resolved_base)["handoff_root"] / f"{handoff_id}.json",
-    )
-    if (
-        stored_record != dict(record)
-        or stored_digest != _handoff_module._canonical_sha256(record)
-    ):
-        raise ContextError("HANDOFF_WRITE_FENCED: handoff record changed before write")
-    if (
-        view.get("events_digest") != capture.get("event_fingerprint")
-        or view.get("contract_version") != capture.get("contract_version")
-        or view.get("contract_digest") != capture.get("contract_digest")
-    ):
-        raise ContextError("HANDOFF_WRITE_FENCED: authority inputs changed before write")
-    expires_at = _handoff_module._as_utc(authorization.get("expires_at"))
-    if expires_at is None or expires_at < _trusted_utc_now():
-        raise ContextError("HANDOFF_WRITE_FENCED: runtime write authorization expired")
-    fingerprints = _handoff_reference_fingerprints(
-        record, workspace=Path(str(record.get("workspace_root", ""))),
-    )
-    if fingerprints != fence.get("reference_fingerprints"):
-        raise ContextError("HANDOFF_WRITE_FENCED: authority references changed before write")
 
 
 def _normalize_source(source: str | Mapping[str, Any]) -> dict[str, Any]:
@@ -1547,28 +1270,15 @@ def publish_contract(
     confirmed_by: str,
     base_dir: str | Path | None = None,
     protect_contract: bool = True,
-    independent_validation_required: bool | None = None,
-    validation_resolver: Any = None,
-    runtime_identity: Any = None,
-    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Validate, seal, and publish a publisher-authored task contract.
 
     Updating an existing contract requires a greater version and a fresh seal.
     """
 
-    if isinstance(contract, Mapping) and isinstance(contract.get("task_id"), str):
-        handoff_fence = _require_handoff_write_authorization(
-            str(contract["task_id"]), base_dir=base_dir, operation="publish_contract",
-            arguments={"contract": dict(contract), "confirmed_by": confirmed_by},
-            runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-        )
 
     if not isinstance(protect_contract, bool):
         raise TypeError("protect_contract must be a boolean")
-    _validate_independent_validation_inputs(
-        independent_validation_required, validation_resolver,
-    )
 
     value = deepcopy(dict(contract))
     value.setdefault("schema", SCHEMA_VERSION)
@@ -1579,10 +1289,6 @@ def publish_contract(
         errors.append("contract.version must be a positive integer (excluding bool)")
     if errors:
         raise ContextError("contract rejected: " + "; ".join(errors))
-    if independent_validation_required is True and not _all_criteria_require_independent_validation(value):
-        raise ContextError(
-            "independent_validation_required=true requires every acceptance criterion to require independent validation"
-        )
     try:
         value = _json_clone(value)
     except (TypeError, ValueError) as exc:
@@ -1594,7 +1300,6 @@ def publish_contract(
     task_id = str(value["task_id"])
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
-        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         existing_truth_history = False
         existing_events: list[dict[str, Any]] | None = None
         if paths["contract"].exists():
@@ -1643,13 +1348,6 @@ def publish_contract(
                     raise ContextError(commit_errors[0])
             if _version_key(value["version"]) <= _version_key(existing.get("version")):
                 raise ContextError("contract update requires a greater version")
-            if (
-                independent_validation_required is not False
-                and _independence_downgraded(existing, value)
-            ):
-                raise ContextError(
-                    "independent validation cannot be removed without independent_validation_required=false"
-                )
 
         value.pop("seal", None)
         value["seal"] = {
@@ -1693,16 +1391,9 @@ def mark_truth_sources_dirty(
     actor: str,
     reason: str,
     base_dir: str | Path | None = None,
-    runtime_identity: Any = None,
-    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Record one declared change that invalidates matching truth sources."""
 
-    handoff_fence = _require_handoff_write_authorization(
-        task_id, base_dir=base_dir, operation="mark_truth_sources_dirty",
-        arguments={"change_kind": change_kind, "actor": actor, "reason": reason},
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-    )
 
     if not _truth_single_line(actor):
         raise ContextError("TRUTH_SOURCE_ACTOR_INVALID")
@@ -1712,7 +1403,6 @@ def mark_truth_sources_dirty(
         raise ContextError("TRUTH_SOURCE_REASON_INVALID")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
-        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         view = _load_committed_task_view_locked(task_id, paths)
         truth = view["contract"].get("truth_sources")
         items = truth.get("items") if isinstance(truth, Mapping) else None
@@ -1752,16 +1442,9 @@ def observe_truth_source(
     actor: str,
     verification_refs: Sequence[str],
     base_dir: str | Path | None = None,
-    runtime_identity: Any = None,
-    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Bind one owner readback to the current sealed source generation."""
 
-    handoff_fence = _require_handoff_write_authorization(
-        task_id, base_dir=base_dir, operation="observe_truth_source",
-        arguments={"source_id": source_id, "actor": actor, "verification_refs": list(verification_refs)},
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-    )
 
     if not isinstance(source_id, str) or not source_id:
         raise ContextError("TRUTH_SOURCE_NOT_DECLARED")
@@ -1778,7 +1461,6 @@ def observe_truth_source(
     refs = list(verification_refs)
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
-        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         view = _load_committed_task_view_locked(task_id, paths)
         truth = view["contract"].get("truth_sources")
         items = truth.get("items") if isinstance(truth, Mapping) else None
@@ -1856,20 +1538,9 @@ def record(
     supersedes: str | None = None,
     metadata: Mapping[str, Any] | None = None,
     base_dir: str | Path | None = None,
-    runtime_identity: Any = None,
-    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Append one context item without overwriting prior history."""
 
-    handoff_fence = _require_handoff_write_authorization(
-        task_id, base_dir=base_dir, operation="record",
-        arguments={"statement": statement, "item_type": item_type, "actor": actor,
-                   "source": source, "evidence": evidence, "scope": scope,
-                   "verification_method": verification_method, "mutable": mutable,
-                   "ttl_hours": ttl_hours, "item_id": item_id, "supersedes": supersedes,
-                   "metadata": dict(metadata) if isinstance(metadata, Mapping) else metadata},
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-    )
 
     if item_type not in ITEM_TYPES:
         raise ValueError(f"item_type must be one of {sorted(ITEM_TYPES)}")
@@ -1879,11 +1550,10 @@ def record(
         raise ValueError("actor must be a non-empty string")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
-        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         contract = _read_json(paths["contract"])
         contract_errors = _validate_sealed_contract(contract)
         if contract_errors:
-            raise ContextError("release gate failed: " + "; ".join(contract_errors))
+            raise ContextError("contract record invalid: " + "; ".join(contract_errors))
         snapshot = _load_snapshot(task_id, paths)
         items = snapshot.setdefault("items", {})
         identifier = item_id or f"C-{uuid.uuid4().hex[:10]}"
@@ -1950,21 +1620,9 @@ def update_item(
     superseded_by: str | None = None,
     metadata: Mapping[str, Any] | None = None,
     base_dir: str | Path | None = None,
-    runtime_identity: Any = None,
-    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Validate and append a state transition for an existing item."""
 
-    handoff_fence = _require_handoff_write_authorization(
-        task_id, base_dir=base_dir, operation="update_item",
-        arguments={"item_id": item_id, "actor": actor, "promote_to": promote_to,
-                   "status": status, "evidence": evidence, "source": source,
-                   "verification_method": verification_method, "scope": scope,
-                   "conflicts_with": list(conflicts_with) if conflicts_with is not None else None,
-                   "conflict_reason": conflict_reason, "superseded_by": superseded_by,
-                   "metadata": dict(metadata) if isinstance(metadata, Mapping) else metadata},
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-    )
 
     if promote_to is not None and promote_to not in ITEM_TYPES:
         raise ValueError(f"promote_to must be one of {sorted(ITEM_TYPES)}")
@@ -1972,11 +1630,10 @@ def update_item(
         raise ValueError(f"status must be one of {sorted(ITEM_STATUSES)}")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
-        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         contract = _read_json(paths["contract"])
         contract_errors = _validate_sealed_contract(contract)
         if contract_errors:
-            raise ContextError("release gate failed: " + "; ".join(contract_errors))
+            raise ContextError("contract record invalid: " + "; ".join(contract_errors))
         snapshot = _load_snapshot(task_id, paths)
         current = snapshot.get("items", {}).get(item_id)
         if not isinstance(current, dict):
@@ -2033,16 +1690,9 @@ def externalize_item(
     external_ref: str,
     actor: str,
     base_dir: str | Path | None = None,
-    runtime_identity: Any = None,
-    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Replace bulky wording with a pointer without changing fact identity or controls."""
 
-    handoff_fence = _require_handoff_write_authorization(
-        task_id, base_dir=base_dir, operation="externalize_item",
-        arguments={"item_id": item_id, "summary": summary, "external_ref": external_ref, "actor": actor},
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-    )
 
     if not _truth_single_line(summary):
         raise ValueError("summary must be a non-empty single line")
@@ -2052,7 +1702,6 @@ def externalize_item(
         raise ValueError("actor must be a non-empty single line")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
-        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         view = _load_committed_task_view_locked(task_id, paths)
         current = view["snapshot"].get("items", {}).get(item_id)
         if not isinstance(current, dict):
@@ -2159,16 +1808,9 @@ def restore_externalization_controls(
     actor: str,
     reason: str,
     base_dir: str | Path | None = None,
-    runtime_identity: Any = None,
-    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Repair required/severity lost by a legacy supersede-based externalization."""
 
-    handoff_fence = _require_handoff_write_authorization(
-        task_id, base_dir=base_dir, operation="restore_externalization_controls",
-        arguments={"item_id": item_id, "from_item_id": from_item_id, "actor": actor, "reason": reason},
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-    )
 
     if not _truth_single_line(actor):
         raise ValueError("actor must be a non-empty single line")
@@ -2176,7 +1818,6 @@ def restore_externalization_controls(
         raise ValueError("reason must be a non-empty single line")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
-        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         view = _load_committed_task_view_locked(task_id, paths)
         items = view["snapshot"].get("items", {})
         target = items.get(item_id) if isinstance(items, Mapping) else None
@@ -2241,29 +1882,18 @@ def checkpoint(
     blockers: Sequence[str] | None = None,
     related_item_ids: Sequence[str] | None = None,
     base_dir: str | Path | None = None,
-    runtime_identity: Any = None,
-    write_authorizer: Any = None,
 ) -> dict[str, Any]:
     """Record a concise delta checkpoint; do not rewrite the task history."""
 
-    handoff_fence = _require_handoff_write_authorization(
-        task_id, base_dir=base_dir, operation="checkpoint",
-        arguments={"phase": phase, "completed": list(completed), "evidence_added": list(evidence_added),
-                   "next_action": next_action, "actor": actor,
-                   "blockers": list(blockers) if blockers is not None else None,
-                   "related_item_ids": list(related_item_ids) if related_item_ids is not None else None},
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-    )
 
     if not phase.strip() or not next_action.strip():
         raise ValueError("phase and next_action must be non-empty")
     paths = _paths(task_id, base_dir)
     with _locked(paths["root"]):
-        _recheck_handoff_write_authorization_locked(task_id, base_dir=base_dir, fence=handoff_fence)
         contract = _read_json(paths["contract"])
         contract_errors = _validate_sealed_contract(contract)
         if contract_errors:
-            raise ContextError("release gate failed: " + "; ".join(contract_errors))
+            raise ContextError("contract record invalid: " + "; ".join(contract_errors))
         snapshot = _load_snapshot(task_id, paths)
         checkpoint_value = {
             "id": f"CP-{uuid.uuid4().hex[:10]}",
@@ -2835,7 +2465,7 @@ def brief(
     diagnostics = _brief_diagnostics_from_plan(plan)
     overflow = diagnostics["overflow"]
     if overflow is not None:
-        raise ContextError(overflow["message"])
+        plan["packet"]["diagnostics"] = diagnostics
     return plan["packet"]
 
 
@@ -2941,13 +2571,13 @@ def _brief_acceptance_to_markdown(criterion: Mapping[str, Any]) -> str:
 
 
 def _brief_markdown_lines(packet: Mapping[str, Any]) -> Iterable[str]:
-    yield f"# Controlled Task Brief: {packet.get('task_id')}"
+    yield f"# Shared Ledger Brief: {packet.get('task_id')}"
     yield f"Contract version: {packet.get('contract_version')}"
     yield f"Objective: {packet.get('objective')}"
     yield ""
-    yield "## Rules"
-    yield "Use only the facts and decisions below. Treat assumptions as unverified. Do not resolve conflicts silently."
-    yield "Do not add or reinterpret acceptance criteria. Return evidence pointers and proposed context changes."
+    yield "## Ledger interpretation"
+    yield "Facts and decisions below are recorded declarations. Assumptions, conflicts and stale markers retain uncertainty."
+    yield "The agreement records what was expected; Orca manages execution and review. Keep original evidence pointers."
     truth_sources = packet.get("truth_sources")
     if isinstance(truth_sources, Mapping):
         yield ""
@@ -3049,45 +2679,6 @@ def _audit_documents(documents: Sequence[str | Path], max_pointer_lag_seconds: f
     return errors, warnings, checked
 
 
-def _run_bad_sample_probe(now: datetime) -> dict[str, Any]:
-    """Verify that the production completion gate rejects empty required evidence."""
-
-    probe_id = "PROBE-COMPLETION-EMPTY-EVIDENCE"
-    contract = {
-        "schema": SCHEMA_VERSION,
-        "task_id": probe_id,
-        "version": 1,
-        "issued_by": "audit-probe",
-        "issued_at": "2026-08-27T00:00:00+00:00",
-        "authorized_approvers": [],
-        "objective": "Reject empty completion evidence",
-        "scope": ["audit probe"],
-        "out_of_scope": [],
-        "constraints": [],
-    }
-    criterion = {
-        "id": "AC-EMPTY-EVIDENCE",
-        "criterion": "Completion requires file evidence",
-        "required_evidence": ["file"],
-    }
-    report = _evaluate_completion_criterion(
-        criterion,
-        None,
-        contract,
-        resolvers=None,
-        verifiers=None,
-        now=now,
-    )
-    rejected = report.get("status") != "pass"
-    return {
-        "id": probe_id,
-        "scanned": 1,
-        "expected": "reject",
-        "actual": "reject" if rejected else "accept",
-        "status": "pass" if rejected else "fail",
-    }
-
-
 def _audit_core(
     task_id: str,
     *,
@@ -3138,24 +2729,6 @@ def _audit_core(
         "actual": "not-run",
         "status": "not-run",
     }
-    if run_probe:
-        try:
-            probe = _run_bad_sample_probe(now)
-        except Exception as exc:
-            probe = {
-                "id": "PROBE-COMPLETION-EMPTY-EVIDENCE",
-                "scanned": 0,
-                "expected": "reject",
-                "actual": "error",
-                "status": "fail",
-            }
-            errors.append(f"completion bad-sample probe raised {type(exc).__name__}")
-        scan_counts["probes_checked"] = 1
-        if probe["status"] != "pass":
-            errors.append(
-                f"completion bad-sample probe {probe['id']} failed: "
-                f"expected {probe['expected']}, got {probe['actual']}"
-            )
 
     scan_counts["contracts_checked"] = 1
     try:
@@ -3313,7 +2886,7 @@ def audit(
     emit: bool = True,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Audit a task and always execute the isolated production-path probe."""
+    """Read task integrity and freshness without performing execution checks."""
     paths = _paths(task_id, base_dir)
     try:
         with _shared_locked_existing(paths["root"]):
@@ -3324,7 +2897,7 @@ def audit(
                 emit=emit,
                 base_dir=base_dir,
                 now=_trusted_utc_now(),
-                run_probe=True,
+                run_probe=False,
             )
     except ContextError as exc:
         report = _read_lock_unavailable_audit(task_id, exc, emit=emit)
@@ -3395,20 +2968,6 @@ def _audit_from_view(
         "id": "PROBE-COMPLETION-EMPTY-EVIDENCE", "scanned": 0,
         "expected": "reject", "actual": "not-run", "status": "not-run",
     }
-    if run_probe:
-        try:
-            probe = _run_bad_sample_probe(now)
-        except Exception as exc:
-            probe = {
-                "id": "PROBE-COMPLETION-EMPTY-EVIDENCE", "scanned": 0,
-                "expected": "reject", "actual": "error", "status": "fail",
-            }
-            errors.append(f"completion bad-sample probe raised {type(exc).__name__}")
-        if probe["status"] != "pass":
-            errors.append(
-                f"completion bad-sample probe {probe['id']} failed: "
-                f"expected {probe['expected']}, got {probe['actual']}"
-            )
     items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
     counts = {item_type: 0 for item_type in ITEM_TYPES}
     stale_count = 0
@@ -3458,2042 +3017,62 @@ def _audit_from_view(
     }
 
 
-def _truth_gate_errors(evaluation: Mapping[str, Any]) -> list[str]:
-    errors: list[str] = []
-    for result in evaluation.get("results", []):
-        if not isinstance(result, Mapping) or result.get("status") == "pass":
-            continue
-        source_id = result.get("id", "unknown")
-        codes = result.get("codes") if isinstance(result.get("codes"), list) else ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
-        errors.append(f"truth source {source_id} is {result.get('status', 'unknown')}: {codes}")
-    if not errors and not evaluation.get("passed"):
-        errors.append("truth source evaluation is unknown: ['TRUTH_SOURCE_RESOLVER_UNKNOWN']")
-    return errors
-
-
-def _truth_gate_base_checks(
-    stage: str, snapshot: Mapping[str, Any], required_item_ids: Sequence[str] | None,
-    errors: list[str],
-) -> None:
-    if stage not in {"resume", "handoff", "completion"}:
-        return
-    items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
-    globally_blocked: set[str] = set()
-    if stage == "completion":
-        for identifier, item in sorted(items.items()):
-            if not isinstance(item, Mapping) or item.get("status") == "superseded":
-                continue
-            metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-            if item.get("status") == "conflicted":
-                errors.append(f"required context item is conflicted: {identifier}")
-                globally_blocked.add(identifier)
-            if metadata.get("blocking") is True or metadata.get("blocker") is True:
-                errors.append(f"blocking context item remains: {identifier}")
-                globally_blocked.add(identifier)
-    targets = ({identifier for identifier, item in items.items() if not isinstance(item, Mapping) or item.get("status") != "superseded"}
-               if required_item_ids is None else set(required_item_ids))
-    for identifier in sorted(targets):
-        item = items.get(identifier)
-        if not isinstance(item, dict):
-            errors.append(f"required context item missing: {identifier}")
-        elif item.get("status") == "superseded":
-            errors.append(f"required context item is superseded: {identifier}")
-        elif item.get("status") == "conflicted" and identifier not in globally_blocked:
-            errors.append(f"required context item is conflicted: {identifier}")
-        elif _item_is_stale(item):
-            errors.append(f"required mutable fact is stale: {identifier}")
-        else:
-            metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-            if identifier not in globally_blocked and (metadata.get("blocking") is True or metadata.get("blocker") is True):
-                errors.append(f"blocking context item remains: {identifier}")
-    if stage == "handoff":
-        checkpoint_value = snapshot.get("latest_checkpoint")
-        if not isinstance(checkpoint_value, dict):
-            errors.append("handoff requires a checkpoint")
-        elif not checkpoint_value.get("next_action"):
-            errors.append("handoff checkpoint requires next_action")
-
-
-def _truth_gate_final(
-    *, stage: str, report: Mapping[str, Any], errors: list[str], warnings: list[str],
-    criteria: Mapping[str, Any], criteria_checked: int, evidence_attempts: int,
-    brief_report: Mapping[str, Any] | None, contract: Mapping[str, Any],
-    evaluation: Mapping[str, Any], emit: bool,
-) -> dict[str, Any]:
-    final = {
-        "stage": stage, "passed": not errors, "errors": errors, "warnings": warnings,
-        "criteria": dict(criteria), "truth_source_results": deepcopy(evaluation.get("results", [])),
-        "stats": {
-            **report["stats"], "criteria_checked": criteria_checked,
-            "evidence_attempts": evidence_attempts,
-            "truth_sources_checked": evaluation.get("stats", {}).get("truth_sources_checked", 0),
-            "truth_source_resolution_attempts": evaluation.get("stats", {}).get("truth_source_resolution_attempts", 0),
-            "brief_status": (brief_report or {}).get("status", "unavailable"),
-            "brief_overflow_kind": ((brief_report or {}).get("overflow") or {}).get("kind"),
-            "brief_fixed_prompt_chars": (brief_report or {}).get("budget", {}).get("fixed_prompt_chars"),
-            "brief_mandatory_prompt_chars": (brief_report or {}).get("budget", {}).get("mandatory_prompt_chars"),
-        },
-        "contract_version": contract.get("version"),
-    }
-    if emit:
-        _emit_report(final)
-    return final
-
-
-def _truth_unknown_gate_report(
-    *, task_id: str, stage: str, contract: Mapping[str, Any], error: ContextError,
-    emit: bool,
-) -> dict[str, Any]:
-    declared = contract.get("truth_sources") if isinstance(contract.get("truth_sources"), Mapping) else {}
-    items = declared.get("items") if isinstance(declared.get("items"), list) else []
-    results = [
-        {"id": item.get("id"), "status": "unknown", "codes": ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]}
-        for item in items if isinstance(item, Mapping)
-    ]
-    report = _read_lock_unavailable_audit(task_id, error, emit=False)
-    report.update({
-        "stage": stage,
-        "criteria": {},
-        "truth_source_results": results,
-        "contract_version": contract.get("version"),
-    })
-    report["stats"].update({
-        "criteria_checked": 0, "evidence_attempts": 0,
-        "truth_sources_checked": 0, "truth_source_resolution_attempts": 0,
-        "brief_status": "unavailable", "brief_overflow_kind": None,
-        "brief_fixed_prompt_chars": None, "brief_mandatory_prompt_chars": None,
-    })
-    if emit:
-        _emit_report(report)
-    return report
-
-
-def _truth_gate_entry_locked(
-    task_id: str, *, view: Mapping[str, Any], stage: str,
-    required_item_ids: Sequence[str] | None, documents: Sequence[str | Path] | None,
-    resolvers: Mapping[str, Any] | None, verifiers: Mapping[str, Any] | None,
-    clock: Any, run_probe: bool, base_dir: str | Path | None,
-) -> dict[str, Any]:
-    """Build all entry verdict inputs while the caller holds the shared lock."""
-    entry_now = clock().astimezone(timezone.utc)
-    report = _audit_from_view(
-        task_id, contract=view["contract"], snapshot=view["snapshot"], events=view["events"],
-        documents=documents, max_pointer_lag_seconds=0, now=entry_now, run_probe=run_probe,
-    )
-    truth = _evaluate_truth_phase_locked(view, now=entry_now)
-    if truth is None:
-        truth = {"status": "unknown", "passed": False, "results": [],
-                 "stats": {"truth_sources_checked": 0, "truth_source_resolution_attempts": 0}}
-    errors = list(report["errors"])
-    errors.extend(
-        _contract_file_protection_errors(
-            view["contract"], _paths(task_id, base_dir)["contract"],
-        )
-    )
-    warnings = list(report["warnings"])
-    handler_errors, handlers_checked = runtime_evidence_handler_errors(
-        view["contract"], resolvers=resolvers, verifiers=verifiers,
-    )
-    errors.extend(handler_errors)
-    if evidence_handlers_enabled(view["contract"]):
-        report["stats"]["evidence_handlers_checked"] = handlers_checked
-    if not truth["passed"]:
-        errors.extend(_truth_gate_errors(truth))
-    brief_report: dict[str, Any] | None = None
-    if stage in {"release", "resume", "handoff"}:
-        plan = _plan_brief_from_view(
-            task_id, contract=view["contract"], snapshot=view["snapshot"], truth_evaluation=truth,
-            phase=None, include=None, max_items=None, max_chars=8000,
-        )
-        brief_report = _brief_diagnostics_from_plan(plan)
-        overflow = brief_report.get("overflow")
-        if isinstance(overflow, Mapping):
-            message = str(overflow.get("message", "BRIEF_REQUIRED_OVERFLOW"))
-            errors.append(message)
-        filtered = brief_report.get("items", {}).get("filtered_mandatory_ids", [])
-        if filtered:
-            warnings.append(f"brief preflight filtered mandatory items: {filtered}")
-    _truth_gate_base_checks(stage, view["snapshot"], required_item_ids, errors)
-    return {"view": view, "now": entry_now, "report": report, "truth": truth,
-            "token": _truth_entry_token(view), "errors": errors, "warnings": warnings,
-            "brief_report": brief_report, "handler_errors": handler_errors}
-
-
-def _append_completion_errors(errors: list[str], criterion_id: Any, result: Mapping[str, Any]) -> None:
-    if result.get("status") == "pass":
-        return
-    errors.append(f"criterion {criterion_id} status is {result.get('status', 'unknown')}")
-    for evidence_result in result.get("evidence_results", []):
-        if isinstance(evidence_result, Mapping) and evidence_result.get("status") != "pass":
-            errors.append(f"criterion {criterion_id} evidence {evidence_result.get('evidence_id')} is {evidence_result.get('status', 'unknown')}")
-    missing_evidence = result.get("missing_evidence_types")
-    if missing_evidence:
-        _append_missing_evidence_type_errors(errors, criterion_id, missing_evidence)
-    for field, label in (("missing_hops", "missing chain-hop coverage"),
-                         ("missing_delivery_types", "missing required delivery types")):
-        if result.get(field):
-            errors.append(f"criterion {criterion_id} {label}: {result[field]}")
-    independence = result.get("independent_validation")
-    if isinstance(independence, Mapping) and independence.get("status") != "pass":
-        errors.append(f"criterion {criterion_id} independent validation is {independence.get('status')}: {independence.get('codes', [])}")
-
-
-def _append_missing_evidence_type_errors(
-    errors: list[str], criterion_id: Any, missing: Any,
-) -> None:
-    builtins = sorted(BUILTIN_RESOLVER_CAPABILITIES)
-    errors.append(f"criterion {criterion_id} missing required evidence types: {missing}")
-    errors.append(
-        f"built-in evidence types: {builtins}; "
-        "custom types require declared resolver and verifier capabilities"
-    )
-
-
-def _gate_truth_enabled(
-    task_id: str, *, entry: Mapping[str, Any], evidence_map: Mapping[str, Mapping[str, Any]] | None,
-    resolvers: Mapping[str, Any] | None, verifiers: Mapping[str, Any] | None,
-    validation_resolver: Any, emit: bool, base_dir: str | Path | None, clock: Any,
-) -> dict[str, Any]:
-    """Run completion callbacks outside the entry lock, then fix its tail verdict under lock."""
-    entry_view = entry["view"]
-    errors = list(entry["errors"])
-    warnings = list(entry["warnings"])
-    entry_truth = entry["truth"]
-    criterion_reports: dict[str, Any] = {}
-    criteria_checked = 0
-    evidence_attempts = 0
-    if entry_truth["passed"] and not entry.get("handler_errors"):
-        if not isinstance(evidence_map, Mapping):
-            errors.append("completion gate requires evidence_map")
-        else:
-            criteria = deepcopy(entry_view["contract"].get("acceptance_criteria", []))
-            for criterion in criteria if isinstance(criteria, list) else []:
-                if not isinstance(criterion, dict):
-                    continue
-                criteria_checked += 1
-                criterion_id = criterion.get("id")
-                evidence_entry = deepcopy(evidence_map.get(criterion_id)) if isinstance(criterion_id, str) else None
-                try:
-                    criterion_report = _evaluate_completion_criterion(
-                        deepcopy(criterion), evidence_entry, deepcopy(entry_view["contract"]),
-                        resolvers=resolvers, verifiers=verifiers,
-                        validation_resolver=validation_resolver, now=entry["now"],
-                    )
-                except Exception as exc:
-                    criterion_report = {"status": "unknown", "evidence_results": [], "missing_evidence_types": [], "missing_hops": [], "missing_delivery_types": [], "independent_validation": {"status": "unknown", "codes": ["CRITERION_EVALUATION_ERROR"]}}
-                    warnings.append(f"criterion {criterion_id} evaluation raised {type(exc).__name__}")
-                evidence_attempts += len(criterion_report.get("evidence_results", []))
-                criterion_reports[str(criterion_id)] = criterion_report
-                _append_completion_errors(errors, criterion_id, criterion_report)
-    final_truth = entry_truth
-    paths = _paths(task_id, base_dir)
-    tail_lock_acquired = False
-    try:
-        with _shared_locked_existing(paths["root"]):
-            tail_lock_acquired = True
-            tail_evaluated = False
-            if not errors:
-                try:
-                    tail_view = _load_committed_task_view_locked(task_id, paths)
-                except ContextError as exc:
-                    errors.append(f"truth source tail unavailable: {type(exc).__name__}")
-                    _mark_independence_callback_changed({"criteria": criterion_reports})
-                    tail_truth = deepcopy(entry_truth)
-                    for item in tail_truth.get("results", []):
-                        if isinstance(item, dict):
-                            item["status"] = "unknown"
-                            item["codes"] = ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
-                else:
-                    tail_now = clock().astimezone(timezone.utc)
-                    tail_truth = _evaluate_truth_phase_locked(tail_view, now=tail_now)
-                    if tail_truth is None:
-                        errors.append("truth source tail unavailable: ContextError")
-                        _mark_independence_callback_changed({"criteria": criterion_reports})
-                        tail_truth = deepcopy(entry_truth)
-                        for item in tail_truth.get("results", []):
-                            if isinstance(item, dict):
-                                item["status"] = "unknown"
-                                item["codes"] = ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
-                    else:
-                        tail_evaluated = True
-                        if _truth_entry_token(tail_view) != entry["token"]:
-                            errors.append("truth source control changed during completion")
-                            _mark_independence_callback_changed({"criteria": criterion_reports})
-                        if not tail_truth["passed"]:
-                            errors.extend(_truth_gate_errors(tail_truth))
-                            _mark_independence_callback_changed({"criteria": criterion_reports})
-                final_truth = tail_truth
-                entry_stats = entry_truth.get("stats", {})
-                tail_stats = tail_truth.get("stats", {}) if tail_evaluated else {}
-                final_truth = deepcopy(tail_truth)
-                final_truth["stats"] = {
-                    "truth_sources_checked": entry_stats.get("truth_sources_checked", 0) + tail_stats.get("truth_sources_checked", 0),
-                    "truth_source_resolution_attempts": entry_stats.get("truth_source_resolution_attempts", 0) + tail_stats.get("truth_source_resolution_attempts", 0),
-                }
-            return _truth_gate_final(
-                stage="completion", report=entry["report"], errors=errors, warnings=warnings,
-                criteria=criterion_reports, criteria_checked=criteria_checked,
-                evidence_attempts=evidence_attempts, brief_report=entry["brief_report"],
-                contract=entry_view["contract"], evaluation=final_truth, emit=emit,
-            )
-    except ContextError as exc:
-        if tail_lock_acquired:
-            raise
-        errors.append(f"truth source tail unavailable: {type(exc).__name__}")
-        _mark_independence_callback_changed({"criteria": criterion_reports})
-        final_truth = deepcopy(entry_truth)
-        for item in final_truth.get("results", []):
-            if isinstance(item, dict):
-                item["status"] = "unknown"
-                item["codes"] = ["TRUTH_SOURCE_RESOLVER_UNKNOWN"]
-        final_truth["stats"] = deepcopy(entry_truth.get("stats", {}))
-        return _truth_gate_final(
-            stage="completion", report=entry["report"], errors=errors, warnings=warnings,
-            criteria=criterion_reports, criteria_checked=criteria_checked,
-            evidence_attempts=evidence_attempts, brief_report=entry["brief_report"],
-            contract=entry_view["contract"], evaluation=final_truth, emit=emit,
-        )
-
-
-def _gate_core(
-    task_id: str,
-    *,
-    stage: str,
-    evidence_map: Mapping[str, Mapping[str, Any]] | None = None,
-    required_item_ids: Sequence[str] | None = None,
-    documents: Sequence[str | Path] | None = None,
-    resolvers: Mapping[str, Any] | None = None,
-    verifiers: Mapping[str, Any] | None = None,
-    validation_resolver: Any = None,
-    clock: Any = _trusted_utc_now,
-    emit: bool = True,
-    base_dir: str | Path | None = None,
-    run_probe: bool,
-) -> dict[str, Any]:
-    """Run a release, resume, handoff, or completion quality gate."""
-
-    if stage not in GATE_STAGES:
-        raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
-    observed_now = clock().astimezone(timezone.utc)
-    paths = _paths(task_id, base_dir)
-    report = _audit_core(
-        task_id,
-        documents=documents,
-        emit=False,
-        base_dir=base_dir,
-        max_pointer_lag_seconds=0,
-        now=observed_now,
-        run_probe=run_probe,
-    )
-    errors = list(report["errors"])
-    warnings = list(report["warnings"])
-    criterion_reports: dict[str, Any] = {}
-    criteria_checked = 0
-    evidence_attempts = 0
-    handlers_checked = 0
-    handler_errors: list[str] = []
-    contract: dict[str, Any] = {}
-    snapshot = _empty_snapshot(task_id)
-    brief_report: dict[str, Any] | None = None
-    try:
-        view = _load_committed_task_view_locked(task_id, paths)
-        contract = view["contract"]
-        snapshot = view["snapshot"]
-    except ContextError as exc:
-        if str(exc) not in errors:
-            errors.append(str(exc))
-
-    if contract:
-        handler_errors, handlers_checked = runtime_evidence_handler_errors(
-            contract, resolvers=resolvers, verifiers=verifiers,
-        )
-        errors.extend(handler_errors)
-
-    if contract and stage in {"release", "resume", "handoff"}:
-        try:
-            brief_plan = _plan_brief(
-                task_id,
-                phase=None,
-                include=None,
-                max_items=None,
-                max_chars=8000,
-                base_dir=base_dir,
-            )
-            brief_report = _brief_diagnostics_from_plan(brief_plan)
-        except (ContextError, ValueError) as exc:
-            message = f"brief preflight unavailable: {exc}"
-            errors.append(message)
-        else:
-            overflow = brief_report.get("overflow")
-            if isinstance(overflow, Mapping):
-                message = str(overflow.get("message", "BRIEF_REQUIRED_OVERFLOW"))
-                if message not in errors:
-                    errors.append(message)
-            filtered = brief_report.get("items", {}).get("filtered_mandatory_ids", [])
-            if filtered:
-                warnings.append(f"brief preflight filtered mandatory items: {filtered}")
-
-    if stage in {"resume", "handoff", "completion"}:
-        items = snapshot.get("items", {}) if isinstance(snapshot.get("items"), dict) else {}
-        globally_blocked: set[str] = set()
-        if stage == "completion":
-            for identifier, item in sorted(items.items()):
-                if not isinstance(item, Mapping) or item.get("status") == "superseded":
-                    continue
-                metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-                if item.get("status") == "conflicted":
-                    errors.append(f"required context item is conflicted: {identifier}")
-                    globally_blocked.add(identifier)
-                if metadata.get("blocking") is True or metadata.get("blocker") is True:
-                    errors.append(f"blocking context item remains: {identifier}")
-                    globally_blocked.add(identifier)
-
-        targets = (
-            {
-                identifier
-                for identifier, item in items.items()
-                if not isinstance(item, Mapping) or item.get("status") != "superseded"
-            }
-            if required_item_ids is None
-            else set(required_item_ids)
-        )
-        for identifier in sorted(targets):
-            item = items.get(identifier)
-            if not isinstance(item, dict):
-                errors.append(f"required context item missing: {identifier}")
-                continue
-            if item.get("status") == "superseded":
-                errors.append(f"required context item is superseded: {identifier}")
-                continue
-            if item.get("status") == "conflicted" and identifier not in globally_blocked:
-                errors.append(f"required context item is conflicted: {identifier}")
-            if _item_is_stale(item):
-                errors.append(f"required mutable fact is stale: {identifier}")
-            metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-            if (
-                identifier not in globally_blocked
-                and (metadata.get("blocking") is True or metadata.get("blocker") is True)
-            ):
-                errors.append(f"blocking context item remains: {identifier}")
-
-    if stage == "handoff":
-        checkpoint_value = snapshot.get("latest_checkpoint")
-        if not isinstance(checkpoint_value, dict):
-            errors.append("handoff requires a checkpoint")
-        elif not checkpoint_value.get("next_action"):
-            errors.append("handoff checkpoint requires next_action")
-
-    if stage == "completion" and not handler_errors:
-        if not isinstance(evidence_map, Mapping):
-            errors.append("completion gate requires evidence_map")
-        else:
-            criteria = deepcopy(contract.get("acceptance_criteria", []))
-            contract_baseline = deepcopy(contract)
-            for criterion in criteria if isinstance(criteria, list) else []:
-                if not isinstance(criterion, dict):
-                    continue
-                criteria_checked += 1
-                criterion_id = criterion.get("id")
-                evidence_entry = (
-                    deepcopy(evidence_map.get(criterion_id))
-                    if isinstance(criterion_id, str)
-                    else None
-                )
-                try:
-                    criterion_report = _evaluate_completion_criterion(
-                        deepcopy(criterion),
-                        evidence_entry,
-                        deepcopy(contract_baseline),
-                        resolvers=resolvers,
-                        verifiers=verifiers,
-                        validation_resolver=validation_resolver,
-                        now=observed_now,
-                    )
-                except Exception as exc:
-                    criterion_report = {
-                        "status": "unknown",
-                        "evidence_results": [],
-                        "missing_evidence_types": [],
-                        "missing_hops": [],
-                        "missing_delivery_types": [],
-                        "independent_validation": {
-                            "status": "unknown",
-                            "codes": ["CRITERION_EVALUATION_ERROR"],
-                        },
-                    }
-                    warnings.append(
-                        f"criterion {criterion_id} evaluation raised {type(exc).__name__}"
-                    )
-                evidence_attempts += len(criterion_report.get("evidence_results", []))
-                criterion_reports[str(criterion_id)] = criterion_report
-                if criterion_report.get("status") != "pass":
-                    errors.append(
-                        f"criterion {criterion_id} status is {criterion_report.get('status', 'unknown')}"
-                    )
-                    for evidence_result in criterion_report.get("evidence_results", []):
-                        if evidence_result.get("status") == "pass":
-                            continue
-                        errors.append(
-                            f"criterion {criterion_id} evidence "
-                            f"{evidence_result.get('evidence_id')} is {evidence_result.get('status', 'unknown')}"
-                        )
-                    if criterion_report.get("missing_evidence_types"):
-                        _append_missing_evidence_type_errors(
-                            errors,
-                            criterion_id,
-                            criterion_report.get("missing_evidence_types"),
-                        )
-                    if criterion_report.get("missing_hops"):
-                        errors.append(
-                            f"criterion {criterion_id} missing chain-hop coverage: "
-                            f"{criterion_report.get('missing_hops')}"
-                        )
-                    if criterion_report.get("missing_delivery_types"):
-                        errors.append(
-                            f"criterion {criterion_id} missing required delivery types: "
-                            f"{criterion_report.get('missing_delivery_types')}"
-                        )
-                    independence = criterion_report.get("independent_validation")
-                    if isinstance(independence, Mapping) and independence.get("status") != "pass":
-                        errors.append(
-                            f"criterion {criterion_id} independent validation is "
-                            f"{independence.get('status')}: {independence.get('codes', [])}"
-                        )
-
-    final_stats = {
-        **report["stats"],
-        "checked": report["stats"].get("checked", 0),
-        "criteria_checked": criteria_checked,
-        "evidence_attempts": evidence_attempts,
-        "brief_status": (brief_report or {}).get("status", "unavailable"),
-        "brief_overflow_kind": ((brief_report or {}).get("overflow") or {}).get("kind"),
-        "brief_fixed_prompt_chars": (
-            (brief_report or {}).get("budget", {}).get("fixed_prompt_chars")
-        ),
-        "brief_mandatory_prompt_chars": (
-            (brief_report or {}).get("budget", {}).get("mandatory_prompt_chars")
-        ),
-    }
-    if evidence_handlers_enabled(contract):
-        final_stats["evidence_handlers_checked"] = handlers_checked
-    final = {
-        "stage": stage,
-        "passed": not errors,
-        "errors": errors,
-        "warnings": warnings,
-        "criteria": criterion_reports,
-        "stats": final_stats,
-        "contract_version": contract.get("version"),
-    }
-    if emit:
-        _emit_report(final)
-    return final
-
-
-def _evaluate_completion_criterion(
-    criterion: Mapping[str, Any],
-    evidence_entry: Any,
-    contract: Mapping[str, Any],
-    *,
-    resolvers: Mapping[str, Any] | None,
-    verifiers: Mapping[str, Any] | None,
-    now: datetime,
-    validation_resolver: Any = None,
-) -> dict[str, Any]:
-    """Derive one criterion from an immutable requirements/evidence baseline."""
-
-    criterion_baseline = deepcopy(dict(criterion))
-    contract_baseline = deepcopy(dict(contract))
-    criterion_id = str(criterion_baseline.get("id"))
-    entry_is_malformed = evidence_entry is not None and not isinstance(evidence_entry, Mapping)
-    entry = deepcopy(dict(evidence_entry)) if isinstance(evidence_entry, Mapping) else {}
-
-    required_types = _criterion_string_set(
-        criterion_baseline,
-        "required_evidence_types",
-        "required_evidence",
-    )
-    raw_required_hops = criterion_baseline.get("required_hops")
-    if raw_required_hops is None:
-        raw_required_hops = criterion_baseline.get("chain_hops")
-    required_hop_sequence = (
-        [item for item in raw_required_hops if isinstance(item, str)]
-        if isinstance(raw_required_hops, list)
-        else []
-    )
-    required_hops = set(required_hop_sequence)
-    required_hops_mode = criterion_baseline.get("required_hops_mode", "aggregate")
-    required_delivery_types = _criterion_string_set(
-        criterion_baseline,
-        "required_delivery_types",
-        None,
-    )
-    independent_required = criterion_baseline.get("independent_validation_required") is True
-
-    if entry_is_malformed:
-        primary_candidates: list[Any] = [None]
-        receipt_candidates: list[Any] = []
-        entry_error_code = "MALFORMED_EVIDENCE_ENTRY"
-    else:
-        raw_primary = entry.get("evidence", [])
-        raw_receipts = entry.get("delivery_receipts", [])
-        primary_candidates = deepcopy(raw_primary) if isinstance(raw_primary, list) else [None]
-        receipt_candidates = deepcopy(raw_receipts) if isinstance(raw_receipts, list) else [None]
-        entry_error_code = "MALFORMED_EVIDENCE"
-
-    records: list[tuple[str, int, Any]] = [
-        *(('evidence', index, candidate) for index, candidate in enumerate(primary_candidates)),
-        *(
-            ('delivery_receipt', index, candidate)
-            for index, candidate in enumerate(receipt_candidates)
-        ),
-    ]
-    identifier_counts: dict[str, int] = {}
-    invalid_identity = any(not isinstance(candidate, Mapping) for _, _, candidate in records)
-    for _, _, candidate in records:
-        if not isinstance(candidate, Mapping):
-            continue
-        identifier = candidate.get("evidence_id")
-        if not isinstance(identifier, str) or not identifier.strip():
-            invalid_identity = True
-            continue
-        identifier_counts[identifier] = identifier_counts.get(identifier, 0) + 1
-    duplicate_ids = sorted(
-        identifier for identifier, count in identifier_counts.items() if count > 1
-    )
-    identity_preflight_failed = invalid_identity or bool(duplicate_ids)
-
-    primary_results: list[dict[str, Any]] = []
-    primary_sources: list[Mapping[str, Any] | None] = []
-    receipt_results: list[dict[str, Any]] = []
-    receipt_sources: list[Mapping[str, Any] | None] = []
-
-    for label, index, candidate in records:
-        destination_results = primary_results if label == "evidence" else receipt_results
-        destination_sources = primary_sources if label == "evidence" else receipt_sources
-        if not isinstance(candidate, Mapping):
-            destination_sources.append(None)
-            destination_results.append(
-                _malformed_completion_result(
-                    criterion_id,
-                    label,
-                    index,
-                    entry_error_code,
-                )
-            )
-            continue
-
-        source = deepcopy(dict(candidate))
-        destination_sources.append(source)
-        identifier = source.get("evidence_id")
-        if identity_preflight_failed:
-            if not isinstance(identifier, str) or not identifier.strip():
-                code = "MALFORMED_EVIDENCE_ID"
-            elif identifier in duplicate_ids:
-                code = "DUPLICATE_EVIDENCE_ID"
-            else:
-                code = "EVIDENCE_ID_PREFLIGHT_FAILED"
-            destination_results.append(
-                _malformed_completion_result(
-                    criterion_id,
-                    label,
-                    index,
-                    code,
-                    evidence_id=identifier,
-                    kind=source.get("kind"),
-                )
-            )
-            continue
-
-        if label == "delivery_receipt":
-            if not _valid_delivery_receipt(source):
-                destination_results.append(
-                    _malformed_completion_result(
-                        criterion_id,
-                        label,
-                        index,
-                        "MALFORMED_DELIVERY_RECEIPT",
-                        evidence_id=identifier,
-                        kind=source.get("kind"),
-                    )
-                )
-                continue
-            future_fields = (
-                (field, _parse_explicit_utc_timestamp(source.get(field)))
-                for field in _DELIVERY_RECEIPT_TIME_FIELDS
-            )
-            future_field = next(
-                (
-                    field
-                    for field, timestamp in future_fields
-                    if timestamp is not None
-                    and timestamp > now + timedelta(seconds=MAX_CLOCK_SKEW_SECONDS)
-                ),
-                None,
-            )
-            if future_field is not None:
-                destination_results.append(
-                    _malformed_completion_result(
-                        criterion_id,
-                        label,
-                        index,
-                        f"FUTURE_DELIVERY_{future_field.upper()}",
-                        evidence_id=identifier,
-                        kind=source.get("kind"),
-                    )
-                )
-                continue
-
-        result = evaluate_evidence(
-            deepcopy(source),
-            deepcopy(criterion_baseline),
-            deepcopy(contract_baseline),
-            resolvers=resolvers,
-            verifiers=verifiers,
-            now=now,
-        )
-        # Unavailable evidence is not proof that the acceptance condition is
-        # false. Preserve raw checks for diagnostics; both outcomes still block.
-        unavailable_codes = {
-            "NOT_FOUND", "STALE", "DIGEST_MISMATCH", "REVISION_MISMATCH",
-            "SCOPE_MISMATCH", "OUTSIDE_ALLOWED_ROOT", "MISSING_GENERATED_AT",
-        }
-        for layer in ("resolve", "integrity_and_freshness", "scope", "claim"):
-            value = result["checks"].get(layer, {})
-            codes = set(value.get("codes", []))
-            if value.get("status") == "fail" and codes and codes <= unavailable_codes:
-                value["raw_status"] = "fail"
-                value["status"] = "unknown"
-        if "contract_version" in source and (
-            type(source["contract_version"]) is not int
-            or source["contract_version"] != contract_baseline.get("version")
-        ):
-            result["checks"]["contract_binding"] = {
-                "status": "unknown", "codes": ["CONTRACT_VERSION_MISMATCH"],
-            }
-        statuses = [value["status"] for value in result["checks"].values()]
-        result["status"] = "fail" if "fail" in statuses else "unknown" if "unknown" in statuses else "pass"
-        if evidence_handlers_enabled(contract_baseline):
-            result["locator"] = source.get("locator")
-            result["repo_revision"] = source.get("repo_revision")
-            result["scope"] = deepcopy(source.get("scope"))
-        if label == "evidence" and "covered_hops" in source and not _valid_string_list(
-            source.get("covered_hops"), allow_empty=True
-        ):
-            result = _fail_completion_result(result, "MALFORMED_HOP_BINDING")
-        destination_results.append(result)
-
-    evidence_results = [*primary_results, *receipt_results]
-    supplied_types = {
-        str(source.get("kind"))
-        for source in primary_sources
-        if isinstance(source, Mapping) and isinstance(source.get("kind"), str)
-    }
-    missing_types = sorted(required_types - supplied_types)
-
-    verified_hops: set[str] = set()
-    for source, result in zip(primary_sources, primary_results):
-        if not isinstance(source, Mapping) or result.get("status") != "pass":
-            continue
-        bound_hops = source.get("covered_hops", [])
-        if _valid_string_list(bound_hops, allow_empty=True):
-            verified_hops.update(bound_hops)
-    hop_validation: dict[str, Any] | None = None
-    if required_hops_mode == "single-evidence-ordered":
-        matching_evidence_id = None
-        for source, result in zip(primary_sources, primary_results):
-            if not isinstance(source, Mapping) or result.get("status") != "pass":
-                continue
-            bound_hops = source.get("covered_hops", [])
-            if (
-                _valid_string_list(bound_hops, allow_empty=True)
-                and _contains_ordered_subsequence(bound_hops, required_hop_sequence)
-            ):
-                matching_evidence_id = source.get("evidence_id")
-                break
-        matched = isinstance(matching_evidence_id, str)
-        missing_hops = [] if matched else list(required_hop_sequence)
-        hop_validation = {
-            "mode": "single-evidence-ordered",
-            "status": "pass" if matched else "unknown",
-            "code": None if matched else "SINGLE_EVIDENCE_ORDERED_HOPS_MISSING",
-            "evidence_id": matching_evidence_id,
-        }
-    else:
-        missing_hops = sorted(required_hops - verified_hops)
-
-    verified_delivery_types = {
-        str(source.get("delivery_type"))
-        for source, result in zip(receipt_sources, receipt_results)
-        if isinstance(source, Mapping)
-        and source.get("kind") == "delivery-receipt"
-        and result.get("status") == "pass"
-        and source.get("delivery_type") in required_delivery_types
-    }
-    missing_delivery_types = sorted(required_delivery_types - verified_delivery_types)
-
-    independence = _independent_validation_check(
-        independent_required,
-        entry,
-        [*primary_sources, *receipt_sources],
-        contract_baseline,
-        now,
-        criterion_baseline=criterion_baseline,
-        validation_resolver=validation_resolver,
-    )
-    statuses = [result.get("status", "unknown") for result in evidence_results]
-    if not primary_results:
-        statuses.append("unknown")
-    if missing_types or missing_hops or missing_delivery_types:
-        statuses.append("unknown")
-    if independence["status"] != "pass":
-        statuses.append(independence["status"])
-    status = "fail" if "fail" in statuses else "unknown" if "unknown" in statuses else "pass"
-    result = {
-        "status": status,
-        "evidence_results": evidence_results,
-        "missing_evidence_types": missing_types,
-        "missing_hops": missing_hops,
-        "missing_delivery_types": missing_delivery_types,
-        "independent_validation": independence,
-        "duplicate_evidence_ids": duplicate_ids,
-    }
-    if hop_validation is not None:
-        result["hop_validation"] = hop_validation
-    if evidence_handlers_enabled(contract_baseline):
-        result.update(criterion_id=criterion_id, contract_version=contract_baseline.get("version"),
-                      workspace_root=contract_baseline.get("workspace_root"))
-    return result
-
-
-def _contains_ordered_subsequence(
-    supplied: Sequence[str], required: Sequence[str],
-) -> bool:
-    if not required:
-        return True
-    position = 0
-    for hop in supplied:
-        if hop == required[position]:
-            position += 1
-            if position == len(required):
-                return True
-    return False
-
-
-def _criterion_string_set(
-    criterion: Mapping[str, Any], canonical: str, compatibility: str | None
-) -> set[str]:
-    value = criterion.get(canonical)
-    if value is None and compatibility is not None:
-        value = criterion.get(compatibility)
-    return {item for item in value if isinstance(item, str)} if isinstance(value, list) else set()
-
-
-def _malformed_completion_result(
-    criterion_id: str,
-    label: str,
-    index: int,
-    code: str,
-    *,
-    evidence_id: Any = None,
-    kind: Any = "",
-) -> dict[str, Any]:
-    identifier = evidence_id if evidence_id is not None else f"{criterion_id}:{label}[{index}]"
-    return {
-        "evidence_id": identifier,
-        "kind": kind if isinstance(kind, str) else "",
-        "status": "fail",
-        "checks": {
-            "resolve": {"status": "fail", "codes": [code]},
-            "integrity_and_freshness": {"status": "unknown", "codes": [code]},
-            "scope": {"status": "unknown", "codes": [code]},
-            "claim": {"status": "unknown", "codes": [code]},
-        },
-    }
-
-
-def _fail_completion_result(result: Mapping[str, Any], code: str) -> dict[str, Any]:
-    failed = deepcopy(dict(result))
-    checks = failed.get("checks") if isinstance(failed.get("checks"), Mapping) else {}
-    checks = deepcopy(dict(checks))
-    resolution = checks.get("resolve") if isinstance(checks.get("resolve"), Mapping) else {}
-    codes = list(resolution.get("codes", [])) if isinstance(resolution.get("codes"), list) else []
-    if code not in codes:
-        codes.append(code)
-    checks["resolve"] = {"status": "fail", "codes": codes}
-    failed["checks"] = checks
-    failed["status"] = "fail"
-    return failed
-
-
-def _independent_validation_check(
-    required: bool,
-    entry: Mapping[str, Any],
-    evidence_sources: Sequence[Mapping[str, Any] | None],
-    contract: Mapping[str, Any],
-    now: datetime,
-    *,
-    criterion_baseline: Mapping[str, Any],
-    validation_resolver: Any,
-) -> dict[str, Any]:
-    """Check a host receipt without accepting model-supplied identity claims."""
-    if not required:
-        result = {"status": "pass", "codes": []}
-        if evidence_handlers_enabled(contract):
-            result["assurance"] = "not_required"
-        return result
-
-    # Keep explicit legacy role/time violations blocking.  These fields cannot
-    # establish independence, but an already supplied self-review or impossible
-    # timestamp must not become acceptable merely because host proof is absent.
-    legacy_validated_at = entry.get("validated_at")
-    if legacy_validated_at is not None:
-        parsed_legacy_time = _parse_explicit_utc_timestamp(legacy_validated_at)
-        if parsed_legacy_time is None:
-            return {"status": "fail", "assurance": "failed", "codes": ["INVALID_VALIDATED_AT"]}
-        if parsed_legacy_time > now + timedelta(seconds=MAX_CLOCK_SKEW_SECONDS):
-            return {"status": "fail", "assurance": "failed", "codes": ["FUTURE_VALIDATED_AT"]}
-    legacy_validator = entry.get("validated_by")
-    if isinstance(legacy_validator, str) and legacy_validator.strip():
-        actor_roles = contract.get("actor_roles")
-        if not isinstance(actor_roles, Mapping):
-            return {"status": "fail", "assurance": "failed", "codes": ["VALIDATOR_ROLE_UNENFORCEABLE"]}
-        if not isinstance(actor_roles.get(legacy_validator), list) or "validator" not in actor_roles[legacy_validator]:
-            return {"status": "fail", "assurance": "failed", "codes": ["VALIDATOR_ROLE_REQUIRED"]}
-        producer_fields = ("produced_by", "submitted_by", "owner", "executor", "actor")
-        producers = {
-            str(source.get(field))
-            for source in evidence_sources if isinstance(source, Mapping)
-            for field in producer_fields
-            if isinstance(source.get(field), str) and str(source.get(field)).strip()
-        }
-        producers.update(
-            str(entry.get(field)) for field in ("producer", "owner", "executor")
-            if isinstance(entry.get(field), str) and str(entry.get(field)).strip()
-        )
-        if legacy_validator in producers:
-            return {"status": "fail", "assurance": "failed", "codes": ["VALIDATOR_NOT_INDEPENDENT"]}
-    validation_ref = entry.get("validation_ref")
-    if not isinstance(validation_ref, str) or not validation_ref.strip():
-        return {"status": "unknown", "assurance": "unknown", "codes": ["MISSING_VALIDATION_REF"]}
-    if validation_resolver is None:
-        return {"status": "unknown", "assurance": "unknown", "codes": ["MISSING_TRUSTED_VALIDATION_RESOLVER"]}
-
-    def unknown(code: str) -> dict[str, Any]:
-        return {"status": "unknown", "assurance": "unknown", "codes": [code], "validation_ref": validation_ref}
-
-    workspace_root = contract.get("workspace_root")
-    if workspace_root is None or (isinstance(workspace_root, str) and not workspace_root.strip()):
-        return unknown("MISSING_CONTRACT_WORKSPACE_ROOT")
-    if not isinstance(workspace_root, str):
-        return unknown("INVALID_CONTRACT_WORKSPACE_ROOT")
-    try:
-        workspace_path = Path(workspace_root)
-        if not workspace_path.is_absolute():
-            return unknown("INVALID_CONTRACT_WORKSPACE_ROOT")
-        expected_workspace = str(workspace_path.resolve())
-    except (OSError, RuntimeError, ValueError):
-        return unknown("INVALID_CONTRACT_WORKSPACE_ROOT")
-    try:
-        receipt = validation_resolver(validation_ref)
-    except Exception:
-        return {"status": "unknown", "assurance": "unknown", "codes": ["VALIDATION_RESOLVER_ERROR"]}
-    if not isinstance(receipt, Mapping):
-        return {"status": "unknown", "assurance": "unknown", "codes": ["MALFORMED_VALIDATION_RECEIPT"]}
-    receipt_now = _trusted_utc_now()
-
-    criterion_id = criterion_baseline.get("id")
-    seal = contract.get("seal")
-    expected_digest = seal.get("integrity_digest") if isinstance(seal, Mapping) else None
-    exact_fields = {
-        "validation_ref": validation_ref,
-        "task_id": contract.get("task_id"),
-        "criterion_id": criterion_id,
-        "contract_digest": expected_digest,
-        "workspace_root": expected_workspace,
-    }
-    if any(receipt.get(key) != value for key, value in exact_fields.items()):
-        return unknown("VALIDATION_RECEIPT_BINDING_MISMATCH")
-
-    principals = receipt.get("executor_principals")
-    validator = receipt.get("validator_principal")
-    run_id = receipt.get("run_id")
-    checker_id = receipt.get("checker_id")
-    if (
-        not isinstance(principals, list)
-        or not principals
-        or any(not isinstance(item, str) or not item.strip() for item in principals)
-        or len(principals) != len(set(principals))
-        or not isinstance(validator, str) or not validator.strip()
-        or not isinstance(run_id, str) or not run_id.strip()
-        or not isinstance(checker_id, str) or not checker_id.strip()
-    ):
-        return unknown("MALFORMED_TRUSTED_PRINCIPALS_OR_RUN")
-    if validator in principals:
-        return {
-            "status": "fail", "assurance": "failed", "codes": ["VALIDATOR_NOT_INDEPENDENT"],
-            "validation_ref": validation_ref,
-            "executor_principals": list(principals), "validator_principal": validator,
-            "run_id": run_id, "checker_id": checker_id,
-        }
-
-    actor_roles = contract.get("actor_roles")
-    if not isinstance(actor_roles, Mapping):
-        return unknown("VALIDATOR_ROLE_UNENFORCEABLE")
-    if not isinstance(actor_roles.get(validator), list) or "validator" not in actor_roles[validator]:
-        return unknown("VALIDATOR_ROLE_REQUIRED")
-    if any(not isinstance(actor_roles.get(actor), list) or "executor" not in actor_roles[actor] for actor in principals):
-        return unknown("EXECUTOR_ROLE_REQUIRED")
-
-    validated_at = _parse_explicit_utc_timestamp(receipt.get("validated_at"))
-    expires_at = _parse_explicit_utc_timestamp(receipt.get("expires_at"))
-    if validated_at is None or expires_at is None:
-        return unknown("MISSING_OR_INVALID_VALIDATION_TIME")
-    if validated_at > receipt_now or expires_at < receipt_now or expires_at < validated_at:
-        return unknown("VALIDATION_RECEIPT_NOT_CURRENT")
-    maximum_age = criterion_baseline.get("max_evidence_age_seconds")
-    if type(maximum_age) is int and receipt_now - validated_at > timedelta(seconds=maximum_age):
-        return unknown("VALIDATION_RECEIPT_STALE")
-
-    expected_evidence: dict[str, str] = {}
-    for source in evidence_sources:
-        if not isinstance(source, Mapping):
-            return unknown("MALFORMED_EVIDENCE_BINDING")
-        evidence_id = source.get("evidence_id")
-        artifact_digest = source.get("artifact_digest")
-        if not isinstance(evidence_id, str) or not evidence_id.strip() or not isinstance(artifact_digest, str) or not artifact_digest:
-            return unknown("MISSING_EVIDENCE_DIGEST")
-        expected_evidence[evidence_id] = artifact_digest
-    receipt_digests = receipt.get("evidence_digests")
-    if not isinstance(receipt_digests, Mapping) or dict(receipt_digests) != expected_evidence:
-        return unknown("EVIDENCE_DIGEST_BINDING_MISMATCH")
-
-    required_revision = criterion_baseline.get("required_revision")
-    if required_revision is None:
-        required_revision = criterion_baseline.get("required_repo_revision")
-    if required_revision is not None and receipt.get("repo_revision") != required_revision:
-        return unknown("REPO_REVISION_BINDING_MISMATCH")
-    check_result = receipt.get("check_result")
-    if check_result == "fail":
-        return {"status": "fail", "assurance": "failed", "codes": ["TRUSTED_CHECK_FAILED"], "validation_ref": validation_ref,
-                "executor_principals": list(principals), "validator_principal": validator,
-                "run_id": run_id, "checker_id": checker_id}
-    if check_result != "pass":
-        return unknown("TRUSTED_CHECK_UNKNOWN")
-    return {
-        "status": "pass", "assurance": "verified", "codes": [], "validation_ref": validation_ref,
-        "executor_principals": list(principals), "validator_principal": validator,
-        "run_id": run_id, "checker_id": checker_id,
-        "validated_at": receipt.get("validated_at"), "expires_at": receipt.get("expires_at"),
-    }
-
-
-def _gate_without_rule_execution(
-    task_id: str,
-    *,
-    stage: str,
-    evidence_map: Mapping[str, Mapping[str, Any]] | None = None,
-    required_item_ids: Sequence[str] | None = None,
-    documents: Sequence[str | Path] | None = None,
-    resolvers: Mapping[str, Any] | None = None,
-    verifiers: Mapping[str, Any] | None = None,
-    validation_resolver: Any = None,
-    emit: bool = True,
-    base_dir: str | Path | None = None,
-) -> dict[str, Any]:
-    """Run a public gate; callers cannot disable its isolated audit probe."""
-    if stage not in GATE_STAGES:
-        raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
-    paths = _paths(task_id, base_dir)
-    def with_storage(report: dict[str, Any]) -> dict[str, Any]:
-        report["storage"] = _storage_info(task_id, base_dir)
-        return report
-
-    truth_contract: Mapping[str, Any] | None = None
-    deferred_legacy_callback = False
-    initial_route_pending = True
-    try:
-        with _shared_locked_existing(paths["root"]):
-            contract_hint = _read_json(paths["contract"])
-            if truth_sources_enabled(contract_hint):
-                truth_contract = contract_hint
-            try:
-                view = _load_committed_task_view_locked(task_id, paths)
-            except ContextError:
-                if truth_contract is not None:
-                    raise
-                return with_storage(_gate_core(
-                    task_id, stage=stage, evidence_map=evidence_map,
-                    required_item_ids=required_item_ids, documents=documents,
-                    resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
-                    validation_resolver=validation_resolver,
-                    emit=emit, base_dir=base_dir, run_probe=True,
-                ))
-            initial_route_pending = False
-            if truth_sources_enabled(view["contract"]):
-                truth_contract = view["contract"]
-                entry = _truth_gate_entry_locked(
-                    task_id, view=view, stage=stage, required_item_ids=required_item_ids,
-                    documents=documents, resolvers=resolvers, verifiers=verifiers,
-                    clock=_trusted_utc_now, run_probe=True, base_dir=base_dir,
-                )
-                if stage != "completion" or not entry["truth"]["passed"]:
-                    return with_storage(_truth_gate_final(
-                        stage=stage, report=entry["report"], errors=entry["errors"],
-                        warnings=entry["warnings"], criteria={}, criteria_checked=0,
-                        evidence_attempts=0, brief_report=entry["brief_report"],
-                        contract=view["contract"], evaluation=entry["truth"], emit=emit,
-                    ))
-            else:
-                # A required host callback must not run while this shared lock
-                # is held; completion fixes its verdict after a fresh tail read.
-                criteria = view["contract"].get("acceptance_criteria")
-                deferred_legacy_callback = (
-                    stage == "completion" and validation_resolver is not None
-                    and isinstance(criteria, list)
-                    and any(isinstance(item, Mapping) and item.get("independent_validation_required") is True
-                            for item in criteria)
-                )
-                if not deferred_legacy_callback:
-                    return with_storage(_gate_core(
-                    task_id, stage=stage, evidence_map=evidence_map,
-                    required_item_ids=required_item_ids, documents=documents,
-                    resolvers=resolvers, verifiers=verifiers, clock=_trusted_utc_now,
-                    validation_resolver=validation_resolver,
-                    emit=emit, base_dir=base_dir, run_probe=True,
-                    ))
-    except ContextError as exc:
-        if not initial_route_pending:
-            raise
-        if truth_contract is not None:
-            return with_storage(_truth_unknown_gate_report(
-                task_id=task_id, stage=stage, contract=truth_contract, error=exc, emit=emit,
-            ))
-        audit_report = _read_lock_unavailable_audit(task_id, exc, emit=False)
-        report = {
-            "stage": stage,
-            "passed": False,
-            "errors": audit_report["errors"],
-            "warnings": [],
-            "criteria": {},
-            "stats": {
-                **audit_report["stats"],
-                "criteria_checked": 0,
-                "evidence_attempts": 0,
-                "brief_status": "unavailable",
-                "brief_overflow_kind": None,
-                "brief_fixed_prompt_chars": None,
-                "brief_mandatory_prompt_chars": None,
-            },
-            "contract_version": None,
-        }
-        if emit:
-            _emit_report(report)
-        return with_storage(report)
-    if deferred_legacy_callback:
-        return with_storage(_gate_core(
-            task_id, stage=stage, evidence_map=evidence_map,
-            required_item_ids=required_item_ids, documents=documents,
-            resolvers=resolvers, verifiers=verifiers, validation_resolver=validation_resolver,
-            clock=_trusted_utc_now, emit=emit, base_dir=base_dir, run_probe=True,
-        ))
-    return with_storage(_gate_truth_enabled(
-        task_id, entry=entry, evidence_map=evidence_map,
-        resolvers=resolvers, verifiers=verifiers, emit=emit,
-        validation_resolver=validation_resolver, base_dir=base_dir, clock=_trusted_utc_now,
-    ))
-
-
-def _rule_execution_contract_snapshot(
-    task_id: str, base_dir: str | Path | None,
-) -> tuple[dict[str, Any], str] | None:
-    """Copy selected rules under lock; callbacks are deliberately run later."""
-    paths = _paths(task_id, base_dir)
-    try:
-        with _shared_locked_existing(paths["root"]):
-            view = _load_committed_task_view_locked(task_id, paths)
-            contract = view["contract"]
-            if not rule_execution_enabled(contract):
-                return None
-            return deepcopy(contract), _contract_digest(contract)
-    except ContextError:
-        return None
-
-
-def _rule_execution_contract_unchanged(
-    task_id: str, base_dir: str | Path | None, expected_digest: str,
-) -> bool:
-    paths = _paths(task_id, base_dir)
-    try:
-        with _shared_locked_existing(paths["root"]):
-            view = _load_committed_task_view_locked(task_id, paths)
-            return _contract_digest(view["contract"]) == expected_digest
-    except ContextError:
-        return False
-
-
-def _gate_with_rules(
-    task_id: str,
-    *,
-    stage: str,
-    evidence_map: Mapping[str, Mapping[str, Any]] | None = None,
-    required_item_ids: Sequence[str] | None = None,
-    documents: Sequence[str | Path] | None = None,
-    resolvers: Mapping[str, Any] | None = None,
-    verifiers: Mapping[str, Any] | None = None,
-    validation_resolver: Any = None,
-    rule_runtime: object = None,
-    emit: bool = True,
-    base_dir: str | Path | None = None,
-) -> dict[str, Any]:
-    """Run the existing gate and, when opted in, selected rules as an AND check."""
-    if stage not in GATE_STAGES:
-        raise ValueError(f"stage must be one of {sorted(GATE_STAGES)}")
-    # Preserve the legacy/truth route's existing linearization unless the
-    # currently published contract explicitly requests this new extension.
-    # The legacy gate itself takes the authoritative shared lock below.
-    try:
-        contract_hint = _read_json(_paths(task_id, base_dir)["contract"])
-    except ContextError:
-        contract_hint = {}
-    if not rule_execution_enabled(contract_hint):
-        return _gate_without_rule_execution(
-            task_id, stage=stage, evidence_map=evidence_map,
-            required_item_ids=required_item_ids, documents=documents,
-            resolvers=resolvers, verifiers=verifiers, emit=emit, base_dir=base_dir,
-            validation_resolver=validation_resolver,
-        )
-    snapshot = _rule_execution_contract_snapshot(task_id, base_dir)
-    if snapshot is None:
-        return _gate_without_rule_execution(
-            task_id, stage=stage, evidence_map=evidence_map,
-            required_item_ids=required_item_ids, documents=documents,
-            resolvers=resolvers, verifiers=verifiers, emit=emit, base_dir=base_dir,
-            validation_resolver=validation_resolver,
-        )
-
-    contract, expected_digest = snapshot
-    base_report = _gate_without_rule_execution(
-        task_id, stage=stage, evidence_map=evidence_map,
-        required_item_ids=required_item_ids, documents=documents,
-        resolvers=resolvers, verifiers=verifiers, emit=False, base_dir=base_dir,
-        validation_resolver=validation_resolver,
-    )
-    rule_report = evaluate_rule_execution(
-        contract, task_id, stage, rule_runtime, now=_trusted_utc_now(),
-    )
-    rules = rule_report["rules"]
-    changed_sources = recheck_rule_sources(
-        contract, rule_report.get("recheck_refs"), now=_trusted_utc_now(),
-    )
-    input_changed = False
-    if not _rule_execution_contract_unchanged(task_id, base_dir, expected_digest):
-        input_changed = True
-        rules = [
-            {"rule_id": item["rule_id"], "status": "unknown", "codes": ["INPUT_CHANGED"], "source_refs": []}
-            for item in rules
-        ]
-        rule_report = {"rules": rules, "coverage": "unknown"}
-    elif changed_sources:
-        input_changed = True
-        rules = [
-            {"rule_id": item["rule_id"], "status": "unknown", "codes": ["INPUT_CHANGED"], "source_refs": []}
-            if item["rule_id"] in changed_sources else item
-            for item in rules
-        ]
-        rule_report["rules"] = rules
-        rule_report["coverage"] = "unknown"
-
-    selected = {
-        str(rule.get("rule_id")): rule
-        for rule in contract.get("rule_execution", {}).get("rules", [])
-        if isinstance(rule, Mapping) and stage in rule.get("applies_at", [])
-    }
-    base_passed = base_report["passed"] is True
-    errors = list(base_report["errors"])
-    warnings = list(base_report["warnings"])
-    rules_allow = True
-    if input_changed:
-        errors.append("rule execution input changed during gate")
-        rules_allow = False
-    for result in rules:
-        rule = selected.get(result["rule_id"])
-        if not isinstance(rule, Mapping):
-            continue
-        if rule.get("severity") == "load-bearing" and result["status"] not in {"pass", "not_applicable"}:
-            errors.append(f"rule {result['rule_id']} is {result['status']}: {result['codes']}")
-            rules_allow = False
-        elif rule.get("severity") == "advisory" and result["status"] not in {"pass", "not_applicable"}:
-            warnings.append(f"advisory rule {result['rule_id']} is {result['status']}: {result['codes']}")
-    base_report["errors"] = errors
-    base_report["warnings"] = warnings
-    base_report["passed"] = base_passed and rules_allow
-    base_report["rules"] = rules
-    base_report["coverage"] = rule_report["coverage"]
-    if emit:
-        _emit_report(base_report)
-    return base_report
-
-
-def gate(
-    task_id: str, *, stage: str,
-    evidence_map: Mapping[str, Mapping[str, Any]] | None = None,
-    required_item_ids: Sequence[str] | None = None,
-    documents: Sequence[str | Path] | None = None,
-    resolvers: Mapping[str, Any] | None = None,
-    verifiers: Mapping[str, Any] | None = None,
-    rule_runtime: object = None, emit: bool = True,
-    base_dir: str | Path | None = None,
-    independent_validation_required: bool | None = None,
-    validation_resolver: Any = None,
-) -> dict[str, Any]:
-    """Run the gate; completion is a read-only, point-in-time decision.
-
-    Local file evidence is re-resolved after *all* callbacks, including rules.
-    Semantic verifiers are never retried. This does not authorize a later write
-    or authenticate an untrusted host callable.
+def gate(task_id: str, *, stage: str, evidence_map: Mapping[str, Any] | None = None,
+         emit: bool = True, base_dir: str | Path | None = None,
+         resolvers: Mapping[str, Any] | None = None, verifiers: Mapping[str, Any] | None = None,
+         **legacy_options: Any) -> dict[str, Any]:
+    """Compatibility name for a read-only ledger report; never an action gate.
+
+    Legacy handlers/options are ignored. Evidence pointers are declarations,
+    not proof of execution. Missing or stale data is reported without callbacks.
     """
-    _validate_independent_validation_inputs(
-        independent_validation_required, validation_resolver,
-    )
-    kwargs = dict(required_item_ids=required_item_ids, documents=documents,
-                  resolvers=resolvers, verifiers=verifiers, rule_runtime=rule_runtime,
-                  base_dir=base_dir, validation_resolver=validation_resolver)
-    if stage != "completion":
-        report = _gate_with_rules(task_id, stage=stage, evidence_map=evidence_map, emit=False, **kwargs)
-        try:
-            contract = _read_json(_paths(task_id, base_dir)["contract"])
-        except ContextError:
-            contract = {}
-        policy_error = _gate_independence_policy_error(contract, independent_validation_required)
-        if policy_error is not None:
-            report["errors"].append(policy_error)
-            report["passed"] = False
-        if emit:
-            _emit_report(report)
-        return report
-    frozen_map = deepcopy(evidence_map)
+    report = {"stage": stage, "read_only": True, "blocking": False, "decision": "unknown",
+              "passed": False, "criteria": {}, "errors": [], "warnings": [], "stats": {}}
     try:
-        contract = _read_json(_paths(task_id, base_dir)["contract"])
-    except ContextError:
-        contract = {}
-    criteria = contract.get("acceptance_criteria")
-    callback_context_check = (
-        validation_resolver is not None
-        and not truth_sources_enabled(contract)
-        and isinstance(criteria, list)
-        and any(isinstance(item, Mapping) and item.get("independent_validation_required") is True
-                for item in criteria)
-    )
-    context_token = _completion_context_token(task_id, base_dir) if callback_context_check else None
-    report = _gate_with_rules(task_id, stage=stage, evidence_map=deepcopy(frozen_map), emit=False, **kwargs)
-    rechecks = 0
-    if report["passed"]:
-        if not contract or not _rule_execution_contract_unchanged(task_id, base_dir, _contract_digest(contract)):
-            report["errors"].append("completion contract changed or became unreadable")
-            _mark_independence_callback_changed(report)
-        else:
-            for criterion in contract["acceptance_criteria"]:
+        paths = _paths(task_id, base_dir)
+        with _shared_locked_existing(paths["root"]):
+            view = _load_committed_task_view_locked(task_id, paths)
+            contract, snapshot = view["contract"], view["snapshot"]
+            observed_now = _trusted_utc_now()
+            # Integrity, facts and agreement refer to the same locked ledger view.
+            health = _audit_core(task_id, documents=None, max_pointer_lag_seconds=0,
+                now=observed_now, run_probe=False, emit=False, base_dir=base_dir)
+            report.update({key: health[key] for key in
+                           ("passed", "errors", "warnings", "stats", "contract_version")})
+            report["storage"] = _storage_info(task_id, base_dir)
+            report["errors"].extend(_contract_file_protection_errors(contract, paths["contract"]))
+            report["passed"] = not report["errors"]
+            if snapshot.get("latest_checkpoint") is None:
+                report["warnings"].append("checkpoint is missing")
+            for item in snapshot.get("items", {}).values():
+                if _item_is_stale(item):
+                    report["warnings"].append("stale context item: " + str(item.get("id")))
+                if item.get("status") in {"unverified", "conflicted"}:
+                    report["warnings"].append(str(item.get("status")) + " context item: " + str(item.get("id")))
+            if truth_sources_enabled(contract):
+                report["truth_sources"] = evaluate_truth_sources(contract, snapshot,
+                    now=observed_now, resolver=resolve_file_source)
+            for criterion in contract.get("acceptance_criteria", []):
                 identifier = criterion["id"]
-                entry = frozen_map.get(identifier, {})
-                for evidence in [*entry.get("evidence", []), *entry.get("delivery_receipts", [])]:
-                    # Other resolver kinds keep their existing guarantees. A
-                    # generic URL or custom report is not a local file snapshot.
-                    if evidence.get("kind") != "file":
-                        continue
-                    rechecks += 1
-                    resolved = evaluate_evidence(evidence, criterion, contract,
-                                                 resolvers=resolvers, now=_trusted_utc_now())
-                    layers = {key: value for key, value in resolved["checks"].items() if key != "claim"}
-                    intact = all(value["status"] == "pass" for value in layers.values())
-                    item = next(value for value in report["criteria"][identifier]["evidence_results"]
-                                if value["evidence_id"] == evidence["evidence_id"])
-                    item["checks"]["completion_recheck"] = {
-                        "status": "pass" if intact else "unknown",
-                        "codes": [] if intact else ["EVIDENCE_CHANGED_OR_UNAVAILABLE"],
-                        "resolution": layers,
-                    }
-                    if not intact:
-                        item["status"] = "unknown"
-                        report["criteria"][identifier]["status"] = "unknown"
-                        report["errors"].append(f"criterion {identifier} evidence {evidence['evidence_id']}: EVIDENCE_CHANGED_OR_UNAVAILABLE")
-            if not _rule_execution_contract_unchanged(task_id, base_dir, _contract_digest(contract)):
-                report["errors"].append("completion contract changed during evidence recheck")
-                _mark_independence_callback_changed(report)
-            if callback_context_check and _completion_context_token(task_id, base_dir) != context_token:
-                report["errors"].append("completion context changed during callbacks")
-                _mark_independence_callback_changed(report)
-            report["errors"].extend(
-                _recheck_independent_validation_times(report, contract, _trusted_utc_now())
-            )
-    policy_error = _gate_independence_policy_error(contract, independent_validation_required)
-    if policy_error is not None:
-        report["errors"].append(policy_error)
-    report["passed"] = report["passed"] and not report["errors"]
-    statuses = [value["status"] for value in report["criteria"].values()]
-    if evidence_handlers_enabled(contract):
-        report["decision"] = "pass" if report["passed"] else "fail" if "fail" in statuses else "unknown"
-        report["stats"]["completion_rechecks"] = rechecks
+                entry = evidence_map.get(identifier, {}) if isinstance(evidence_map, Mapping) else {}
+                evidence = entry.get("evidence", []) if isinstance(entry, Mapping) else []
+                evidence = evidence if isinstance(evidence, list) else []
+                kinds = {e.get("kind") for e in evidence if isinstance(e, Mapping) and isinstance(e.get("kind"), str)}
+                required = criterion.get("required_evidence_types", criterion.get("required_evidence", []))
+                missing = sorted(set(required) - kinds)
+                observations = [_evidence_module.evaluate_evidence(e, criterion, contract, now=observed_now)
+                                for e in evidence if isinstance(e, Mapping)]
+                report["criteria"][identifier] = {"status": "unknown", "missing_evidence_types": missing,
+                    "unverified_evidence": deepcopy(evidence), "evidence_results": observations,
+                    "codes": ["EVIDENCE_NOT_VERIFIED"]}
+                if missing:
+                    report["warnings"].append(f"criterion {identifier} missing required evidence types: {missing}")
+    except (ContextError, OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
+        report["errors"].append(str(exc))
+        report["passed"] = False
     if emit:
         _emit_report(report)
     return report
-
-
-def _strict_handoff_json_load(raw: bytes) -> Any:
-    """Decode protocol JSON without lossy duplicate-key or constant coercion."""
-    def no_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        value: dict[str, Any] = {}
-        for key, item in pairs:
-            if key in value:
-                raise ValueError(f"duplicate JSON key: {key}")
-            value[key] = item
-        return value
-
-    try:
-        return json.loads(
-            raw.decode("utf-8"), object_pairs_hook=no_duplicate_pairs,
-            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
-        )
-    except RecursionError as exc:
-        raise ValueError("JSON nesting exceeds the protocol limit") from exc
-
-
-def _read_handoff_json(path: Path) -> tuple[dict[str, Any], str]:
-    """Read one protocol record without accepting symlinks or unbounded data."""
-    try:
-        if path.is_symlink() or not path.is_file():
-            raise ContextError(f"handoff record is not a regular file: {path}")
-        if path.stat().st_size > 1024 * 1024:
-            raise ContextError(f"handoff record exceeds byte limit: {path}")
-        with path.open("rb") as stream:
-            data = stream.read(1024 * 1024 + 1)
-    except OSError as exc:
-        raise ContextError(f"cannot read handoff record {path}: {exc}") from exc
-    if len(data) > 1024 * 1024:
-        raise ContextError(f"handoff record exceeds byte limit: {path}")
-    try:
-        value = _strict_handoff_json_load(data)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise ContextError(f"handoff record is not valid UTF-8 JSON: {path}") from exc
-    if not isinstance(value, dict):
-        raise ContextError(f"handoff record is not an object: {path}")
-    canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return value, hashlib.sha256(canonical).hexdigest()
-
-
-def _read_handoff_events_bounded(path: Path, *, task_id: str) -> tuple[list[dict[str, Any]], str]:
-    """Read the authoritative log under E0 limits; absent/torn logs are unknown."""
-    started = time.monotonic()
-    try:
-        if path.is_symlink() or not path.is_file():
-            raise ContextError(f"handoff event log is missing or not regular: {path}")
-        if path.stat().st_size > _handoff_module.MAX_LOG_BYTES:
-            raise ContextError(f"handoff event log exceeds byte limit: {path}")
-        handle = path.open("rb")
-    except OSError as exc:
-        raise ContextError(f"cannot read handoff event log {path}: {exc}") from exc
-    events: list[dict[str, Any]] = []
-    digest = hashlib.sha256()
-    total = 0
-    with handle:
-        while True:
-            if time.monotonic() - started > _handoff_module.READ_PARSE_REBUILD_SECONDS:
-                raise ContextError("handoff event read exceeded time budget")
-            try:
-                raw = handle.readline(_handoff_module.MAX_EVENT_BYTES + 1)
-            except OSError as exc:
-                raise ContextError(f"cannot read handoff event log {path}: {exc}") from exc
-            if not raw:
-                break
-            total += len(raw)
-            digest.update(raw)
-            if total > _handoff_module.MAX_LOG_BYTES:
-                raise ContextError("handoff event log exceeded byte limit during read")
-            if len(raw) > _handoff_module.MAX_EVENT_BYTES:
-                raise ContextError("handoff event exceeds byte limit")
-            if not raw.endswith(b"\n"):
-                raise ContextError("handoff event log has an unterminated final record")
-            if not raw.strip():
-                raise ContextError("handoff event log contains a blank record")
-            if len(events) >= _handoff_module.MAX_EVENTS:
-                raise ContextError("handoff event log exceeds event limit")
-            try:
-                event = _strict_handoff_json_load(raw)
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-                raise ContextError("handoff event log contains invalid UTF-8 JSON") from exc
-            if not isinstance(event, dict):
-                raise ContextError("handoff event log contains a non-object event")
-            _validate_event_envelope(task_id, event)
-            events.append(event)
-    if not events:
-        raise ContextError("handoff event log has no authoritative events")
-    return events, digest.hexdigest()
-
-
-def _handoff_reference_fingerprints(record: Mapping[str, Any], *, workspace: Path) -> tuple[tuple[str, str], ...]:
-    """Re-read every local bearing reference; an unverifiable URI is unknown."""
-    references = [record["source_session_ref"], record["target_session_ref"], record["authorization_ref"], *record["basis_refs"], record["artifact_manifest_ref"]]
-    observed: list[tuple[str, str]] = []
-    for reference in references:
-        assert isinstance(reference, Mapping)
-        uri = reference.get("uri")
-        if not isinstance(uri, str):
-            raise ContextError("handoff reference lacks a locally recheckable file URI")
-        try:
-            parsed = urlsplit(uri)
-            decoded_path = unquote(parsed.path, encoding="utf-8", errors="strict")
-        except (TypeError, UnicodeDecodeError, ValueError) as exc:
-            raise ContextError("handoff reference URI is invalid") from exc
-        if (
-            parsed.scheme != "file"
-            or parsed.netloc not in {"", "localhost"}
-            or parsed.query
-            or parsed.fragment
-            or not decoded_path.startswith("/")
-        ):
-            raise ContextError("handoff reference lacks a locally recheckable file URI")
-        path = Path(decoded_path)
-        try:
-            if path.is_symlink() or not path.is_file() or not path.resolve(strict=True).is_relative_to(workspace):
-                raise ContextError("handoff reference is unsafe or outside workspace")
-            if path.stat().st_size > _handoff_module.MAX_LOG_BYTES:
-                raise ContextError("handoff reference exceeds byte limit")
-            digest = hashlib.sha256()
-            total = 0
-            with path.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(64 * 1024), b""):
-                    total += len(chunk)
-                    if total > _handoff_module.MAX_LOG_BYTES:
-                        raise ContextError("handoff reference exceeded byte limit during read")
-                    digest.update(chunk)
-        except OSError as exc:
-            raise ContextError("handoff reference is unreadable") from exc
-        if digest.hexdigest() != reference.get("sha256"):
-            raise ContextError("handoff reference fingerprint differs from record")
-        observed.append((str(reference["ref_id"]), digest.hexdigest()))
-    return tuple(observed)
-
-
-def _validate_handoff_replay_event(event: Mapping[str, Any]) -> None:
-    """Reject payloads the permissive legacy projection would silently skip."""
-    event_type = event.get("event_type")
-    payload = event.get("payload")
-    if event_type in _host_records_module.EVENT_TYPES:
-        error = _host_records_module.validate_host_event(payload, task_id=str(event.get("task_id")))
-        if error is not None:
-            raise ContextError(error)
-    if event_type in {"item-recorded", "item-updated", "item-externalized"}:
-        if not isinstance(payload, Mapping) or set(payload) != {"item"}:
-            raise ContextError("handoff item event payload is incomplete")
-        item = payload.get("item")
-        if not isinstance(item, Mapping) or not isinstance(item.get("id"), str) or not item["id"].strip():
-            raise ContextError("handoff item event has an invalid item")
-        errors, _ = _item_errors(item)
-        if errors:
-            raise ContextError("handoff item event is invalid: " + "; ".join(errors))
-    if event_type == "checkpoint-recorded":
-        checkpoint_fields = {
-            "id", "phase", "completed", "evidence_added", "blockers",
-            "related_item_ids", "next_action", "based_on_context_version",
-            "actor", "created_at",
-        }
-        if (
-            not isinstance(payload, Mapping)
-            or set(payload) != {"checkpoint"}
-            or not isinstance(payload.get("checkpoint"), Mapping)
-            or set(payload["checkpoint"]) != checkpoint_fields
-        ):
-            raise ContextError("handoff checkpoint event payload is incomplete")
-
-
-def _replay_handoff_event(snapshot: dict[str, Any], event: Mapping[str, Any]) -> dict[str, Any]:
-    """Apply the high-volume read-only item projection without legacy copies."""
-    event_type = event.get("event_type")
-    payload = event.get("payload")
-    if event_type in {"handoff_prepared", "handoff_activated", "handoff_cancelled"}:
-        error = _handoff_module.validate_protocol_event(payload, task_id=str(snapshot["task_id"]))
-        if error is not None:
-            raise ContextError(error)
-        if not isinstance(payload, Mapping) or payload.get("type") != event_type:
-            raise ContextError("handoff event envelope type differs from payload type")
-    elif event_type in {"item-recorded", "item-updated", "item-externalized"}:
-        assert isinstance(payload, Mapping)
-        item = payload["item"]
-        assert isinstance(item, Mapping)
-        items = snapshot.get("items")
-        if not isinstance(items, dict):
-            raise ContextError("handoff replay items projection is invalid")
-        items[item["id"]] = deepcopy(dict(item))
-    elif event_type == "checkpoint-recorded":
-        assert isinstance(payload, Mapping)
-        checkpoint_value = payload.get("checkpoint")
-        if isinstance(checkpoint_value, Mapping):
-            snapshot["latest_checkpoint"] = deepcopy(dict(checkpoint_value))
-    else:
-        return _apply_event(snapshot, event)
-    snapshot["event_count"] = int(snapshot.get("event_count", 0)) + 1
-    snapshot["updated_at"] = event.get("created_at")
-    return snapshot
-
-
-def _handoff_strict_task_view_locked(task_id: str, paths: Mapping[str, Path]) -> dict[str, Any]:
-    """Read the authority-bearing task files through the #16 bounded replay path.
-
-    The caller owns the task lock.  This is deliberately shared by the read
-    seam and the E1 write preflight so a prepared write cannot fall back to the
-    permissive legacy event reader.
-    """
-    started = time.monotonic()
-    contract, _ = _read_handoff_json(paths["contract"])
-    errors = _validate_sealed_contract(contract)
-    if errors:
-        raise ContextError("handoff contract is invalid: " + "; ".join(errors))
-    events, events_digest = _read_handoff_events_bounded(paths["events"], task_id=task_id)
-    host_history_error = _host_records_module.validate_host_event_history(events, task_id=task_id)
-    if host_history_error is not None:
-        raise ContextError(host_history_error)
-    rebuilt = _empty_snapshot(task_id)
-    for event in events:
-        if time.monotonic() - started > _handoff_module.READ_PARSE_REBUILD_SECONDS:
-            raise ContextError("handoff replay exceeded time budget")
-        _validate_handoff_replay_event(event)
-        rebuilt = _replay_handoff_event(rebuilt, event)
-        items = rebuilt.get("items")
-        if not isinstance(items, Mapping) or len(items) > _handoff_module.MAX_SNAPSHOT_ITEMS:
-            raise ContextError("handoff replay exceeds snapshot item limit")
-    if truth_sources_enabled(contract):
-        committed = _committed_contract_errors(contract, events, rebuilt)
-        if committed:
-            raise ContextError("handoff contract event is not committed: " + "; ".join(committed))
-    else:
-        matching = _matching_contract_publish_events(contract, events)
-        published = [event for event in events if event.get("event_type") == "contract-published"]
-        if len(matching) != 1 or not published or matching[0] != published[-1]:
-            raise ContextError("handoff contract event is not committed: CONTRACT_COMMIT_MISMATCH")
-    return {
-        "contract": contract,
-        "events": events,
-        "events_digest": events_digest,
-        "event_ids": [event.get("event_id") for event in events],
-        "snapshot": rebuilt,
-        "contract_version": contract.get("version"),
-        "contract_digest": _contract_digest(contract).removeprefix("sha256:"),
-    }
-
-
-def _handoff_capture_locked(
-    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
-    package_root: str | Path, handoff_id: str,
-) -> dict[str, Any]:
-    started = time.monotonic()
-    if not isinstance(task_id, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", task_id) is None:
-        raise ContextError("task_id is invalid")
-    if not isinstance(base_dir, (str, Path)) or not Path(base_dir).expanduser().is_absolute():
-        raise ContextError("base_dir must be absolute")
-    if not isinstance(handoff_id, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", handoff_id) is None:
-        raise ContextError("handoff_id is invalid")
-    workspace = Path(workspace_root).expanduser()
-    package = Path(package_root).expanduser()
-    if not workspace.is_absolute() or not package.is_absolute():
-        raise ContextError("workspace_root and package_root must be absolute")
-    try:
-        workspace = workspace.resolve(strict=True)
-        package = package.resolve(strict=True)
-    except OSError as exc:
-        raise ContextError("workspace_root or package_root is unavailable") from exc
-    if not workspace.is_dir() or not package.is_dir():
-        raise ContextError("workspace_root or package_root is not a directory")
-    manifest = package / "skill-manifest.json"
-    try:
-        if manifest.is_symlink() or not manifest.is_file() or manifest.stat().st_size > _handoff_module.MAX_LOG_BYTES:
-            raise ContextError("package manifest is missing or not regular")
-        digest = hashlib.sha256()
-        with manifest.open("rb") as stream:
-            total = 0
-            for chunk in iter(lambda: stream.read(64 * 1024), b""):
-                total += len(chunk)
-                if total > _handoff_module.MAX_LOG_BYTES:
-                    raise ContextError("package manifest exceeds byte limit")
-                digest.update(chunk)
-        manifest_digest = digest.hexdigest()
-    except OSError as exc:
-        raise ContextError("package manifest is unreadable") from exc
-    paths = _paths(task_id, base_dir)
-    with _shared_locked_existing(paths["root"]):
-        contract, _ = _read_handoff_json(paths["contract"])
-        errors = _validate_sealed_contract(contract)
-        if errors:
-            raise ContextError("handoff contract is invalid: " + "; ".join(errors))
-        handoff_root = paths["handoff_root"]
-        if handoff_root.is_symlink() or not handoff_root.is_dir():
-            raise ContextError("handoff record directory is missing or unsafe")
-        record_path = handoff_root / f"{handoff_id}.json"
-        record, record_digest = _read_handoff_json(record_path)
-        events, events_digest = _read_handoff_events_bounded(paths["events"], task_id=task_id)
-        rebuilt = _empty_snapshot(task_id)
-        for event in events:
-            if time.monotonic() - started > _handoff_module.READ_PARSE_REBUILD_SECONDS:
-                raise ContextError("handoff replay exceeded time budget")
-            _validate_handoff_replay_event(event)
-            rebuilt = _replay_handoff_event(rebuilt, event)
-            items_during_replay = rebuilt.get("items")
-            if not isinstance(items_during_replay, Mapping) or len(items_during_replay) > _handoff_module.MAX_SNAPSHOT_ITEMS:
-                raise ContextError("handoff replay exceeds snapshot item limit")
-        if truth_sources_enabled(contract):
-            committed = _committed_contract_errors(contract, events, rebuilt)
-            if committed:
-                raise ContextError("handoff contract event is not committed: " + "; ".join(committed))
-        else:
-            matching = _matching_contract_publish_events(contract, events)
-            published = [event for event in events if event.get("event_type") == "contract-published"]
-            if len(matching) != 1 or not published or matching[0] != published[-1]:
-                raise ContextError("handoff contract event is not committed: CONTRACT_COMMIT_MISMATCH")
-        validated_record, record_error = _handoff_module.validate_record(record)
-        if validated_record is None:
-            raise ContextError("handoff record is invalid: " + str(record_error))
-        seal = contract.get("seal")
-        if (
-            validated_record["task_id"] != task_id
-            or validated_record["handoff_id"] != handoff_id
-            or type(validated_record["contract_version"]) is not type(contract.get("version"))
-            or validated_record["contract_version"] != contract.get("version")
-            or not isinstance(seal, Mapping)
-            or validated_record["contract_digest"] != str(seal.get("integrity_digest", "")).removeprefix("sha256:")
-            or validated_record["workspace_root"] != str(workspace)
-            or validated_record["package_manifest_sha256"] != manifest_digest
-        ):
-            raise ContextError("handoff record binding is invalid")
-        projection, projection_error = _handoff_module._control_projection(events, task_id=task_id)
-        if projection_error is not None:
-            raise ContextError(projection_error)
-        prepared = next(
-            (
-                event for event in projection["controls"]
-                if event.get("type") == "handoff_prepared" and event.get("handoff_id") == handoff_id
-            ),
-            None,
-        )
-        event_ids = [event.get("event_id") for event in events]
-        prepared_index = next((index for index, event in enumerate(events) if event.get("payload") is prepared), -1)
-        if (
-            prepared is None or prepared.get("record_sha256") != record_digest
-            or prepared.get("expected_controller_generation") != validated_record["controller_generation"]
-            or prepared.get("controller_generation") != validated_record["controller_generation"]
-            or prepared.get("request_id") != validated_record["request_id"]
-            or validated_record["event_cursor"] not in event_ids[:prepared_index]
-        ):
-            raise ContextError("handoff prepared event binding is invalid")
-        if time.monotonic() - started > _handoff_module.READ_PARSE_REBUILD_SECONDS:
-            raise ContextError("handoff replay exceeded time budget")
-    reference_fingerprints = _handoff_reference_fingerprints(validated_record, workspace=workspace)
-    token = (hashlib.sha256(canonical_json_bytes(contract)).hexdigest(), record_digest, events_digest, str(workspace), manifest_digest, reference_fingerprints)
-    return {
-        "task_id": task_id, "handoff_id": handoff_id, "record": record,
-        "record_sha256": record_digest, "contract": contract, "events": events,
-        "workspace_root": str(workspace), "package_manifest_sha256": manifest_digest,
-        "observation_token": token, "control_projection": projection,
-    }
-
-
-def validate_handoff(
-    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
-    package_root: str | Path, handoff_id: str, handoff_verifier: Any = None,
-) -> dict[str, Any]:
-    """Delegate the read-only handoff seam to its dedicated protocol module."""
-    return _handoff_module.validate_handoff(
-        task_id, base_dir=base_dir, workspace_root=workspace_root,
-        package_root=package_root, handoff_id=handoff_id,
-        handoff_verifier=handoff_verifier,
-    )
-
-
-def _handoff_prepare_commit(
-    task_id: str, *, base_dir: str | Path, record: Mapping[str, Any],
-    capture: Mapping[str, Any], authorization: Mapping[str, Any],
-    reference_fingerprints: object, workspace_root: str | Path, package_root: str | Path,
-) -> dict[str, Any]:
-    """The short exclusive commit for a host-checked prepared handoff."""
-    paths = _paths(task_id, base_dir)
-    with _locked(paths["root"]):
-        view = _handoff_strict_task_view_locked(task_id, paths)
-        contract = view["contract"]
-        events = view["events"]
-        current = {
-            "contract_version": contract.get("version"),
-            "contract_digest": _contract_digest(contract).removeprefix("sha256:"),
-            "event_fingerprint": view["events_digest"],
-        }
-        changed = any(
-            type(current[key]) is not type(capture.get(key)) or current[key] != capture.get(key)
-            for key in current
-        )
-        projection, control_error = _handoff_module._control_projection(events, task_id=task_id)
-        if control_error is not None:
-            raise ContextError(control_error)
-        if projection.get("pending") is not None:
-            existing = _handoff_module._existing_prepare_response(
-                projection["controls"], task_id=task_id, base_dir=Path(base_dir), record=record,
-            )
-            if existing is not None:
-                return existing
-            raise ContextError("another handoff became pending before prepared commit")
-        if changed:
-            raise ContextError("handoff inputs changed before prepared commit")
-        expires_at = _handoff_module._as_utc(authorization.get("expires_at"))
-        if expires_at is None or expires_at < _trusted_utc_now():
-            raise ContextError("runtime write authorization expired before prepared commit")
-        if authorization.get("authorization_ref") != record.get("authorization_ref"):
-            raise ContextError("runtime write authorization reference changed before prepared commit")
-        if _handoff_module._package_manifest_sha256(Path(package_root)) != record.get("package_manifest_sha256"):
-            raise ContextError("handoff package changed before prepared commit")
-        if not isinstance(reference_fingerprints, tuple):
-            raise ContextError("handoff reference observation is invalid")
-        final_fingerprints = _handoff_reference_fingerprints(
-            record, workspace=Path(workspace_root),
-        )
-        if final_fingerprints != reference_fingerprints:
-            raise ContextError("handoff references changed before prepared commit")
-        handoff_root = paths["handoff_root"]
-        if handoff_root.exists() and (handoff_root.is_symlink() or not handoff_root.is_dir()):
-            raise ContextError("handoff record directory is unsafe")
-        handoff_root.mkdir(parents=True, exist_ok=True)
-        handoff_id = record.get("handoff_id")
-        if not isinstance(handoff_id, str):
-            raise ContextError("handoff record identity is invalid")
-        record_path = handoff_root / f"{handoff_id}.json"
-        if record_path.exists():
-            raise ContextError("handoff record already exists without committed request")
-        record_digest = _handoff_module._canonical_sha256(record)
-        _atomic_write_json(record_path, dict(record))
-        payload = {
-            "type": "handoff_prepared",
-            "task_id": task_id,
-            "request_id": record["request_id"],
-            "handoff_id": handoff_id,
-            "created_at": _trusted_utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-            "expected_controller_generation": record["controller_generation"],
-            "controller_generation": record["controller_generation"],
-            "record_sha256": record_digest,
-            "verification_refs": _handoff_module._record_references(record),
-        }
-        event = _new_event(task_id, "handoff_prepared", str(authorization["subject_id"]), payload)
-        _publish_handoff_event_locked(task_id, paths, view["snapshot"], event)
-    return {
-        "check_status": "pass", "commit_status": "confirmed_committed",
-        "controller_generation": record["controller_generation"], "blocking_reasons": [],
-        "verification_refs": _handoff_module._record_references(record),
-        "next_readonly_action": "Read handoff_status; activation remains ungranted.",
-    }
-
-
-def prepare_handoff(
-    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
-    package_root: str | Path, request_id: str, controller_generation: int,
-    record: Mapping[str, Any], runtime_identity: Any = None,
-    write_authorizer: Any = None, handoff_verifier: Any = None,
-) -> dict[str, Any]:
-    """Delegate prepared-handoff write orchestration to the protocol module."""
-    return _handoff_module.prepare_handoff(
-        task_id, base_dir=base_dir, workspace_root=workspace_root,
-        package_root=package_root, request_id=request_id,
-        controller_generation=controller_generation, record=record,
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-        handoff_verifier=handoff_verifier,
-    )
-
-
-def _handoff_cancel_commit(
-    task_id: str, *, base_dir: str | Path, record: Mapping[str, Any],
-    capture: Mapping[str, Any], authorization: Mapping[str, Any],
-    reference_fingerprints: object, request_id: str, workspace_root: str | Path, package_root: str | Path,
-) -> dict[str, Any]:
-    """Append a cancellation fact after a fresh out-of-lock host observation."""
-    paths = _paths(task_id, base_dir)
-    with _locked(paths["root"]):
-        view = _handoff_strict_task_view_locked(task_id, paths)
-        contract = view["contract"]
-        events = view["events"]
-        current = {
-            "contract_version": contract.get("version"),
-            "contract_digest": _contract_digest(contract).removeprefix("sha256:"),
-            "event_fingerprint": view["events_digest"],
-        }
-        if any(
-            type(current[key]) is not type(capture.get(key)) or current[key] != capture.get(key)
-            for key in current
-        ):
-            raise ContextError("handoff inputs changed before cancellation commit")
-        controls, control_error = _handoff_module._control_events(events, task_id=task_id)
-        if control_error is not None:
-            raise ContextError(control_error)
-        handoff_id = record.get("handoff_id")
-        prepared = [event for event in controls if event.get("handoff_id") == handoff_id and event.get("type") == "handoff_prepared"]
-        terminal = [event for event in controls if event.get("handoff_id") == handoff_id and event.get("type") in {"handoff_activated", "handoff_cancelled"}]
-        if len(prepared) != 1 or terminal:
-            raise ContextError("handoff is no longer prepared and inactive")
-        if any(event.get("request_id") == request_id for event in controls):
-            raise ContextError("cancellation request id conflicts in authoritative events")
-        expires_at = _handoff_module._as_utc(authorization.get("expires_at"))
-        if expires_at is None or expires_at < _trusted_utc_now():
-            raise ContextError("runtime write authorization expired before cancellation commit")
-        if authorization.get("authorization_ref") != record.get("authorization_ref") or not isinstance(reference_fingerprints, tuple):
-            raise ContextError("runtime cancellation authorization changed before commit")
-        if _handoff_module._package_manifest_sha256(Path(package_root)) != record.get("package_manifest_sha256"):
-            raise ContextError("handoff package changed before cancellation commit")
-        final_fingerprints = _handoff_reference_fingerprints(
-            record, workspace=Path(workspace_root),
-        )
-        if final_fingerprints != reference_fingerprints:
-            raise ContextError("handoff references changed before cancellation commit")
-        record_digest = _handoff_module._canonical_sha256(record)
-        payload = {
-            "type": "handoff_cancelled", "task_id": task_id, "request_id": request_id,
-            "handoff_id": handoff_id,
-            "created_at": _trusted_utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-            "expected_controller_generation": record["controller_generation"],
-            "controller_generation": record["controller_generation"],
-            "record_sha256": record_digest,
-            "verification_refs": _handoff_module._record_references(record),
-        }
-        event = _new_event(task_id, "handoff_cancelled", str(authorization["subject_id"]), payload)
-        _publish_handoff_event_locked(task_id, paths, view["snapshot"], event)
-    return {
-        "check_status": "pass", "commit_status": "confirmed_committed",
-        "controller_generation": record["controller_generation"], "blocking_reasons": [],
-        "verification_refs": _handoff_module._record_references(record),
-        "next_readonly_action": "Read handoff_status; activation remains ungranted.",
-    }
-
-
-def cancel_handoff(
-    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
-    package_root: str | Path, request_id: str, controller_generation: int,
-    handoff_id: str, runtime_identity: Any = None, write_authorizer: Any = None,
-    handoff_verifier: Any = None,
-) -> dict[str, Any]:
-    """Delegate cancellation write orchestration to the protocol module."""
-    return _handoff_module.cancel_handoff(
-        task_id, base_dir=base_dir, workspace_root=workspace_root,
-        package_root=package_root, request_id=request_id,
-        controller_generation=controller_generation, handoff_id=handoff_id,
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-        handoff_verifier=handoff_verifier,
-    )
-
-
-def _handoff_activate_commit(
-    task_id: str, *, base_dir: str | Path, record: Mapping[str, Any],
-    capture: Mapping[str, Any], authorization: Mapping[str, Any],
-    reference_fingerprints: object, request_id: str, workspace_root: str | Path, package_root: str | Path,
-    verifier_expires_at: datetime | None, delta_expires_at: datetime | None,
-) -> dict[str, Any]:
-    """Append one durable activation under the existing task lock only."""
-    paths = _paths(task_id, base_dir)
-    with _locked(paths["root"]):
-        view = _handoff_strict_task_view_locked(task_id, paths)
-        contract = view["contract"]
-        current = {
-            "contract_version": contract.get("version"),
-            "contract_digest": _contract_digest(contract).removeprefix("sha256:"),
-            "event_fingerprint": view["events_digest"],
-        }
-        if any(
-            type(current[key]) is not type(capture.get(key)) or current[key] != capture.get(key)
-            for key in current
-        ):
-            raise ContextError("handoff inputs changed before activation commit")
-        projection, projection_error = _handoff_module._control_projection(view["events"], task_id=task_id)
-        if projection_error is not None:
-            raise ContextError(projection_error)
-        existing = [event for event in projection["controls"] if event.get("request_id") == request_id]
-        record_digest = _handoff_module._canonical_sha256(record)
-        if existing:
-            if len(existing) == 1 and existing[0].get("type") == "handoff_activated" and (
-                existing[0].get("handoff_id"), existing[0].get("expected_controller_generation"),
-                existing[0].get("record_sha256"),
-            ) == (record.get("handoff_id"), record.get("controller_generation"), record_digest):
-                return {
-                    "check_status": "pass", "commit_status": "confirmed_committed",
-                    "controller_generation": existing[0]["controller_generation"], "blocking_reasons": [],
-                    "verification_refs": _handoff_module._record_references(record),
-                    "next_readonly_action": "Read handoff_status; business completion remains unknown.",
-                }
-            raise ContextError("activation request id conflicts in authoritative events")
-        pending = projection.get("pending")
-        if (
-            not isinstance(pending, Mapping) or pending.get("handoff_id") != record.get("handoff_id")
-            or pending.get("record_sha256") != record_digest
-            or pending.get("expected_controller_generation") != record.get("controller_generation")
-        ):
-            raise ContextError("handoff is no longer prepared for activation")
-        expires_at = _handoff_module._as_utc(authorization.get("expires_at"))
-        if expires_at is None or expires_at < _trusted_utc_now():
-            raise ContextError("runtime activation authorization expired before commit")
-        if verifier_expires_at is None or verifier_expires_at < _trusted_utc_now():
-            raise ContextError("runtime activation verification expired before commit")
-        if delta_expires_at is not None and delta_expires_at < _trusted_utc_now():
-            raise ContextError("runtime activation delta verification expired before commit")
-        if (
-            authorization.get("subject_session_ref") != record.get("target_session_ref")
-            or authorization.get("authorization_ref") != record.get("authorization_ref")
-            or not isinstance(reference_fingerprints, tuple)
-        ):
-            raise ContextError("runtime activation authorization changed before commit")
-        if _handoff_module._package_manifest_sha256(Path(package_root)) != record.get("package_manifest_sha256"):
-            raise ContextError("handoff package changed before activation commit")
-        handoff_id = record.get("handoff_id")
-        if not isinstance(handoff_id, str):
-            raise ContextError("handoff activation record identity is invalid")
-        stored_record, stored_digest = _read_handoff_json(paths["handoff_root"] / f"{handoff_id}.json")
-        if stored_record != dict(record) or stored_digest != record_digest:
-            raise ContextError("handoff activation record changed before commit")
-        final_fingerprints = _handoff_reference_fingerprints(record, workspace=Path(workspace_root))
-        if final_fingerprints != reference_fingerprints:
-            raise ContextError("handoff references changed before activation commit")
-        payload = {
-            "type": "handoff_activated", "task_id": task_id, "request_id": request_id,
-            "handoff_id": record["handoff_id"],
-            "created_at": _trusted_utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-            "expected_controller_generation": record["controller_generation"],
-            "controller_generation": record["controller_generation"] + 1,
-            "record_sha256": record_digest,
-            "verification_refs": _handoff_module._record_references(record),
-        }
-        event = _new_event(task_id, "handoff_activated", str(authorization["subject_id"]), payload)
-        _publish_handoff_event_locked(task_id, paths, view["snapshot"], event)
-    return {
-        "check_status": "pass", "commit_status": "confirmed_committed",
-        "controller_generation": record["controller_generation"] + 1, "blocking_reasons": [],
-        "verification_refs": _handoff_module._record_references(record),
-        "next_readonly_action": "Read handoff_status; business completion remains unknown.",
-    }
-
-
-def activate_handoff(
-    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
-    package_root: str | Path, request_id: str, controller_generation: int,
-    handoff_id: str, runtime_identity: Any = None, write_authorizer: Any = None,
-    handoff_verifier: Any = None,
-) -> dict[str, Any]:
-    """Delegate activation orchestration to the dedicated protocol module."""
-    return _handoff_module.activate_handoff(
-        task_id, base_dir=base_dir, workspace_root=workspace_root, package_root=package_root,
-        request_id=request_id, controller_generation=controller_generation, handoff_id=handoff_id,
-        runtime_identity=runtime_identity, write_authorizer=write_authorizer,
-        handoff_verifier=handoff_verifier,
-    )
-
-
-def handoff_status(
-    task_id: str, *, base_dir: str | Path, workspace_root: str | Path,
-    package_root: str | Path, handoff_id: str, handoff_verifier: Any = None,
-) -> dict[str, Any]:
-    """Delegate the read-only handoff seam to its dedicated protocol module."""
-    return _handoff_module.handoff_status(
-        task_id, base_dir=base_dir, workspace_root=workspace_root,
-        package_root=package_root, handoff_id=handoff_id,
-        handoff_verifier=handoff_verifier,
-    )
 
 
 _BOUND_ACTIONS = frozenset({
@@ -5510,13 +3089,6 @@ _BOUND_ACTIONS = frozenset({
     "audit",
     "gate",
 })
-_BOUND_HANDOFF_ACTIONS = frozenset({
-    "prepare_handoff",
-    "validate_handoff",
-    "activate_handoff",
-    "cancel_handoff",
-    "handoff_status",
-})
 _BOUND_PROJECT_STORE_ACTIONS = frozenset({
     "publish_context",
     "align_context",
@@ -5531,9 +3103,7 @@ class BoundContext:
     def __init__(
         self, base_dir: str | Path, *, workspace_root: str | Path | None = None,
         package_root: str | Path | None = None,
-        independent_validation_required: bool | None = None,
-        validation_resolver: Any = None,
-    ) -> None:
+            ) -> None:
         resolved, _ = _resolve_base_dir(base_dir)
         self.base_dir = resolved
         if (workspace_root is None) != (package_root is None):
@@ -5544,11 +3114,6 @@ class BoundContext:
             raise ValueError("package_root must be an absolute path")
         self.workspace_root = Path(workspace_root).expanduser().resolve() if workspace_root is not None else None
         self.package_root = Path(package_root).expanduser().resolve() if package_root is not None else None
-        _validate_independent_validation_inputs(
-            independent_validation_required, validation_resolver,
-        )
-        self.independent_validation_required = independent_validation_required
-        self.validation_resolver = validation_resolver
 
     def checked_resume(self, task_id: str) -> dict[str, object]:
         """Resume only when this bound client captured a complete identity."""
@@ -5579,26 +3144,6 @@ class BoundContext:
                 return function(*args, **kwargs, worktree=worktree)
 
             return bound_store_call
-        if name in _BOUND_HANDOFF_ACTIONS:
-            function = globals()[name]
-
-            def bound_handoff_call(*args: Any, **kwargs: Any) -> dict[str, Any]:
-                if "base_dir" in kwargs or "workspace_root" in kwargs or "package_root" in kwargs:
-                    return _handoff_module.unknown_response(
-                        "bound handoff calls cannot override base_dir, workspace_root, or package_root",
-                        code="HANDOFF_BOUND_PATH_OVERRIDE", ref="bound_context", commit_status="not_attempted",
-                    )
-                if self.workspace_root is None or self.package_root is None:
-                    return _handoff_module.unknown_response(
-                        "bound handoff calls require workspace_root and package_root at bind time",
-                        code="HANDOFF_BINDING_REQUIRED", ref="bound_context", commit_status="not_attempted",
-                    )
-                return function(
-                    *args, **kwargs, base_dir=self.base_dir, workspace_root=self.workspace_root,
-                    package_root=self.package_root,
-                )
-
-            return bound_handoff_call
         if name not in _BOUND_ACTIONS:
             raise AttributeError(name)
         function = globals()[name]
@@ -5606,11 +3151,6 @@ class BoundContext:
         def bound_call(*args: Any, **kwargs: Any) -> Any:
             if "base_dir" in kwargs:
                 raise TypeError("bound context calls do not accept base_dir")
-            if name in {"publish_contract", "gate"}:
-                if "independent_validation_required" in kwargs or "validation_resolver" in kwargs:
-                    raise ContextError("bound context calls cannot override independent validation policy or resolver")
-                kwargs["independent_validation_required"] = self.independent_validation_required
-                kwargs["validation_resolver"] = self.validation_resolver
             result = function(*args, **kwargs, base_dir=self.base_dir)
             if (
                 name in {"brief_diagnostics", "audit", "gate"}
@@ -5630,15 +3170,11 @@ class BoundContext:
 def bind(
     base_dir: str | Path, *, workspace_root: str | Path | None = None,
     package_root: str | Path | None = None,
-    independent_validation_required: bool | None = None,
-    validation_resolver: Any = None,
 ) -> BoundContext:
     """Return a client whose calls cannot drift with the process working directory."""
 
     return BoundContext(
         base_dir, workspace_root=workspace_root, package_root=package_root,
-        independent_validation_required=independent_validation_required,
-        validation_resolver=validation_resolver,
     )
 
 
@@ -5663,11 +3199,6 @@ async def run(action: str, **kwargs: Any) -> Any:
         "gate": gate,
         "runtime_identity": runtime_identity,
         "checked_resume": checked_resume,
-        "prepare_handoff": prepare_handoff,
-        "cancel_handoff": cancel_handoff,
-        "validate_handoff": validate_handoff,
-        "activate_handoff": activate_handoff,
-        "handoff_status": handoff_status,
         "publish_context": publish_context,
         "align_context": align_context,
         "check_store": check_store,
@@ -5705,11 +3236,6 @@ __all__ = [
     "brief_diagnostics",
     "audit",
     "gate",
-    "prepare_handoff",
-    "cancel_handoff",
-    "validate_handoff",
-    "activate_handoff",
-    "handoff_status",
     "runtime_identity",
     "checked_resume",
     "bind_experience",
@@ -5733,14 +3259,8 @@ _capture_baseline((
     Path(_identity_core.__file__).resolve(),
     Path(_evidence_module.__file__).resolve(),
     Path(_truth_sources_module.__file__).resolve(),
-    Path(_rule_execution_module.__file__).resolve(),
     Path(_experience_module.__file__).resolve(),
     Path(_experience_store_module.__file__).resolve(),
     Path(_runtime_identity_module.__file__).resolve(),
-    Path(_handoff_module.__file__).resolve(),
-    Path(_host_codex_cli_module.__file__).resolve(),
-    Path(_host_records_module.__file__).resolve(),
-    Path(_host_codex_native_module.__file__).resolve(),
-    Path(_host_claude_native_module.__file__).resolve(),
     Path(_project_store_module.__file__).resolve(),
 ), initial_manifest_path=_IDENTITY_MANIFEST_BEFORE, initial_manifest_sha256=_IDENTITY_DIGEST_BEFORE)

@@ -128,7 +128,7 @@ class ExperienceReviewTests(unittest.TestCase):
             "source_ref": self._source_ref(grant),
         }
 
-    def test_review_promotes_a_candidate_only_after_real_structured_evidence_check(self) -> None:
+    def test_review_records_declared_validation_with_original_references(self) -> None:
         store = context.bind_experience(self.workspace, self.store_root)
         validation_refs = self._validation_refs()
 
@@ -143,7 +143,7 @@ class ExperienceReviewTests(unittest.TestCase):
         self.assertEqual(readback["data"]["status"], "validated")
         self.assertEqual(readback["data"]["provenance"]["validation_refs"], validation_refs)
 
-    def test_approve_rechecks_real_evidence_and_binds_the_validated_record_digest(self) -> None:
+    def test_approve_records_original_reference_and_validated_record_digest(self) -> None:
         store = self._validated_store()
         approval_ref = self._approval_ref(store)
 
@@ -161,54 +161,7 @@ class ExperienceReviewTests(unittest.TestCase):
         self.assertEqual(readback["data"]["status"], "approved")
         self.assertEqual(readback["data"]["provenance"]["approval_ref"], approval_ref)
 
-    def test_callback_errors_and_mutation_do_not_change_a_candidate(self) -> None:
-        store = context.bind_experience(self.workspace, self.store_root)
-        refs = self._validation_refs()
-        for bad in (None, True, {}, {"status": "other", "codes": []}):
-            with self.subTest(bad=bad):
-                result = store.review("reviewable-001", 1, refs, evidence_checker=lambda record, incoming, value=bad: value)
-                self.assertEqual(result, {"status": "unknown", "codes": ["CALLBACK_INVALID_RESULT"], "data": None})
-                self.assertEqual(store.get("reviewable-001", 1)["data"]["status"], "candidate")
-        def raises(record, incoming):
-            raise RuntimeError("do not leak this")
-        self.assertEqual(store.review("reviewable-001", 1, refs, evidence_checker=raises)["codes"], ["CALLBACK_ERROR"])
-        self.assertEqual(store.get("reviewable-001", 1)["data"]["status"], "candidate")
-        def mutate(record, incoming):
-            checked = self._evidence_checker(record, incoming)
-            record["claim"] = "attacker mutation"
-            incoming["cross"]["checker_id"] = "attacker mutation"
-            return checked
-        result = store.review("reviewable-001", 1, refs, evidence_checker=mutate)
-        self.assertEqual(result["status"], "pass", result)
-        self.assertEqual(store.get("reviewable-001", 1)["data"]["provenance"]["validation_refs"], refs)
 
-    def test_callback_version_or_source_change_blocks_old_approval_without_deadlock(self) -> None:
-        store = self._validated_store()
-        approval_ref = self._approval_ref(store)
-        def changes_grant(record, ref):
-            Path(ref["source_ref"]["path"]).write_text("changed after checker read\n", encoding="utf-8")
-            return {"status": "pass", "codes": []}
-        result = store.approve("reviewable-001", 1, approval_ref, evidence_checker=self._evidence_checker, approval_checker=changes_grant)
-        self.assertEqual((result["status"], result["codes"]), ("fail", ["SOURCE_DIGEST_MISMATCH"]))
-        self.assertEqual(store.get("reviewable-001", 1)["data"]["status"], "validated")
-        dispute_material = self.workspace / "dispute.txt"
-        dispute_material.write_text("contradictory independent evidence\n", encoding="utf-8")
-        refs = self._validation_refs()
-        store2 = context.bind_experience(self.workspace, self.store_root)
-        # This separate candidate is needed because the first version is already validated.
-        candidate = self.workspace / "candidate-2.json"
-        raw = json.loads((self.workspace / "candidate.json").read_text(encoding="utf-8"))
-        raw.update({"revision": 2, "supersedes": {"experience_id": "reviewable-001", "revision": 1}})
-        candidate.write_text(json.dumps(raw), encoding="utf-8")
-        self.assertEqual(self._cli("record", "--input", str(candidate))[0], 0)
-        old = store2.get("reviewable-001", 1)
-        self.assertEqual((old["status"], old["codes"], old["data"]["latest_revision"], old["data"]["status"]), ("unknown", ["RULE_VERSION_SUPERSEDED"], 2, "validated"))
-        def disputes_during_callback(record, incoming):
-            self.assertEqual(store2.dispute("reviewable-001", 2, "new contradictory material", self._source_ref(dispute_material))["status"], "pass")
-            return {"status": "pass", "codes": []}
-        changed = store2.review("reviewable-001", 2, refs, evidence_checker=disputes_during_callback)
-        self.assertEqual(changed, {"status": "unknown", "codes": ["INPUT_CHANGED"], "data": None})
-        self.assertEqual(store2.get("reviewable-001", 2)["data"]["status"], "disputed")
 
     def test_dispute_and_revoke_are_terminal_and_historical(self) -> None:
         store = self._validated_store()
@@ -220,48 +173,7 @@ class ExperienceReviewTests(unittest.TestCase):
         self.assertEqual(store.get("reviewable-001", 1)["data"]["status"], "revoked")
         self.assertEqual(store.approve("reviewable-001", 1, revocation, evidence_checker=self._evidence_checker, approval_checker=lambda record, ref: {"status": "pass", "codes": []})["codes"], ["INVALID_TRANSITION"])
 
-    def test_approval_and_revocation_callback_boundaries_preserve_state_on_failure(self) -> None:
-        store = self._validated_store()
-        approval_ref = self._approval_ref(store)
-        invalid = store.approve("reviewable-001", 1, approval_ref, evidence_checker=self._evidence_checker, approval_checker=lambda record, ref: {"status": [], "codes": []})
-        self.assertEqual(invalid["codes"], ["CALLBACK_INVALID_RESULT"])
-        self.assertEqual(store.get("reviewable-001", 1)["data"]["status"], "validated")
-        timeout = store.approve("reviewable-001", 1, approval_ref, evidence_checker=self._evidence_checker, approval_checker=lambda record, ref: (_ for _ in ()).throw(TimeoutError()))
-        self.assertEqual(timeout["codes"], ["CALLBACK_TIMEOUT"])
-        self.assertEqual(store.approve("reviewable-001", 1, approval_ref, evidence_checker=self._evidence_checker, approval_checker=lambda record, ref: {"status": "pass", "codes": []})["status"], "pass")
-        revocation = self._approval_ref(store)
-        invalid_revoke = store.revoke("reviewable-001", 1, "withdrawn", revocation, approval_checker=lambda record, ref: True)
-        self.assertEqual(invalid_revoke["codes"], ["CALLBACK_INVALID_RESULT"])
-        self.assertEqual(store.get("reviewable-001", 1)["data"]["status"], "approved")
-        self.assertEqual(store.revoke("reviewable-001", 1, "withdrawn", revocation, approval_checker=lambda record, ref: {"status": "pass", "codes": []})["status"], "pass")
 
-    def test_query_expiry_semantic_rejection_and_binding_negatives(self) -> None:
-        store = context.bind_experience(self.workspace, self.store_root)
-        refs = self._validation_refs()
-        self.assertEqual(store.review("reviewable-001", 1, refs, evidence_checker=None)["codes"], ["CHECKER_REQUIRED"])
-        expired = self._validation_refs()
-        for group in expired.values():
-            group["validated_at"] = "1999-01-01T00:00:00Z"
-            group["expires_at"] = "2000-01-01T00:00:00Z"
-        self.assertEqual(store.review("reviewable-001", 1, expired, evidence_checker=self._evidence_checker)["codes"], ["VALIDATION_EXPIRED"])
-        (self.workspace / "cross.txt").write_text("semantic lie\n", encoding="utf-8")
-        altered = self._validation_refs()
-        (self.workspace / "cross.txt").write_text("semantic lie\n", encoding="utf-8")
-        altered["cross"]["source_refs"] = [self._source_ref(self.workspace / "cross.txt")]
-        self.assertEqual(store.review("reviewable-001", 1, altered, evidence_checker=self._evidence_checker)["codes"], ["HOST_EVIDENCE_REJECTED"])
-        valid = self._validation_refs()
-        self.assertEqual(store.review("reviewable-001", 1, valid, evidence_checker=self._evidence_checker)["status"], "pass")
-        bad = self._approval_ref(store)
-        bad["record_digest"] = "0" * 64
-        self.assertEqual(store.approve("reviewable-001", 1, bad, evidence_checker=self._evidence_checker, approval_checker=lambda record, ref: {"status": "pass", "codes": []})["codes"], ["INVALID_INPUT"])
-        good = self._approval_ref(store)
-        self.assertEqual(store.approve("reviewable-001", 1, good, evidence_checker=self._evidence_checker, approval_checker=lambda record, ref: {"status": "pass", "codes": []})["status"], "pass")
-        code, queried = self._cli("query", "--tags", "verification")
-        self.assertEqual((code, queried["data"]["items"][0]["status"]), (0, "approved"))
-        challenge = self.workspace / "challenge.txt"
-        challenge.write_text("contradiction\n", encoding="utf-8")
-        self.assertEqual(store.dispute("reviewable-001", 1, "contradicted", self._source_ref(challenge))["status"], "pass")
-        self.assertEqual(self._cli("query", "--tags", "verification")[1]["data"]["items"], [])
 
 
 if __name__ == "__main__":

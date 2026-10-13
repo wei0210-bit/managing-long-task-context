@@ -40,15 +40,13 @@ def run_example() -> dict[str, object]:
             refs[name] = _ref(path)
         common = {"checker_id": "example-host", "checker_version": "1", "validated_at": now.isoformat().replace("+00:00", "Z"), "expires_at": (now + timedelta(days=1)).isoformat().replace("+00:00", "Z")}
         validation_refs = {"cross": {**common, "source_refs": [refs["cross"]], "independence_basis": "Separate reviewer and original."}, "counterexample": {**common, "source_refs": [refs["counterexample"]], "original_pass_ref": refs["original-pass"], "mutated_fail_ref": refs["mutated-fail"], "restored_pass_ref": refs["restored-pass"], "mutation_hit_ref": refs["mutation-hit"]}, "effectiveness": {**common, "source_refs": [refs["effectiveness"]], "representative_run_ref": refs["representative-run"], "non_applicable_run_ref": refs["non-applicable-run"]}}
-        def evidence_checker(record, received):
-            return {"status": "pass", "codes": []} if all(Path(item["path"]).read_text(encoding="utf-8").startswith("checked ") for group in received.values() for item in group["source_refs"]) else {"status": "fail", "codes": ["MATERIAL_REJECTED"]}
         store = bind_experience(workspace, store_root)
-        reviewed = store.review("example-001", 1, validation_refs, evidence_checker=evidence_checker)
+        reviewed = store.review("example-001", 1, validation_refs)
         before_approval = store.get("example-001", 1)["data"]
         grant = workspace / "grant.txt"
         grant.write_text("authorized by example host\n", encoding="utf-8")
         approval_ref = {"workspace_id": before_approval["workspace_id"], "experience_id": "example-001", "revision": 1, "record_digest": before_approval["record_digest"], "source_ref": _ref(grant)}
-        approved = store.approve("example-001", 1, approval_ref, evidence_checker=evidence_checker, approval_checker=lambda record, ref: {"status": "pass", "codes": []} if Path(ref["source_ref"]["path"]).read_text(encoding="utf-8").startswith("authorized") else {"status": "fail", "codes": ["APPROVAL_REJECTED"]})
+        approved = store.approve("example-001", 1, approval_ref)
         return {"review": reviewed, "approve": approved, "get": store.get("example-001", 1)}
 
 

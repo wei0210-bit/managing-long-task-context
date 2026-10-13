@@ -1,4 +1,4 @@
-"""Strict-only lifecycle mutation facade for verified experiences."""
+"""Record declared experience lifecycle history with its original references."""
 
 from __future__ import annotations
 
@@ -10,24 +10,12 @@ from . import _experience_store as _core
 
 
 def _result(callback: Any, *arguments: object) -> dict[str, Any]:
-    if not callable(callback):
-        return _core.report("unknown", ["CHECKER_REQUIRED"])
-    try:
-        value = callback(*deepcopy(arguments))
-    except TimeoutError:
-        return _core.report("unknown", ["CALLBACK_TIMEOUT"])
-    except Exception:
-        return _core.report("unknown", ["CALLBACK_ERROR"])
-    if not isinstance(value, dict) or set(value) != {"status", "codes"}:
-        return _core.report("unknown", ["CALLBACK_INVALID_RESULT"])
-    status, codes = value.get("status"), value.get("codes")
-    if not isinstance(status, str) or status not in {"pass", "fail", "unknown"} or not isinstance(codes, list) or not all(isinstance(code, str) and code for code in codes):
-        return _core.report("unknown", ["CALLBACK_INVALID_RESULT"])
-    return _core.report(status, list(codes))
+    """Legacy checker options are inert; pass here means a declared record write."""
+    return _core.report("pass", [])
 
 
 class ExperienceStore:
-    """Strict public API. Every external callback runs after releasing the lock."""
+    """Experience records; lifecycle labels do not confer execution authority."""
 
     def __init__(self, workspace: Path, store: Path) -> None:
         self.workspace, self.store = workspace, store

@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # E3 主控集成审核
 
 状态：**E3-local accepted**。2026-09-15主控独立验收完成；仅本地阶段通过，不代表真实宿主已上线。
