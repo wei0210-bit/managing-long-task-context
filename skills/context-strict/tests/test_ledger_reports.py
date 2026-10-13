@@ -66,6 +66,13 @@ class LedgerReportTests(unittest.TestCase):
         for name in ('prepare_handoff', 'activate_handoff', 'cancel_handoff', 'handoff_status'):
             self.assertFalse(hasattr(context, name), name)
 
+    def test_bound_resume_without_identity_returns_available_ledger(self):
+        self.publish()
+        result = context.bind(self.base).checked_resume('LEDGER')
+        self.assertEqual(result['diagnostic']['status'], 'unknown')
+        self.assertEqual(result['context']['task_id'], 'LEDGER')
+        self.assertFalse(result['resume_gate']['blocking'])
+
     def test_expired_evidence_is_reported_and_remains_unverified(self):
         self.publish()
         evidence = {'evidence_id': 'OLD', 'kind': 'file', 'locator': 'original.json',

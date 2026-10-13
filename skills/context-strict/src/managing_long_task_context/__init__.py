@@ -3116,13 +3116,20 @@ class BoundContext:
         self.package_root = Path(package_root).expanduser().resolve() if package_root is not None else None
 
     def checked_resume(self, task_id: str) -> dict[str, object]:
-        """Resume only when this bound client captured a complete identity."""
+        """Report identity separately from any readable bound ledger context."""
         if self.workspace_root is None or self.package_root is None:
+            diagnostic = _identity_core.binding_missing_report(
+                "bound checked_resume has no package/workspace identity",
+            )
+            try:
+                context = brief(task_id, base_dir=self.base_dir)
+            except (ContextError, OSError, ValueError, TypeError, RecursionError) as exc:
+                context = None
+                diagnostic["ledger_error"] = str(exc)
             return {
-                "diagnostic": _identity_core.binding_missing_report(
-                    "bound checked_resume requires workspace_root and package_root at bind time",
-                ),
-                "context": None,
+                "diagnostic": diagnostic,
+                "context": context,
+                "resume_gate": gate(task_id, stage="resume", emit=False, base_dir=self.base_dir),
             }
         return checked_resume(
             task_id, package_root=self.package_root, workspace_root=self.workspace_root, base_dir=self.base_dir,
