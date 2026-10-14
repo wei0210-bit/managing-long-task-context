@@ -79,6 +79,9 @@ def _sources(root, include):
     for directory in [root / 'docs', root / 'references', *[Path(p) if Path(p).is_absolute() else root / p for p in include]]:
         if not directory.is_dir():
             continue
+        # A project-root alias (e.g. macOS /var -> /private/var) is a spelling
+        # of the selected root, not a source-directory link inside that root.
+        boundary = next((p for p in (directory, *directory.parents) if p.resolve() == root), None)
         for path in directory.rglob('*'):
             if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES and not path.is_symlink():
                 # Explicit broad includes must not bypass ledger semantics or index the index.
@@ -87,13 +90,17 @@ def _sources(root, include):
                     continue
                 if ledger.resolve() in resolved.parents and path.name not in ('snapshot.json', 'events.jsonl', 'task-contract.json'):
                     continue
-                if any(parent.is_symlink() for parent in path.parents if parent != root):
+                parents = list(path.parents)
+                if boundary in parents:
+                    parents = parents[:parents.index(boundary)]
+                if any(parent.is_symlink() for parent in parents):
                     continue
-                paths.add(path)
+                paths.add(resolved)
     return sorted(paths)
 
 
 def _label(root, path):
+    root, path = root.resolve(), path.resolve()
     try:
         return path.relative_to(root).as_posix()
     except ValueError:

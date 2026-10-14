@@ -21,7 +21,7 @@ class SearchTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         (self.root / 'docs').mkdir()
         self.doc = self.root / 'docs' / 'facts.md'
         self.doc.write_text('# Facts\n\n协调者租约 alpha\n\n证据位置 beta\n', encoding='utf-8')
@@ -103,6 +103,31 @@ class SearchTests(unittest.TestCase):
         self.assertFalse(self.query('secret')['results'])
         self.assertEqual(self.query('secret', include=[memory])['results'][0]['path'], 'memory/entry.md')
         self.assertFalse(self.query('secret')['results'])
+
+    def test_symlink_root_and_include_use_physical_paths_without_following_source_links(self):
+        alias = self.root.with_name(self.root.name + '-alias')
+        alias.symlink_to(self.root, target_is_directory=True)
+        self.addCleanup(alias.unlink)
+        memory = self.root / 'memory'
+        memory.mkdir()
+        (memory / 'entry.md').write_text('secret memory fact', encoding='utf-8')
+        hidden = self.root / 'private-source'
+        hidden.mkdir()
+        target = hidden / 'fact.md'
+        target.write_text('excluded symlink fact', encoding='utf-8')
+        (memory / 'linked').symlink_to(hidden, target_is_directory=True)
+        (memory / 'file-link.md').symlink_to(target)
+        result = self.search.search(alias, ['secret'], include=[alias / 'memory'])
+        self.assertEqual(result['results'][0]['path'], 'memory/entry.md')
+        self.assertFalse(self.search.search(alias, ['excluded'], include=[alias / 'memory'])['results'])
+        self.assertFalse(self.search.search(alias, ['excluded'], include=[alias / 'memory' / 'linked'])['results'])
+        self.assertFalse(self.search.search(alias, ['secret'])['results'])
+        self.assertEqual(self.search.search(alias, ['alpha'])['results'][0]['path'], 'docs/facts.md')
+        subprocess.run(['git', 'init', '-q', str(alias)], check=True)
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/context_search.py'),
+            'search', 'secret', '--include', str(alias / 'memory')], cwd=alias, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(json.loads(result.stdout)['results'][0]['path'], 'memory/entry.md')
 
     def test_index_is_ignored_and_outside_publish_paths(self):
         label = self.search.INDEX_PATH.as_posix()
