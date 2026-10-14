@@ -162,6 +162,7 @@ class SearchTests(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
         env = dict(os.environ)
         env.pop('PYTHONDONTWRITEBYTECODE', None)
+        env.pop('PYTHONPYCACHEPREFIX', None)
         env.pop('PYTHONPATH', None)
         result = subprocess.run([sys.executable, str(tools / 'scripts/context_search.py'), 'search', '租约'],
             cwd=self.root, env=env, capture_output=True, text=True)
