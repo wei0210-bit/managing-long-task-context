@@ -79,6 +79,23 @@ class SearchTests(unittest.TestCase):
         self.doc.unlink()
         self.assertFalse(self.query('alpha')['results'])
 
+    def test_non_utf8_source_is_skipped_and_recovers(self):
+        invalid = self.root / 'docs' / 'invalid.md'
+        invalid.write_bytes(b'invalid fact \xff')
+        result = self.query('协调者租约')
+        self.assertTrue(result['results'])
+        self.assertEqual(result['skipped'], [
+            {'path': 'docs/invalid.md', 'reason': 'invalid UTF-8 at byte 13: invalid start byte'},
+        ])
+        rebuilt = self.search.rebuild(self.root)
+        self.assertFalse(rebuilt['index_stale'])
+        self.assertEqual(rebuilt['skipped'], result['skipped'])
+
+        invalid.write_text('recovered searchable fact', encoding='utf-8')
+        recovered = self.query('recovered')
+        self.assertTrue(recovered['results'])
+        self.assertEqual(recovered['skipped'], [])
+
     def test_explicit_include_does_not_leak_into_default_query(self):
         memory = self.root / 'memory'
         memory.mkdir()
@@ -208,6 +225,26 @@ class SearchTests(unittest.TestCase):
         after = run('search', '协调者租约')['results'][0]
         self.assertEqual((before['path'], before['line'], before['snippet'], before['score']),
                          (after['path'], after['line'], after['snippet'], after['score']))
+
+    def test_unwritable_cache_returns_error_json_without_other_writes(self):
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        cache = self.root / self.search.INDEX_PATH.parent
+        cache.mkdir(parents=True)
+        before = {p.relative_to(self.root): (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+                  for p in self.root.rglob('*') if p.is_file()}
+        cache.chmod(0o500)
+        self.addCleanup(cache.chmod, 0o700)
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/context_search.py'),
+            'search', '协调者租约'], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload['error'])
+        self.assertTrue(payload['index_stale'])
+        self.assertEqual(list(cache.iterdir()), [])
+        self.assertEqual(before, {
+            p.relative_to(self.root): (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+            for p in self.root.rglob('*') if p.is_file()
+        })
 
     def test_cli_writes_only_its_index_with_bytecode_environment_unset(self):
         tools = self.root / 'tools'

@@ -50,6 +50,7 @@ def _schema(connection):
     connection.execute('CREATE TABLE files(path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, sha256 TEXT)')
     connection.execute('CREATE TABLE chunks(id INTEGER PRIMARY KEY, path TEXT, line INTEGER, text TEXT, '
                        'task TEXT, kind TEXT, history INTEGER, metadata TEXT, file_mtime REAL)')
+    connection.execute('CREATE TABLE skipped(path TEXT PRIMARY KEY, reason TEXT)')
     connection.execute('CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)')
     try:
         _create_fts(connection)
@@ -194,6 +195,20 @@ def _kind(item):
     return 'decision' if item.get('type') == 'decision' else 'fact'
 
 
+def _decode_source(data):
+    try:
+        return data.decode('utf-8'), None
+    except UnicodeDecodeError as exc:
+        return None, f'invalid UTF-8 at byte {exc.start}: {exc.reason}'
+
+
+def _skipped(connection):
+    exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='skipped'").fetchone()
+    if not exists:
+        return []
+    return [dict(row) for row in connection.execute('SELECT path,reason FROM skipped ORDER BY path')]
+
+
 def _refresh(connection, root, sources, force=False):
     """One atomic refresh; readers retain the previous complete cache on lock conflict."""
     try:
@@ -201,14 +216,17 @@ def _refresh(connection, root, sources, force=False):
         initialized = connection.execute("SELECT 1 FROM sqlite_master WHERE name='settings'").fetchone()
         if not initialized:
             _schema(connection)
+        else:
+            connection.execute('CREATE TABLE IF NOT EXISTS skipped(path TEXT PRIMARY KEY, reason TEXT)')
         cache_format = connection.execute("SELECT value FROM settings WHERE key='format'").fetchone()
-        if cache_format is None or cache_format[0] != '2':
+        if cache_format is None or cache_format[0] != '3':
             force = True
-            connection.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', ('format', '2'))
+            connection.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', ('format', '3'))
         old = {row['path']: row for row in connection.execute('SELECT * FROM files')}
         labels = {_label(root, p): p for p in sources}
         changed = set(old) - set(labels)
         contents = {}
+        decode_errors = {}
         stats = {}
         for label, path in labels.items():
             stat = path.stat()
@@ -217,7 +235,9 @@ def _refresh(connection, root, sources, force=False):
             if force or previous is None or (stat.st_size, stat.st_mtime_ns) != (previous['size'], previous['mtime']):
                 data = path.read_bytes()
                 digest = hashlib.sha256(data).hexdigest()
-                contents[label] = data.decode('utf-8')
+                contents[label], error = _decode_source(data)
+                if error is not None:
+                    decode_errors[label] = error
                 if force or previous is None or digest != previous['sha256']:
                     changed.add(label)
                 connection.execute('INSERT OR REPLACE INTO files VALUES (?, ?, ?, ?)', (label, stat.st_size, stat.st_mtime_ns, digest))
@@ -234,11 +254,17 @@ def _refresh(connection, root, sources, force=False):
             connection.execute('DELETE FROM chunks WHERE path=?', (label,))
             if label not in labels:
                 connection.execute('DELETE FROM files WHERE path=?', (label,))
+                connection.execute('DELETE FROM skipped WHERE path=?', (label,))
                 continue
             path = labels[label]
             content = contents.get(label)
-            if content is None:
-                content = path.read_text(encoding='utf-8')
+            error = decode_errors.get(label)
+            if content is None and error is None:
+                content, error = _decode_source(path.read_bytes())
+            if error is not None:
+                connection.execute('INSERT OR REPLACE INTO skipped VALUES (?,?)', (label, error))
+                continue
+            connection.execute('DELETE FROM skipped WHERE path=?', (label,))
             for line, block, task, kind, history, metadata in _blocks(root, path, content):
                 cursor = connection.execute('INSERT INTO chunks(path,line,text,task,kind,history,metadata,file_mtime) VALUES (?,?,?,?,?,?,?,?)',
                     (label, line, block, task, kind, int(history), json.dumps(metadata, ensure_ascii=False), stats[label].st_mtime))
@@ -247,11 +273,11 @@ def _refresh(connection, root, sources, force=False):
         if changed or not initialized:
             connection.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', ('built_at', _now()))
         connection.commit()
-        return False
+        return False, _skipped(connection)
     except sqlite3.OperationalError as exc:
         connection.rollback()
         if 'locked' in str(exc).lower() or 'busy' in str(exc).lower():
-            return True
+            return True, _skipped(connection)
         raise
     except Exception:
         connection.rollback()
@@ -278,7 +304,7 @@ def search(root, words, *, task=None, kind=None, include=(), limit=20, history=F
     sources = _sources(root, include)
     connection = _open_index(root)
     try:
-        stale = _refresh(connection, root, sources)
+        stale, skipped = _refresh(connection, root, sources)
         settings = dict(connection.execute('SELECT key,value FROM settings'))
         mode, built_at = settings['mode'], settings.get('built_at')
         long_words = [word for word in words if len(word) >= 3]
@@ -326,7 +352,7 @@ def search(root, words, *, task=None, kind=None, include=(), limit=20, history=F
                 result.update(item_id=item.get('id'), status=item.get('status'), superseded_by=item.get('superseded_by'),
                               stale=context._item_is_stale(item), history=bool(row['history']))
             results.append(result)
-        return {'results': results, 'index_built_at': built_at, 'index_stale': stale,
+        return {'results': results, 'index_built_at': built_at, 'index_stale': stale, 'skipped': skipped,
                 'degraded': 'like-scan' if mode != 'trigram' else None}
     finally:
         connection.close()
@@ -336,10 +362,11 @@ def rebuild(root, *, include=()):
     root = Path(root).resolve()
     connection = _open_index(root)
     try:
-        stale = _refresh(connection, root, _sources(root, include), force=True)
+        stale, skipped = _refresh(connection, root, _sources(root, include), force=True)
         return {'index_stale': stale, 'index_path': str(root / INDEX_PATH),
                 'files': connection.execute('SELECT count(*) FROM files').fetchone()[0],
-                'chunks': connection.execute('SELECT count(*) FROM chunks').fetchone()[0]}
+                'chunks': connection.execute('SELECT count(*) FROM chunks').fetchone()[0],
+                'skipped': skipped}
     finally:
         connection.close()
 
