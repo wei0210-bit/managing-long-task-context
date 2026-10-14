@@ -15,16 +15,12 @@ FIELDS = {
     "single_primary_agent",
     "high_risk",
     "auditability_required",
-    "frozen_acceptance",
-    "independent_validation",
     "external_side_effects",
     "multiple_state_writers",
 }
 STRICT_TRIGGERS = (
     "high_risk",
     "auditability_required",
-    "frozen_acceptance",
-    "independent_validation",
     "external_side_effects",
     "multiple_state_writers",
 )
