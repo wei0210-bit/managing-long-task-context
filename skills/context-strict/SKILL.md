@@ -1,444 +1,98 @@
 ---
 name: context-strict
-description: Use when work spans multiple turns, sessions, or agents (including bot-to-bot pipelines) and depends on changing facts, controlled acceptance criteria, evidence-backed handoffs that carry `.prime/context/<task-id>/` paths, or protection against stale, conflicting, and misattributed context.
+description: Keep a shared factual ledger for multi-agent or multi-session work, changing facts, frozen agreements, evidence pointers and checkpoint summaries.
 ---
 
-# Managing Long-Task Context
+# Context Strict: shared ledger
 
-## First step by role
+Context Strict records what agents know, where it came from, and what remains uncertain.
+Orca manages sessions, plans, dispatch, waiting, execution and review. The ledger reports
+missing, stale, conflicted and unverified information; its diagnostics do not authorize
+or prevent agent actions.
 
-Find your role below, do its first step, then continue in the section it points to.
+## Read the shared record
 
-- **Publisher / coordinator**: publish the contract and pass the release gate before any
-  worker starts; see "1. Bind storage, publish, then release". When dispatching through
-  Orca, also read `references/orca.md`.
-- **Executor taking over a task**: open and read the sealed contract at the path in your
-  handoff pack before writing anything; see "Multi-bot / assistant pipeline handoff". A
-  missing, unsealed, or stale contract stops you; return to the publisher.
-- **Independent reviewer**: read the sealed contract and the base commit, then re-check
-  the executor's claims against originals (Git state, test logs, files at the report
-  path); the executor's self-report is a lead, not evidence. See
-  `references/agent-role-handoff.md` for what a reviewer receives.
-- **Session resuming a task**: call `checked_resume()` so identity is checked before any
-  context is returned; see "Workflow". Before creating a new session, record
-  `migration_mode` first; see "Session migration: one mode, three separate results".
+For multi-agent work, pass the absolute `.prime/context/<task-id>/` path or its
+`task-contract.json` path. Receivers read the contract original and use that same ledger.
+The seal records what was agreed at that time; it does not impose an execution gate.
+See `references/agent-role-handoff.md` and `references/bot-pipeline-handoff.md` for
+information to carry. Session transfer itself belongs to Orca.
 
-Whatever the role, a suggestion outside the sealed scope is reported as deferred and never
-enters this round's acceptance; see "Deferred suggestions (outside the sealed scope)".
+Use Strict automatically for audit-sensitive, frozen-acceptance or multi-agent work.
+Use Context Lite automatically for a single low-risk primary agent
+needing multi-turn recovery. Static single-turn judgments need neither.
 
-## Principle and identity
-
-上下文管理的敌人不是忘记，而是**记错且不自知**。承重上下文从严，过程上下文从简；在保持有效的前提下尽量经济，不能因为经济而失效。
-
-`skill-package.json` is the package identity. Installation and evaluation must use the
-complete package plus generated manifest/hash, never a copied `SKILL.md` alone.
-
-Use Strict for multi-agent work, frozen acceptance, changing truth, independent
-validation, or external side effects. A single low-risk agent needing only multi-turn
-recovery should use Context Lite; a static single-turn judgment should use neither.
-
-## Workflow
-
-After package installation/update, run `scripts/context_doctor.py check --mode full
---package-root <absolute-package>` (Strict needs explicit `PYTHONPATH=<package>/src`).
-For bound task recovery, prefer `checked_resume()`; it checks identity before returning
-context. Missing/mismatched identity stops recovery without silently rebinding. Full
-diagnosis is not a per-turn step. See `references/runtime-identity.md` when configuring
-binding or diagnosing an error; legacy direct APIs remain outside this identity check.
-
-Strict 0.9.0 advertises `checked-resume-gate/v1`: after identity passes,
-`checked_resume()` reads the brief and runs `gate(stage="resume", emit=False)`.
-It returns context even when that gate fails or is unknown; nonempty context does
-not authorize continuation. Continue only when `diagnostic.status == "pass"`.
-Identity failure still returns null; brief `ContextError` still blocks recovery.
-Lite resume is unchanged (failure returns null). Module-level `checked_resume`
-accepts optional host `resolvers`, `verifiers`, and `rule_runtime`; bound clients
-do not forward them. See `references/runtime-identity.md` for classification,
-known limitations, and concrete recovery actions.
-
-For an explicitly enabled `short-session-handoff/v1` contract, use only the
-on-demand handoff calls and read `references/handoff.md`. They do not provide
-verified native takeover, automatic switching, or a resident scheduler. Native
-limits are in `references/host-native.md`. For host-supplied window/usage signals,
-use `scripts/context_usage.py` per `references/context-usage.md`; recommendations
-never grant control. Do not scan chats or call a model to produce these signals.
-
-### Session migration: one mode, three separate results
-
-Before creating any new session, record `migration_mode: strict_protocol` or
-`migration_mode: manual_fallback`. Never omit it, never use `automatic`, `skill`, or `normal`,
-and never switch modes silently. From the complete built package, run
-`scripts/handoff_preflight.py` (`PYTHONPATH=<package>/src`) with the stage inputs in
-`references/handoff.md`. Its exit `0/1/2` means only preflight `pass/fail/unknown`, never
-that migration, takeover, or archive finished.
-
-Report `information_recovery`, `control_transfer`, and `source_retirement` separately; never a
-single `migration_success`. File, path, and SHA checks prove only `material_integrity`.
-`information_recovery=pass` needs an exact readback of the five fact categories `objective`,
-`current_state`, `constraints`, `next_action`, and `unresolved_risks`. A `clientThreadId`, task
-title, self-report, or chat reply never proves `control_transfer`. `manual_fallback` always keeps
-`control_transfer=unknown` and `source_retirement=not_allowed`. In this phase every mode keeps
-`archive_allowed=false`: never archive the source session.
-
-On any UNKNOWN, keep the source session, stop dispatching new controller work from it, allow
-only read-only checks, do not blindly retry create/activate/archive, and give one read-only
-next action. BLOCKED is only for a concrete external blocker, NOT_RUN for work not run, UNKNOWN
-for facts that cannot be proven; `brief_diagnostics().usable=true` proves structure, not currency.
-
-### 1. Bind storage, publish, then release
-
-Before sealing, follow the shared checks in `references/preseal-checks.md`.
-
-Prefer one absolute store so process `cwd` cannot select a different task:
+## Record facts and checkpoints
 
 ```python
 import managing_long_task_context as context
 
 ctx = context.bind("/absolute/project/.prime/context")
-ctx.publish_contract(contract, confirmed_by="task-publisher")
-# Immediately initialize task identity with the command below before release.
-release = ctx.gate("TASK-001", stage="release", verifiers=runtime_verifiers)
+ctx.publish_contract(contract, confirmed_by="publisher")
+ctx.record("TASK-001", statement="Observed original result", item_type="observation",
+           actor="worker", source={"kind": "file", "ref": "/absolute/result.json"})
+ctx.checkpoint("TASK-001", phase="implementation", completed=["change recorded"],
+               evidence_added=["file:/absolute/result.json"], next_action="review result", actor="worker")
+packet = ctx.brief("TASK-001")
+report = ctx.gate("TASK-001", stage="completion", emit=False)
 ```
 
-Immediately after `publish_contract`, initialize the binding before releasing work:
+Facts carry type, actor, source, evidence pointers, scope and verification time.
+Changing facts carry a TTL. `verified-fact` records a declared verification method and
+supporting references; Strict does not execute that verification. `update_item` preserves
+provenance. `externalize_item` retains identity and records the original file's digest.
+Read the original when a pointer is missing or changed; diagnosis reports that difference.
 
-```sh
-PYTHONPATH=/absolute/package/src python3 /absolute/package/scripts/context_doctor.py init-binding --package-root /absolute/package --expected-manifest-sha256 <independently-retained-manifest-sha256> --context-root /absolute/project/.prime/context --workspace-root /absolute/project --task-id TASK-001
-```
-
-Only the coordinator runs this write, after checking the independently retained
-manifest digest from the dispatch/handoff material. Without `init-binding`, a
-new receiver gets `BINDING_MISSING` and null context. The command belongs between
-contract publication and release; publishing alone does not initialize identity.
-
-The publisher owns objective, scope, constraints, and acceptance criteria. Executors
-and validators may not weaken or reinterpret them. New contracts are atomically
-published read-only as an advisory mistake guard; controlled changes require a higher
-version and fresh authorized confirmation. `protect_contract=False` is an auditable
-compatibility escape hatch, not the default.
-
-New contracts should enable `evidence-handlers/v1` and map every required evidence kind
-to stable resolver/verifier capability IDs. Built-in resolver kinds are `file`,
-`git-commit`, `test-report`, and `url`; custom kinds require matching runtime handlers.
-Use `assets/task-contract.example.json` and run `examples/strict_completion.py`.
-
-### 2. Record facts without laundering inference
-
-```python
-ctx.record(
-    "TASK-001",
-    statement="数据库可能缺少幂等约束",
-    item_type="assumption",
-    actor="executor-01",
-    source={"kind": "agent-inference", "ref": "code-review-01"},
-    scope={"module": "payment-callback"},
-)
-```
-
-`verified-fact` requires evidence, verification method, scope, and verification time.
-Changing facts also require `mutable=True` and `ttl_hours`; stale facts must be
-re-observed. Use `update_item()` for state transitions. Use
-`record(..., supersedes=old_id)` only when a new fact replaces an old fact.
-
-When only bulky wording moves elsewhere, use `externalize_item()` instead. It keeps the
-same item ID, controls, evidence, source, actor, and `verified_at`, while the event log
-retains the original statement. The reference must be an existing canonical absolute
-`file:` path; its digest is sealed and later drift blocks gates. Never create a fresh
-stub merely to shorten a brief.
-
-### 3. Checkpoint and hand off only a usable brief
-
-```python
-ctx.checkpoint(
-    "TASK-001", phase="root-cause-verification",
-    completed=["已复现重复回调"], evidence_added=["test:run-018"],
-    next_action="检查异常重试路径", actor="executor-01",
-)
-diagnostics = ctx.brief_diagnostics("TASK-001")
-if not diagnostics["usable"]:
-    raise RuntimeError(diagnostics["overflow"])
-ctx.gate("TASK-001", stage="handoff", verifiers=runtime_verifiers)
-brief = ctx.brief("TASK-001")
-```
-
-Overflow returns every omitted mandatory ID. `brief()` never returns a partial mandatory
-packet; release, resume, and handoff all block on overflow. Externalize unchanged detail,
-resolve conflicts, or ask the publisher to split/version the task—never delete controls
-or blindly raise the budget.
-
-The model consumes `brief()`; resolver/verifier code reads evidence; raw ledger and
-snapshot are read only in minimum slices when investigating a concrete discrepancy.
-Token estimates are advisory and never weaken selection or a gate.
-
-### 4. Read changing originals, not upstream retellings
-
-Enable `truth-sources/v1` only when decisions depend on changing local originals. The
-flow is publish → each owner observes all declared sources → release. A declared change
-must be marked dirty and re-observed before handoff/completion. Briefs carry paths and
-control metadata, not source contents. See `assets/truth-source-contract.example.json`
-and `examples/truth_source_contract.py`.
-
-Unobserved, dirty, expired, changed, unreadable, or unknown sources block the gate.
-Truth-source observation is context control, not completion evidence. It does not retain
-raw bytes, infer changes, authenticate actors, or provide an event hash chain.
-
-### 5. Complete only against the sealed criteria
-
-```python
-evidence_map = {
-    "AC-01": {
-        "evidence": [{
-            "evidence_id": "EV-TEST-019",
-            "kind": "test-report",
-            "locator": "artifacts/run-019.json",
-            "generated_at": "2026-09-02T04:30:00Z",
-            "scope": {"module": "payment-callback", "environment": "test"},
-            "covered_hops": ["callback-entry", "idempotency-check", "write"],
-            "produced_by": "executor-01",
-        }],
-        "delivery_receipts": [],
-    }
-}
-completion = ctx.gate(
-    "TASK-001", stage="completion", evidence_map=evidence_map,
-    verifiers=runtime_verifiers,
-)
-```
-
-Evidence envelopes do not prove themselves: the resolver must read the referenced
-artifact and the verifier must establish that it supports the criterion. A caveat that
-cannot make a deterministic check red is not an enforced control.
-
-With `evidence-handlers/v1`, completion adds a read-only `decision`
-(`pass`/`fail`/`unknown`), not a completed-state write. Unavailable, stale or mismatched
-evidence blocks as `unknown`; explicit content
-violations remain `fail`. Bind `contract_version` in evidence and the sealed required
-scope; legacy envelopes may omit it. Passing local `file` evidence is re-resolved after
-all callbacks without retrying verifiers. Other kinds retain their existing guarantees.
-The example binds a content-reading checker in host code: never load executable checkers
-from model output. A pass is point-in-time, not authorization for a later side effect.
-
-Legacy `required_hops` aggregates hop coverage across passing evidence. When one
-execution must prove an ordered chain, set
-`required_hops_mode: "single-evidence-ordered"`; one passing evidence object must contain
-the sequence in order. This opt-in mode requires `evidence-handlers/v1`.
-
-For a criterion marked `independent_validation_required: true`, host code supplies the
-policy and receipt resolver to `bind`, `publish_contract`, or `gate`; model JSON supplies
-only a lookup `validation_ref` for that receipt; normal evidence remains required, never
-proof. A stored true requirement without a trusted resolver blocks; false/omitted low-risk
-criteria keep their existing path. Read
-`references/independent-validation.md` when defining this boundary. Delivery receipts
-require stable IDs, target/artifact references, external ID, sent/observed times, and
-readback method. Evidence freshness, scope, and Git revision rules remain verifier-backed
-hard stops.
-
-When designing/reviewing these controls, read
-`references/production-failure-patterns.md` and ask: **if this claim is false, what goes
-red?** Do not load that reference for routine execution.
+`brief` returns selected context with omitted IDs and overflow diagnostics when the
+budget is insufficient. `brief_diagnostics` describes size and selection. Neither refuses
+handoff or completion. Contract/history corruption can make a record unreadable; this is
+a storage integrity error, independent of the agent's authority to work.
 
 ## API
 
-`worker-report` is a project evidence kind: trusted host code explicitly calls
-`worker_report_handlers(absolute_workspace_root)` and supplies both returned maps
-to the gate. The resolver map includes all built-in resolvers. Declare
-`project:worker-report/v1` and `project:worker-report-claim/v1` in the contract,
-seal each criterion's `worker_report_claim.commands`, and bind the report bytes
-with an envelope `artifact_digest`. See `references/orca.md` for the report fields.
-The completion evidence is the coordinator's rerun report on the integration
-commit in the bound workspace. It proves coverage of all sealed commands, zero
-exit codes, current clean HEAD and existing output files whose SHA-256 matches;
-it does not prove actual execution or replace `independent_validation_required`.
-Existing contracts requiring other project verifiers still return unknown unless
-the host supplies those handlers. No executable handlers are loaded from JSON.
-
-| Call | Purpose |
+| Call | Record or observation |
 |---|---|
-| `bind(base_dir)` | Bind all operations to one absolute context store |
-| `worker_report_handlers(workspace_root)` | Construct host-bound worker-report handlers and merge built-in resolvers |
-| `runtime_identity(...)` | Observe the calling process's package identity |
-| `checked_resume(...)` | Check explicit task/workspace identity before recovery |
-| `publish_contract(...)` | Validate, seal, and atomically publish a contract |
-| `contract_diff(task_id, from_version, to_version, *, base_dir)` | Compare top-level fields in retained and current contract versions; report missing versions |
-| `mark_truth_sources_dirty(...)` | Record a declared change that invalidates matching truth sources |
-| `observe_truth_source(...)` | Bind an owner readback to the current sealed source generation |
-| `record(...)` / `update_item(...)` | Append facts and state transitions |
-| `externalize_item(...)` | Shrink wording without changing fact identity or controls |
-| `restore_externalization_controls(...)` | Narrow migration for legacy lost required/severity controls |
-| `checkpoint(...)` | Record phase delta, blockers, evidence, and next action |
-| `brief(...)` / `brief_diagnostics(...)` | Produce or preflight the controlled handoff packet |
-| `audit(...)` / `gate(...)` | Run integrity, state, truth, and acceptance checks |
-| `bind_experience(workspace_root, store_root)` | Bind Strict-only experience review and approval |
-| `publish_context(task_id)` | Secret-check, then force-add and push only `CONTEXT_PATHS` |
-| `align_context(task_id)` | Restore tracked `.prime` from HEAD; stop if local events are ahead |
-| `check_store(task_id)` / `read_task(task_id)` | Inspect the project store without uploading |
-| `migrate_contract(...)` | Relativize legacy contract paths and reseal the contract |
-| `prepare_handoff(...)` / `validate_handoff(...)` / `activate_handoff(...)` / `cancel_handoff(...)` / `handoff_status(...)` | Explicit host-verified short-session handoff; only when the capability is sealed in the contract |
+| `bind(base_dir)` | Select one absolute ledger |
+| `publish_contract(...)` | Seal the agreement and retain previous contract bytes |
+| `contract_diff(...)` | Compare retained versions |
+| `record(...)` / `update_item(...)` | Append typed facts and state changes |
+| `externalize_item(...)` / `restore_externalization_controls(...)` | Keep provenance when detail moves to an original file |
+| `checkpoint(...)` | Record progress, evidence, blockers and next action |
+| `brief(...)` / `brief_diagnostics(...)` | Summarize context and report omissions |
+| `audit(...)` / `gate(...)` | Read-only ledger health and missing/unverified evidence reports |
+| `mark_truth_sources_dirty(...)` / `observe_truth_source(...)` | Record changes and observations of original files |
+| `record_acceptance(...)` / `latest_acceptance(...)` / `acceptance_status(...)` | Record a supplied acceptance conclusion and report its evidence/revision currency |
+| `worker_report_handlers(...)` | Read-only worker-report registration helpers; execution claims remain unverified |
+| `bind_experience(...)` | Record and query experience, including its provenance and review history |
+| `publish_context(...)` / `align_context(...)` | Share the selected ledger without overwriting newer local records |
+| `check_store(...)` / `read_task(...)` | Inspect shared storage |
+| `runtime_identity(...)` / `checked_resume(...)` | Report package identity alongside available context |
 
-## Verified experience and rule execution
+`gate` is retained as a compatibility name for a report. Every stage is read-only,
+`blocking=false`, and evidence claims stay `unknown`; legacy resolver/verifier options
+are ignored. No callbacks are invoked. `record_acceptance(acceptance_report=...)` records
+a caller-supplied conclusion; without one the report stays unknown. No commands are rerun.
+Legacy execution-policy fields in a contract are historical declarations only.
 
-Use `scripts/context_experience.py` only to initialize, record, query, or get
-project-local candidates. They never gain authority automatically. Strict hosts use
-`bind_experience()` to review and approve new experience before selecting it; existing
-rules may be selected directly by the contract publisher. Opt into
-`rule-execution/v1` for selected rules and call `gate()` from the controlled entry:
-the library cannot intercept an action when its gate was never called. Runnable
-examples: `examples/experience_review.py`, `examples/rule_execution.py`, and
-`examples/experience_rule_gate.py`. The candidate CLI example is
-`examples/experience_candidates.py`.
+## Storage and sharing
 
-State lives under the Git worktree at `.prime/context/<task-id>/` as a sealed contract,
-append-only `events.jsonl`, and rebuildable `snapshot.json`. Stored identity uses
-`workspace_root: "."` and `context_root: ".prime/context"` so cloud and local checkouts
-share one tree. Experience defaults to `.prime/experience/`. Events are history; snapshot
-is a cache; neither is injected by default.
+The task store contains `task-contract.json`, append-only `events.jsonl`, rebuildable
+`snapshot.json`, `contract-history/` and separate acceptance records. Experience lives in
+`.prime/experience/`. New portable experience stores retain relative provenance and project
+identity so checkouts can consult the same history. Experience never gains action authority. Lifecycle review/approval labels record caller
+declarations; legacy checker callbacks are ignored.
 
-`.prime/context/` and `.prime/experience/` stay gitignored. Ordinary `git add` / `git
-commit` must not upload them. After the first `publish_context`, those paths are tracked;
-the in-repo `.githooks/pre-commit` plus `core.hooksPath=.githooks` blocks later ordinary
-commits. Only `publish_context` sets `MLTC_PUBLISH_CONTEXT=1`, secret-checks, force-adds
-`CONTEXT_PATHS`, commits those paths, and pushes. `align_context` checks out HEAD's
-tracked copy and stops with `LOCAL_AHEAD` when the working tree has extra `event_id`s.
-Detached HEAD and in-progress merges are read-only, except a merge may write
-`conflict-<id>.json` and mark `snapshot.json` as `{"rebuild":"required"}`.
+`publish_context` and `align_context` retain their existing data-integrity and secret checks.
+They share records; they do not dispatch agents or change session ownership. Ordinary Git
+commits keep ignored stores separate. Publishing to a remote is an explicit caller action.
 
-## Multi-bot / assistant pipeline handoff (shared truth)
+## Package identity and health
 
-When several bots or agents collaborate on one task (for example plan → Office hours →
-writer → reviewer), **Context Strict storage is the shared truth source**. Chat memory
-and free-form messages are not enough.
+`skill-package.json` declares this package. Build the full package using
+`scripts/skill_package.py`, observe identity using `scripts/context_doctor.py`, and consult
+`references/runtime-identity.md` for details. Identity diagnosis and available ledger context
+are returned separately; a non-pass diagnosis is reported without directing agent execution.
 
-### Required handoff field
-
-Every cross-bot handoff pack MUST include at least one of:
-
-- absolute path to the task store: `<project>/.prime/context/<task-id>/`
-- absolute path to the sealed contract file: `.../task-contract.json` (or the
-  project-standard contract filename under that task id)
-
-Downstream bots MUST open and read that contract (objective, scope, constraints,
-acceptance / verification criteria) **before** implementing or reviewing. Do not
-rely on a retelling of AC in chat if the sealed contract exists.
-
-Upstream bots MUST publish or point to a usable Strict pack before asking the next
-stage to start. If the path is missing, unreadable, or the contract is unsealed /
-stale, stop and ask the publisher to fix it — do not invent acceptance criteria.
-
-### Recommended handoff pack (minimum)
-
-1. Project root (absolute)
-2. `.prime/context/<task-id>/` (absolute) **or** `task-contract.json` (absolute)
-3. Task id
-4. Goal (short; contract remains authoritative)
-5. Verification / acceptance criteria (copy from sealed contract; do not weaken)
-Attach the contract path and seal digest to the verbatim criteria; the contract remains
-authoritative (see `references/agent-role-handoff.md`, rule 1).
-6. Artifact pointers (branch, PR, diff) when they exist
-7. Self-check commands/results when they exist
-
-### Relation to brief() / gates
-
-Prefer producing a usable `brief()` and passing handoff/completion gates when the
-runtime is available. The path rule above still applies when a host only exchanges
-messages: the message must carry the Strict path so peers can bind the same store.
-
-See also `references/bot-pipeline-handoff.md`. For what each role (executor, repair
-executor, independent reviewer, orchestrator recovery) receives, see
-`references/agent-role-handoff.md`.
-
-When Orca dispatches or hands off the work, also read `references/orca.md`.
-
-### Deferred suggestions (outside the sealed scope)
-
-A suggestion that an executor or reviewer finds outside the sealed scope is not a defect
-of this round and does not enter this round's acceptance. The finder lists it in its
-report under `deferred_suggestions` and does not act on it or widen the scope to cover
-it. The coordinator records each one in the task store as
-`record(item_type="observation", metadata={"deferred": true})` and decides later whether
-it becomes a new task with its own contract.
-
-## Publish guards
-
-新合同应填写相对工作区 `workspace_root: "."`，并启用 `evidence-handlers/v1`。旧的绝对路径合同用 `migrate_contract` 改成相对路径并重新封印。自由文本证据类型不会被发布拒绝；用 `managing_long_task_context.evidence.contract_compat_report` 检查缺失或不存在的工作区，以及未映射到内置或已声明 handler 的证据类型。证据解析在运行时仍使用调用方传入的绝对工作区。
-
-## Usage freshness
-
-交接前调用 `managing_long_task_context.usage_freshness.usage_freshness_report(task_root, now=...)`。它只读任务目录。账本停更、合同版本超过 5、以及名为 `.DS_Store` 或匹配末尾 ` 2` 副本的条目会给出 warning。最近一次 checkpoint 早于 72 小时，或缺少 checkpoint，报告状态为 unknown。`audit`、`brief`、`gate` 的既有结论不变。
-
-## Package lineage
-
-构建或安装前运行 `scripts/package_lineage.py --repo <仓库绝对路径> --source-revision <revision>`。`git:` 后接可解析提交，且该提交是 `origin/main` 的祖先时，报告为 pass。`local:` 必须同时传入 `--confirm-local`，否则为 warn。`candidate:`、`test:` 以及其他无法解析的修订为 unknown，不改变 `skill_package.py build`。`context_doctor.py` 不包含这项检查。
-
-## Hard stops
-
-- Missing, unsealed, modified, or unauthorized contract: stop and return to publisher.
-- Missing, stale, unknown, conflicted, or untraceable load-bearing fact: stop depending on it.
-- Unusable brief, missing checkpoint, mismatched evidence handler, or failed self-probe: do not hand off or complete.
-- A summary without a stable path to the original is unverified; read the original.
-- New machinery without a realistic dynamic scenario is candidate-only, not proven.
-- Missing migration mode, a single migration-success claim, or an archive request: stop; report the three results separately and keep the source session.
-
-## Contract history (Strict 0.10.0)
-
-Before replacing a contract, `publish_contract` and `migrate_contract` retain its exact
-bytes in `<task>/contract-history/<sha256>.json` with mode `0444`. Retention failure
-blocks replacement; an existing digest filename must contain identical bytes. The
-migration entry retains and replaces without holding the task lock. `contract_diff`
-checks history file digests on read, since Git does not preserve `0444` across checkouts.
-Only nonnegative integer versions participate in lookup. It returns `status: "ok"`
-and `changes` keyed by top-level field with `from`/`to` values (an absent key means
-the field was absent), or `{"status": "missing", "version": n}`. Older sessions do
-not retain overwritten versions; already lost contracts, including PILOT-B v1,
-remain missing and cannot be reconstructed.
-
-## Acceptance records (Strict 0.12.0)
-
-Only the coordinator calls `record_acceptance`, with `watched_paths` taken from the
-dispatch's `owned_paths`, in its own workspace after rerunning the sealed commands
-on the integration commit. It runs completion itself and records pass, fail or
-unknown in `acceptance-records.jsonl`; the ledger and snapshot keep their existing
-formats. `brief()` shows the recorded conclusion; `context_status.py` section 6
-checks whether it still holds by watched Git object IDs. Records exist per branch.
-Read `references/orca.md`'s acceptance-record workflow before recording or handing off.
-Publish immediately after recording, and before handoff or changing branches,
-using the existing publication authorization. Global synchronization comes later:
-until then use the new pinned package to write/read records and never align that
-checkout with an old package, whose `align_context` can overwrite unpublished records.
-Worker-report evidence and required outputs are copied only after path, digest,
-secret-marker and size checks. Other evidence retains summaries. The marker list
-covers six known strings; secrets outside that list may still be retained and pushed.
-Keep worker worktrees until recording; retained copies have no automatic cleanup,
-and deleting or rebuilding records/copies needs David's direct authorization.
-
-## Portable experience stores (Strict 0.13.0 / Lite 1.5.0)
-
-New experience stores inside a Git top-level workspace use schema 2 only when
-there are commits and the repository is not shallow. The binding contains a random
-`store_id`, `store_relpath`, and sorted `project_roots`; all source references,
-including lifecycle provenance, are stored relative to the workspace. Inputs
-remain absolute workspace-local paths; outputs and host callbacks receive current
-workspace absolute paths. `record_digest` describes the stored form: hosts must
-use the returned digest and cannot recompute it from the restored output.
-
-Schema 2 admits checkouts, forks, subtree merges, and unrelated-history merges
-sharing at least one root commit. A project without shared roots or a store moved
-to another relative location fails with `WORKSPACE_MISMATCH`. An orphan branch
-can fail this check until the original branch is restored. A shallow repository,
-missing Git directory, or otherwise unavailable project identity returns
-`PROJECT_IDENTITY_UNAVAILABLE`; schema 1 remains independent of Git.
-
-Existing schema 1 stores keep their format, absolute binding, and repeated-init
-behavior. There is no migration command; sharing old experience requires a fresh
-store and new recording. Moving or deleting an old store needs David's separate
-authorization. Before global synchronization, do not use the new version to
-`init` an experience store in a real repository; implementation and validation
-use temporary stores. If a schema 2 binding reports `WORKSPACE_MISMATCH`, first
-check that the loaded package is at least Strict 0.13.0 or Lite 1.5.0.
-
-Only the coordinator writes the shared experience library in one checkout.
-Receivers must not initialize their own library: merging a published commit can
-silently overwrite an existing ignored library. Sharing proceeds through
-`publish_context`, receiver fetch/merge, `git config core.hooksPath .githooks`,
-then `align_context`; publication in a real repository requires David's separate
-authorization. Rule execution still requires absolute `store_root`; portable
-experience storage does not extend that rule API.
+`scripts/context_status.py` and `usage_freshness` report ledger health. Freshness warnings
+(stale checkpoints, duplicate copies, many contract versions) are observations. Package
+lineage from `scripts/package_lineage.py` remains advisory. The repository root synchronization script regenerates the installable Strict package.

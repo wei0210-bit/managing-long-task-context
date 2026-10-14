@@ -286,82 +286,16 @@ def evaluate_evidence(
     verifiers: Mapping[str, Verifier] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Resolve and verify one evidence object without exposing trusted inputs."""
-
-    observed_now = now or datetime.now(timezone.utc)
-    if observed_now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
-    observed_now = observed_now.astimezone(timezone.utc)
-
-    baseline_evidence = deepcopy(dict(evidence))
-    baseline_criterion = deepcopy(dict(criterion))
-    baseline_contract = deepcopy(dict(contract))
-    evidence_id = baseline_evidence.get("evidence_id")
-    kind_value = baseline_evidence.get("kind")
-    kind = kind_value if isinstance(kind_value, str) else ""
-
-    if not isinstance(evidence_id, str) or not evidence_id.strip():
-        return _malformed_evidence_result(evidence_id, kind, "MALFORMED_EVIDENCE_ID")
-    if not isinstance(kind_value, str) or not kind_value.strip():
-        return _malformed_evidence_result(
-            evidence_id,
-            kind,
-            "MALFORMED_EVIDENCE_KIND",
-        )
-
-    resolver_value = dict(default_resolvers() if resolvers is None else resolvers).get(kind)
-    _, resolver = _runtime_handler(resolver_value)
-    if resolver is None:
-        checks = {
-            "resolve": check(UNKNOWN, "UNSUPPORTED_KIND"),
-            "integrity_and_freshness": check(UNKNOWN, "UNSUPPORTED_KIND"),
-            "scope": check(UNKNOWN, "UNSUPPORTED_KIND"),
-        }
-    else:
-        try:
-            resolver_output = resolver(
-                deepcopy(baseline_evidence),
-                deepcopy(baseline_criterion),
-                deepcopy(baseline_contract),
-                observed_now,
-            )
-        except Exception as exc:
-            failure = _callback_exception_check(exc, phase="resolver")
-            checks = {name: deepcopy(failure) for name in _RESOLVER_LAYERS}
-        else:
-            checks = normalize_resolver_checks(resolver_output)
-
-    verifier_values = dict(verifiers or {})
-    _, verifier = _runtime_handler(verifier_values.get(kind))
-    layers_pass = all(value["status"] == PASS for value in checks.values())
-    use_builtin_claim = (
-        verifier is None
-        and kind in _BUILTIN_SELF_VERIFY_KINDS
-        and (verifiers is None or kind not in verifiers)
-    )
-    if use_builtin_claim and layers_pass:
-        checks["claim"] = check(PASS)
-    elif verifier is None or not layers_pass:
-        checks["claim"] = check(UNKNOWN, "CLAIM_NOT_VERIFIED")
-    else:
-        try:
-            verifier_output = verifier(
-                deepcopy(baseline_evidence),
-                deepcopy(baseline_criterion),
-                deepcopy(checks),
-            )
-        except Exception as exc:
-            checks["claim"] = _callback_exception_check(exc, phase="verifier")
-        else:
-            checks["claim"] = normalize_check(verifier_output)
-
-    status = _aggregate_status(value["status"] for value in checks.values())
-    return {
-        "evidence_id": evidence_id,
-        "kind": kind,
-        "status": status,
-        "checks": checks,
-    }
+    """Report an evidence declaration without running resolver/verifier callbacks."""
+    observed = deepcopy(dict(evidence))
+    checks = {name: check(UNKNOWN, "EVIDENCE_NOT_VERIFIED")
+              for name in (*_RESOLVER_LAYERS, "claim")}
+    # Inspect declaration metadata only; external handlers never run.
+    checks["integrity_and_freshness"] = _freshness_check(
+        observed, criterion, now or datetime.now(timezone.utc))
+    checks["scope"] = _scope_check(observed, criterion)
+    return {"evidence_id": observed.get("evidence_id"), "kind": observed.get("kind"),
+            "status": UNKNOWN, "checks": checks, "declared": observed, "read_only": True}
 
 
 def canonical_json_bytes(value: Any) -> bytes:

@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # E4-E6 最终集中修复执行记录
 
 范围、停止线与冻结依据：`e4-e6-final-fix-contract.md` 在开始时的 SHA-256 为

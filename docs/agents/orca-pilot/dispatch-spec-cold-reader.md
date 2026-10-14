@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 试点历史模板，入口规则以 references/orca.md 为准。
 # Cold-reader dispatch spec
 

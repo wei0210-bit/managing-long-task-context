@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # H1 基线归档与 0.8.2 移植执行报告
 
 执行代理：sonnet-xhigh-executor。执行时间：2026-09-22。

@@ -151,46 +151,7 @@ class ProductionFeedbackTests(unittest.TestCase):
             identifiers.append(item_id)
         return identifiers
 
-    def test_brief_overflow_lists_every_omitted_mandatory_item_and_is_not_usable(self) -> None:
-        identifiers = self._record_oversized_required_items()
 
-        diagnostics = context.brief_diagnostics(
-            "OVERFLOW", max_chars=8000, base_dir=self.base
-        )
-
-        self.assertEqual(diagnostics["status"], "overflow")
-        self.assertFalse(diagnostics["usable"])
-        omitted = diagnostics["overflow"]["omitted_mandatory_ids"]
-        self.assertEqual(len(omitted), 2)
-        self.assertEqual(
-            set(diagnostics["items"]["selected_ids"] + omitted),
-            set(identifiers),
-        )
-        with self.assertRaisesRegex(context.ContextError, "BRIEF_REQUIRED_OVERFLOW"):
-            context.brief("OVERFLOW", max_chars=8000, base_dir=self.base)
-
-    def test_every_transition_gate_blocks_mandatory_brief_overflow(self) -> None:
-        self._record_oversized_required_items()
-        context.checkpoint(
-            "OVERFLOW",
-            phase="handoff",
-            completed=["captured state"],
-            evidence_added=[],
-            next_action="externalize required detail",
-            actor="executor",
-            base_dir=self.base,
-        )
-
-        for stage in ("release", "resume", "handoff"):
-            with self.subTest(stage=stage):
-                report = context.gate(
-                    "OVERFLOW", stage=stage, base_dir=self.base, emit=False
-                )
-                self.assertFalse(report["passed"])
-                self.assertIn(
-                    "BRIEF_REQUIRED_OVERFLOW: mandatory items exceed max_chars",
-                    report["errors"],
-                )
 
     def test_externalize_item_preserves_identity_controls_and_verification_time(self) -> None:
         self.publish("EXTERNALIZE")
@@ -619,82 +580,9 @@ class ProductionFeedbackTests(unittest.TestCase):
             emit=False,
         )
 
-    def test_ordered_hops_require_an_enabled_handler_contract(self) -> None:
-        contract = self.contract("ORDERED-NO-HANDLER")
-        contract["acceptance_criteria"][0]["required_hops"] = ["export", "snapshot"]
-        contract["acceptance_criteria"][0]["required_hops_mode"] = "single-evidence-ordered"
 
-        with self.assertRaisesRegex(
-            context.ContextError,
-            "single-evidence-ordered requires evidence-handlers/v1",
-        ):
-            context.publish_contract(
-                contract,
-                confirmed_by="publisher",
-                base_dir=self.base,
-            )
 
-        invalid = self._ordered_contract("ORDERED-INVALID", mode="unordered")
-        with self.assertRaisesRegex(context.ContextError, "required_hops_mode"):
-            context.publish_contract(
-                invalid,
-                confirmed_by="publisher",
-                base_dir=self.base,
-            )
 
-    def test_ordered_hops_reject_split_and_reversed_evidence(self) -> None:
-        context.publish_contract(
-            self._ordered_contract("ORDERED"),
-            confirmed_by="publisher",
-            base_dir=self.base,
-        )
-
-        split = self._completion("ORDERED", [["export"], ["snapshot"]])
-        reversed_order = self._completion("ORDERED", [["snapshot", "export"]])
-
-        self.assertFalse(split["passed"])
-        self.assertFalse(reversed_order["passed"])
-        for report in (split, reversed_order):
-            criterion = report["criteria"]["AC-01"]
-            self.assertEqual(
-                criterion["hop_validation"]["code"],
-                "SINGLE_EVIDENCE_ORDERED_HOPS_MISSING",
-            )
-
-    def test_ordered_hops_accept_one_passing_ordered_subsequence(self) -> None:
-        context.publish_contract(
-            self._ordered_contract("ORDERED"),
-            confirmed_by="publisher",
-            base_dir=self.base,
-        )
-
-        report = self._completion(
-            "ORDERED", [["prepare", "export", "verify", "snapshot", "archive"]]
-        )
-
-        self.assertTrue(report["passed"], report["errors"])
-        self.assertEqual(
-            report["criteria"]["AC-01"]["hop_validation"],
-            {
-                "mode": "single-evidence-ordered",
-                "status": "pass",
-                "code": None,
-                "evidence_id": "EV-1",
-            },
-        )
-
-    def test_legacy_aggregate_hops_still_accept_split_evidence(self) -> None:
-        contract = self._ordered_contract("AGGREGATE")
-        contract["acceptance_criteria"][0].pop("required_hops_mode")
-        context.publish_contract(
-            contract,
-            confirmed_by="publisher",
-            base_dir=self.base,
-        )
-
-        report = self._completion("AGGREGATE", [["export"], ["snapshot"]])
-
-        self.assertTrue(report["passed"], report["errors"])
 
 
 if __name__ == "__main__":

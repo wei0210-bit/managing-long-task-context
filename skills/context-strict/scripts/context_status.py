@@ -91,17 +91,10 @@ def _identity(args, diagnostic):
 
 
 def _gate(result, verified):
-    diagnostic = result['diagnostic']
-    checks = {c['name']: c for c in diagnostic['checks']}
-    gate_checks = [c for c in diagnostic['checks'] if c['name'].startswith('resume_')]
-    gate_status = ('fail' if any(c['status'] == 'fail' for c in gate_checks) else
-                   'unknown' if any(c['status'] == 'unknown' for c in gate_checks) else 'pass')
-    gate = {'status': gate_status if verified else 'not_run', 'report': result.get('resume_gate'),
-            'checks': gate_checks, 'next_action': diagnostic['next_action'],
-            'message': '' if verified else '未运行（身份未通过）'}
-    if checks.get('resume_handlers', {}).get('status') == 'not_run':
-        gate['message'] = '完成门需要宿主提供处理器'
-    return gate
+    report = result.get('resume_gate') or {}
+    return {'status': report.get('decision', 'unknown'), 'report': report,
+            'checks': [], 'next_action': result['diagnostic']['next_action'],
+            'message': '账本只读报告；不控制执行', 'blocking': False}
 
 
 def _snapshot(args):
@@ -186,8 +179,8 @@ def status(args: argparse.Namespace) -> tuple[dict, int]:
         identity = _section(lambda: _identity(args, result['diagnostic']), '身份诊断')
         code = {'pass': 0, 'fail': 1, 'unknown': 2}.get(result['diagnostic']['status'], 2)
     verified = result is not None and result['context'] is not None
-    gate = (_section(lambda: _gate(result, verified), '恢复门禁') if result is not None
-            else _unavailable('恢复门禁', message='未运行（身份诊断不可用）'))
+    gate = (_section(lambda: _gate(result, verified), '账本健康') if result is not None
+            else _unavailable('账本健康', message='未运行（身份诊断不可用）'))
     checkpoint = _section(lambda: _checkpoint(args, verified), '快照',
                           identity_verified=verified, data=None)
     dispatches = _section(lambda: _dispatches(args, verified), '快照',
@@ -210,7 +203,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     else:
-        for title, key in [('身份', 'identity'), ('恢复门禁', 'resume_gate'), ('最近检查点', 'checkpoint'),
+        for title, key in [('身份', 'identity'), ('账本健康', 'resume_gate'), ('最近检查点', 'checkpoint'),
                            ('已入账的 Orca 派单', 'dispatches'), ('brief 正文', 'brief'), ('验收', 'acceptance')]:
             print('## ' + title)
             value = result[key]

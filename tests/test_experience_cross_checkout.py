@@ -110,7 +110,7 @@ class PortableLifecycleTests(unittest.TestCase):
             self.assertTrue(Path(path).is_relative_to(workspace or self.workspace), path)
             self.assertTrue(Path(path).is_file(), path)
 
-    def test_two_forms_callbacks_and_complete_lifecycle_provenance(self):
+    def test_two_forms_inert_legacy_checkers_and_complete_lifecycle_provenance(self):
         self.assertEqual(json.loads((self.store_root / "binding.json").read_text())["schema"], 2)
         refs = self.validation()
         relative = copy.deepcopy(refs)
@@ -138,10 +138,7 @@ class PortableLifecycleTests(unittest.TestCase):
         self.assertEqual(self.store.approve("portable", 1, relative_approval, evidence_checker=observe, approval_checker=observe)["codes"], ["INVALID_INPUT"])
         approved = self.store.approve("portable", 1, approval, evidence_checker=observe, approval_checker=observe)
         self.assertEqual(approved["status"], "pass", approved)
-        self.assertEqual(len(callbacks), 3)
-        for args in callbacks:
-            self.assert_absolute(args[0])
-            self.assert_absolute(args[1])
+        self.assertEqual(callbacks, [])
         self.assert_absolute(approved["data"])
         self.assertEqual(approved["data"]["provenance"]["approval_ref"], approval)
         stored = json.loads((self.store_root / "records.json").read_text())
@@ -156,7 +153,7 @@ class PortableLifecycleTests(unittest.TestCase):
         self.assertEqual(self.store.revoke("portable", 1, "withdrawn", relative_revocation, approval_checker=observe)["codes"], ["INVALID_INPUT"])
         revoked = self.store.revoke("portable", 1, "withdrawn", revocation, approval_checker=observe)
         self.assertEqual(revoked["status"], "pass", revoked)
-        self.assert_absolute(callbacks[-1][0])
+        self.assertEqual(callbacks, [])
         self.assert_absolute(revoked["data"])
         self.candidate("challenge")
         source = self.source("dispute.txt")
@@ -344,20 +341,6 @@ class PortableLifecycleTests(unittest.TestCase):
         (self.store_root / "records.json").write_text(json.dumps(baseline))
         self.assertEqual(self.store.get("portable", 1)["codes"], ["STORE_CORRUPT"])
 
-    def test_schema2_callback_races_reverify_originals_without_deadlocking(self):
-        refs = self.validation()
-        def mutate_original(record, incoming):
-            (self.workspace / "original.txt").write_text("changed during callback")
-            return self.allow()
-        result = self.store.review("portable", 1, refs, evidence_checker=mutate_original)
-        self.assertEqual(result["codes"], ["SOURCE_DIGEST_MISMATCH"])
-        self.source("original.txt")
-        def dispute_in_callback(record, incoming):
-            self.assertEqual(self.store.dispute("portable", 1, "race", self.source("race.txt"))["status"], "pass")
-            return self.allow()
-        result = self.store.review("portable", 1, refs, evidence_checker=dispute_in_callback)
-        self.assertEqual(result["codes"], ["INPUT_CHANGED"])
-        self.assertEqual(self.store.get("portable", 1)["data"]["status"], "disputed")
 
     def test_schema2_multiple_root_commits_are_sorted_and_allow_shared_history(self):
         other = self.root / "other"

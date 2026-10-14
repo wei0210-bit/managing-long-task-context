@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # E1-04 executor report: AC1--AC3 gate matrix
 
 Contract SHA256 was rechecked as `4f33bb0f711e877d370b76faeae9ffa57d11fa661c0bf70f093602e5555e7624`. Scope is only the original gate-combination matrix; no production host, business action, paid model, migration implementation, source edit, commit, or deployment occurred.

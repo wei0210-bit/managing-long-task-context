@@ -52,9 +52,9 @@ def _report(
     codes = sorted({str(item["code"]) for item in checks_list if item.get("code")})
     next_action = None
     if status == "fail":
-        next_action = "Correct the reported mismatch; do not resume until identity passes."
+        next_action = "Compare the reported identity mismatch with the original package and workspace records."
     elif status == "unknown":
-        next_action = "Resolve the unavailable identity evidence explicitly; do not resume."
+        next_action = "Inspect the reported unavailable identity evidence and record what could not be verified."
     return {
         "schema": SCHEMA,
         "mode": mode,

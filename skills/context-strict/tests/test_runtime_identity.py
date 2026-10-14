@@ -429,7 +429,7 @@ raise SystemExit(code)
             ) + "\n",
             encoding="utf-8",
         )
-        payload = tampered_package / "src/managing_long_task_context/host_codex_native.py"
+        payload = tampered_package / "src/managing_long_task_context/truth_sources.py"
         payload.write_bytes(payload.read_bytes() + b"\n# tampered before first import\n")
         completed = subprocess.run(
             [
@@ -479,12 +479,11 @@ contract=store/"TASK-001/task-contract.json"
 contract.chmod(0o600)
 data=json.loads(contract.read_text()); data["objective"]="tampered"
 contract.write_text(json.dumps(data))
-try:
-    client.checked_resume("TASK-001")
-except c.ContextError:
-    print("BOUND_RESUME_AND_ORIGINAL_GATE_PASSED")
-else:
-    raise AssertionError("modified sealed contract was accepted")
+result = client.checked_resume("TASK-001")
+assert result["context"] is None, result
+assert result["diagnostic"]["ledger_error"], result
+assert result["resume_gate"]["blocking"] is False, result
+print("BOUND_RESUME_AND_ORIGINAL_GATE_PASSED")
 '''
         elsewhere = self.root / "elsewhere"
         elsewhere.mkdir()

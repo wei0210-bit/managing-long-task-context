@@ -131,9 +131,9 @@ def _smoke(skill_name: str | None, module: object | None) -> dict[str, object]:
             module.publish_contract(contract, confirmed_by="doctor", base_dir=base)  # type: ignore[attr-defined]
             normal = module.brief(task, base_dir=base)  # type: ignore[attr-defined]
             blocked = module.gate(task, stage="completion", evidence_map={}, base_dir=base, emit=False)  # type: ignore[attr-defined]
-            missing_evidence = "criterion AC-DOCTOR missing required evidence types: ['file']" in blocked.get("errors", [])
-            if normal.get("task_id") == task and not blocked.get("passed", True) and missing_evidence:
-                return core._check("smoke", "pass", None, "Strict normal brief and expected completion block behaved as expected")
+            missing_evidence = "file" in blocked.get("criteria", {}).get("AC-DOCTOR", {}).get("missing_evidence_types", [])
+            if normal.get("task_id") == task and blocked.get("read_only") and not blocked.get("blocking", True) and missing_evidence:
+                return core._check("smoke", "pass", None, "Strict brief and read-only missing-evidence report behaved as expected")
             return core._check("smoke", "fail", "SMOKE_FAILED", "Strict smoke result was unexpected")
         return core._check("smoke", "unknown", "RUNTIME_UNVERIFIED", "unknown skill type has no smoke runner")
     except Exception as exc:

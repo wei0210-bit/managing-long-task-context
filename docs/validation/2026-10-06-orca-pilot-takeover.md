@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # Orca 试点：协调者接手材料（中断二）
 
 本文件由原协调者（Claude Code 会话，终端 term_1cce21fa-a872-4144-afd0-9a82d17bb3c4）在退出前写下。接手者按下面顺序做，不要凭本文件复述验收标准，一切以封印合同为准。

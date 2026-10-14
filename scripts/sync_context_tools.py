@@ -12,7 +12,6 @@ TOOLS = (
     "context_experience.py",
     "context_identity_core.py",
     "skill_package.py",
-    "context_usage.py",
 )
 
 
@@ -40,8 +39,10 @@ def sync() -> None:
     _copy(ROOT / "tests" / "test_context_lite_handoff.py", lite / "tests" / "test_context_lite_handoff.py")
     _copy(ROOT / "tests" / "test_context_lite_validator.py", lite / "tests" / "test_context_lite_validator.py")
     for package in (lite, strict):
-        _copy(ROOT / "tests/test_context_usage.py", package / "tests/test_context_usage.py")
-        _copy(ROOT / "references/context-usage.md", package / "references/context-usage.md")
+        for path in ("scripts/context_usage.py", "tests/test_context_usage.py", "references/context-usage.md"):
+            stale = package / path
+            if stale.exists():
+                stale.unlink()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # Orca closing validation 2026-10-07（草稿，协调者逐步填写）
 
 依据：接手材料 `docs/validation/2026-10-06-program-handoff.md`「要完成的程序」第 5 步；与试点 `docs/validation/2026-10-06-orca-pilot.md` 同构，用于对比五项度量。

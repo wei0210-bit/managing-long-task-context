@@ -1,3 +1,5 @@
+> HISTORICAL_ONLY (STRICT-LEDGER): 此文记录旧版本方案或证据；会话与执行控制已退役，当前能力以根 SKILL.md 为准。
+
 # E3 执行合同 v1：Codex CLI 本地适配
 
 状态：验收与边界冻结；CLI transport 与记录层公开接口/最小接线均已批准。
