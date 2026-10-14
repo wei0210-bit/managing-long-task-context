@@ -19,8 +19,6 @@ def base_characteristics(**overrides: object) -> dict[str, object]:
         "single_primary_agent": True,
         "high_risk": False,
         "auditability_required": False,
-        "frozen_acceptance": False,
-        "independent_validation": False,
         "external_side_effects": False,
         "multiple_state_writers": False,
     }
@@ -56,8 +54,6 @@ class ContextSkillRouterTests(unittest.TestCase):
         for field in (
             "high_risk",
             "auditability_required",
-            "frozen_acceptance",
-            "independent_validation",
             "external_side_effects",
             "multiple_state_writers",
         ):
@@ -91,6 +87,14 @@ class ContextSkillRouterTests(unittest.TestCase):
         report = self.route(base_characteristics(unknown_flag=True), expected=2)
         self.assertEqual(report["status"], "invalid")
         self.assertIn("ROUTE_UNKNOWN_FIELD", report["codes"])
+
+    def test_retired_signals_are_rejected(self) -> None:
+        # The global routing rule no longer lists frozen acceptance or independent validation.
+        for field in ("frozen_acceptance", "independent_validation"):
+            with self.subTest(field=field):
+                report = self.route(base_characteristics(**{field: False}), expected=2)
+                self.assertEqual(report["status"], "invalid")
+                self.assertIn("ROUTE_UNKNOWN_FIELD", report["codes"])
 
 
 if __name__ == "__main__":

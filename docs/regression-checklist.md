@@ -562,3 +562,23 @@ python3 -m unittest discover -s tests -p test_ledger_reports.py
 ```
 
 Pass: OK；四种旧 stage 均只读且不阻断、不调用宿主回调、不写任务库，缺失资料保持 unknown，超预算摘要带诊断，旧交接控制 API 不存在。
+
+### R-043 真实源示例在 macOS 符号链接临时目录下可运行
+
+Added: CI-COVERAGE T1（2026-10-14 第二次工程评审 R18）。
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_distribution.ContextStrictDistributionTests.test_distributed_truth_source_example_executes
+```
+
+Pass: OK。`examples/truth_source_contract.py` 的工作区使用解析后的真实路径，在 macOS（`/tmp`、`/var` 为符号链接）与 Linux 上均能运行；`observe_truth_source` 的符号链接拒绝不变。
+
+### R-044 路由脚本只接受全局规则仍列出的 Strict 触发信号
+
+Added: CI-COVERAGE 路由同步（David 2026-10-14「同步context_skill_router.py 里还留着两个已从规则文字中删除的触发信号」）。
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_context_skill_router
+```
+
+Pass: OK。`frozen_acceptance`、`independent_validation` 作为输入字段返回 `ROUTE_UNKNOWN_FIELD`；其余触发信号、风险事实不全与多代理时仍推荐 Strict。
