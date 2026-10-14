@@ -1,0 +1,242 @@
+"""The probe runner must reject deliberately broken CLI implementations."""
+import contextlib
+from dataclasses import replace
+import fnmatch
+import io
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import failure_probes as probes
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class FailureProbeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+
+    def fake_entry(self, body, timeout=3, pending=False):
+        script = self.root / 'fake.py'
+        script.write_text(body, encoding='utf-8')
+        variant = probes.Variant('encoding', 'fake', 'file',
+                                 lambda path: path.write_bytes(b'probetoken\xff'))
+
+        def scaffold(root):
+            (root / 'target').write_text('probetoken', encoding='utf-8')
+
+        def place(variant, root):
+            path = root / 'target'
+            variant.make(path)
+            return path
+
+        return probes.Entry('fake', scaffold, place, probes.CliAdapter(
+            lambda root: [sys.executable, str(script)], lambda root: root,
+            {'PATH': os.defpath}, timeout), (), lambda *args: ('pass', 'handled'),
+            {'encoding': [variant]}, pending={'fake'} if pending else set())
+
+    def run_fake(self, body, **kwargs):
+        entry = self.fake_entry(body, **kwargs)
+        report = probes.run(entry, temp_dir=self.root)
+        return report, report['results'][0]
+
+    def test_import_and_discovery_identity(self):
+        self.assertEqual(Path(probes.__file__).resolve(), ROOT / 'tests/failure_probes.py')
+        self.assertFalse(fnmatch.fnmatch(Path(probes.__file__).name, 'test*.py'))
+        suite = unittest.defaultTestLoader.discover(str(ROOT / 'tests'), pattern='failure_probes.py')
+        self.assertEqual(suite.countTestCases(), 0)
+        self.assertFalse((ROOT / 'tests/__init__.py').exists())
+
+    def test_encoding_snapshot_and_cleanup(self):
+        for variant in probes.encoding_variants():
+            with self.subTest(variant=variant.name):
+                tree = self.root / variant.name
+                tree.mkdir()
+                probes.search_scaffold(tree)
+                target = probes.search_place(variant, tree)
+                before = probes.snapshot(tree)
+                self.assertEqual(before, probes.snapshot(tree))
+                self.assertIn('sha256', before[target.relative_to(tree).as_posix()])
+                self.assertNotIn(probes.TRACEBACK.encode(), target.read_bytes())
+                probes.cleanup(tree)
+                self.assertFalse(tree.exists())
+
+    def test_snapshot_records_mutations_without_following_links(self):
+        tree = self.root / 'tree'
+        tree.mkdir()
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (outside / 'keep').write_text('untouched', encoding='utf-8')
+        (tree / 'loop').symlink_to('loop')
+        (tree / 'broken').symlink_to('missing')
+        (tree / 'external').symlink_to(outside, target_is_directory=True)
+        locked = tree / 'locked'
+        locked.mkdir()
+        (locked / 'file').write_bytes(b'content')
+        locked.chmod(0)
+        before = probes.snapshot(tree)
+        self.assertEqual(before['loop']['link'], 'loop')
+        self.assertEqual(before['external']['link'], str(outside))
+        self.assertTrue(before['locked']['unreadable'])
+        self.assertNotIn('external/keep', before)
+        self.assertNotIn('locked/file', before)
+        probes.cleanup(tree)
+        self.assertEqual((outside / 'keep').read_text(), 'untouched')
+
+    def test_snapshot_unreadable_file_is_not_opened(self):
+        path = self.root / 'locked'
+        path.write_bytes(b'probetoken')
+        path.chmod(0)
+        self.addCleanup(path.chmod, 0o600)
+        with patch.object(Path, 'read_bytes', side_effect=AssertionError('opened unreadable file')):
+            row = probes.snapshot(self.root)['locked']
+        self.assertTrue(row['unreadable'])
+        self.assertNotIn('sha256', row)
+
+    def test_traceback_is_failure_even_when_pending(self):
+        report, row = self.run_fake("raise RuntimeError('broken')\n", pending=True)
+        self.assertEqual(row['verdict'], 'fail')
+        self.assertIn('baseline 1', row['reason'])
+        self.assertIn('RuntimeError', row['stderr_excerpt'])
+        self.assertFalse(row['baseline']['1'])
+        self.assertEqual(probes.exit_code(report), 1)
+
+    def test_timeout_is_failure_with_partial_output(self):
+        report, row = self.run_fake("import time\nprint('started', flush=True)\ntime.sleep(10)\n", timeout=1)
+        self.assertEqual(row['verdict'], 'fail')
+        self.assertIn('baseline 2: timeout', row['reason'])
+        self.assertTrue(row['timed_out'])
+        self.assertIn('started', row['stdout_excerpt'])
+        self.assertEqual(probes.exit_code(report), 1)
+
+    def test_outside_writable_write_is_failure(self):
+        report, row = self.run_fake("from pathlib import Path\nPath('target').write_text('changed')\n")
+        self.assertEqual(row['verdict'], 'fail')
+        self.assertIn('baseline 3', row['reason'])
+        self.assertIn('target', row['reason'])
+        self.assertEqual(probes.exit_code(report), 1)
+
+    def test_writable_prefix_has_path_boundary_and_allows_sqlite_sidecars(self):
+        before = {'docs/a.md': {'sha256': 'a'}}
+        after = dict(before)
+        for suffix in ('', '-journal', '-wal', '-shm'):
+            after['.prime/search/index.sqlite' + suffix] = {'sha256': 'b'}
+        self.assertEqual(probes.changed_paths(before, after, ('.prime/search/',)), [])
+        after['.prime/search-other/index.sqlite'] = {}
+        after['docs/a.md'] = {'sha256': 'b'}
+        self.assertEqual(probes.changed_paths(before, after, ('.prime/search/',)),
+                         ['.prime/search-other/index.sqlite', 'docs/a.md'])
+
+    def test_adapter_error_missing_interpreter_and_cwd(self):
+        entry = self.fake_entry('pass\n')
+        for adapter in (
+            replace(entry.adapter, build_argv=lambda root: [str(self.root / 'missing-python')]),
+            replace(entry.adapter, cwd=lambda root: root / 'missing-directory'),
+        ):
+            with self.subTest(adapter=adapter):
+                report = probes.run(replace(entry, adapter=adapter), temp_dir=self.root)
+                row = report['results'][0]
+                self.assertEqual(row['verdict'], 'adapter_error')
+                self.assertTrue(row['reason'])
+                self.assertIsNone(row['exit_code'])
+                self.assertEqual(probes.exit_code(report), 1)
+
+    def test_adapter_environment_is_explicit(self):
+        adapter = probes.CliAdapter(lambda root: [sys.executable, '-c',
+            "import os; print(os.environ.get('PYTHONPATH', 'absent'))"], lambda root: root, {})
+        with patch.dict(os.environ, {'PYTHONPATH': 'untrusted-parent'}):
+            result = adapter.run(self.root)
+        self.assertEqual(result['stdout'].strip(), 'absent')
+        self.assertIsNone(result['adapter_error'])
+        entry = probes.context_search_entry()
+        self.assertEqual(set(entry.adapter.env), {'PATH', 'HOME', 'PYTHONPATH'})
+        self.assertEqual(entry.adapter.env['PYTHONPATH'], str(ROOT / 'src'))
+
+    def test_unprocessed_target_is_vacuous(self):
+        report, row = self.run_fake('print(\'{"results": []}\')\n')
+        self.assertEqual(row['verdict'], 'vacuous')
+        self.assertEqual(probes.exit_code(report), 1)
+
+    def test_processed_accepts_skip_error_and_snapshot_fallback(self):
+        target = self.root / '.prime/context/T/snapshot.json'
+        result = {'cwd': str(self.root), 'stderr': ''}
+        label = '.prime/context/T/snapshot.json'
+        for payload in ({'skipped': [{'path': label, 'reason': 'bad'}]},
+                        {'error': 'failed reading ' + label},
+                        {'results': [{'path': '.prime/context/T/events.jsonl'}]}):
+            with self.subTest(payload=payload):
+                result['stdout'] = json.dumps(payload)
+                self.assertTrue(probes.processed(target, result, 'malformed_json'))
+        self.assertFalse(probes.processed(target, result, 'encoding'))
+
+    def test_excluded_variant_does_not_run(self):
+        entry = self.fake_entry("raise RuntimeError('must not run')\n")
+        report = probes.run(replace(entry, exclude={'fake': 'not applicable'}), temp_dir=self.root)
+        row = report['results'][0]
+        self.assertEqual(row['verdict'], 'excluded')
+        self.assertEqual(row['reason'], 'not applicable')
+        self.assertIsNone(row['target'])
+        self.assertEqual(probes.exit_code(report), 0)
+
+    def test_pending_expect_failure_does_not_affect_exit_code(self):
+        entry = self.fake_entry('print(\'{"results": [{"path": "target"}]}\')\n', pending=True)
+        for verdict in ('pass', 'fail'):
+            with self.subTest(verdict=verdict):
+                report = probes.run(replace(entry, expect=lambda *args: (verdict, 'expect test')),
+                                    temp_dir=self.root)
+                self.assertEqual(report['results'][0]['verdict'], verdict)
+                self.assertTrue(report['results'][0]['pending'])
+                self.assertEqual(probes.exit_code(report), 0)
+
+    def test_expect_failure_and_undecided_are_failures(self):
+        entry = self.fake_entry('print(\'{"results": [{"path": "target"}]}\')\n')
+        for verdict in ('fail', 'undecided'):
+            with self.subTest(verdict=verdict):
+                report = probes.run(replace(entry, expect=lambda *args: (verdict, 'expect test')),
+                                    temp_dir=self.root)
+                self.assertEqual(probes.exit_code(report), 1)
+
+    def test_real_encoding_entry_and_report_fields(self):
+        report = probes.run(probes.context_search_entry(), ['encoding'], temp_dir=self.root)
+        self.assertEqual(probes.exit_code(report), 0, report)
+        self.assertEqual(report['counts']['pass'], 6)
+        self.assertEqual(report['counts']['skipped'], 0)
+        fields = {'category', 'variant', 'target', 'verdict', 'known', 'pending', 'reason',
+                  'exit_code', 'timed_out', 'stdout_excerpt', 'stderr_excerpt', 'baseline'}
+        for row in report['results']:
+            self.assertTrue(fields.issubset(row))
+            self.assertEqual(row['baseline'], {'1': True, '2': True, '3': True})
+            self.assertEqual(row['pending'], row['variant'] == 'bom-doc')
+            self.assertFalse(row['known'])
+
+    def test_cli_output_default_path_and_argument_errors(self):
+        output = self.root / 'reports/result.json'
+        stream = io.StringIO()
+        with contextlib.redirect_stdout(stream):
+            code = probes.main(['--entry', 'context_search', '--category', 'encoding',
+                                '--output', str(output)])
+        self.assertEqual(code, 0)
+        self.assertIn('REPORT ' + str(output), stream.getvalue())
+        self.assertEqual(json.loads(output.read_text())['entry'], 'context_search')
+        report = {'results': [], 'counts': {'skipped': 1}}
+        with patch.object(probes, 'run', return_value=report), \
+                patch.object(probes.tempfile, 'gettempdir', return_value=str(self.root)), \
+                contextlib.redirect_stdout(stream):
+            self.assertEqual(probes.main(['--entry', 'context_search']), 0)
+        self.assertEqual(stream.getvalue().splitlines()[-1], 'SKIPPED 1')
+        self.assertEqual(len(list((self.root / 'failure-probes').glob('context_search-*.json'))), 1)
+        for argv in ([], ['--entry', 'missing'], ['--entry', 'context_search', '--category', 'missing']):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    probes.main(argv)
+                self.assertEqual(raised.exception.code, 2)
+
+
+if __name__ == '__main__':
+    unittest.main()
