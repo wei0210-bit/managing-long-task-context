@@ -9,7 +9,8 @@ import managing_long_task_context as context
 
 def run_example():
     with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
+        # macOS temporary directories live under symbolic links such as /var and /tmp.
+        root = Path(temporary).resolve()
         (root / "STATUS.md").write_text("original observation\n")
         contract = json.loads((Path(__file__).resolve().parents[1] / "assets/truth-source-contract.example.json").read_text())
         contract["workspace_root"] = str(root)

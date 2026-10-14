@@ -64,12 +64,19 @@ Pass: the second column (deleted lines) is `0`, or there is no output.
 Added: #39.
 
 ```sh
-python3 -m unittest discover -s tests
+status=0
+output="$(python3 -m unittest discover -s tests 2>&1)" || status=$?
+printf '%s\n' "$output" | tail -n 3
+count="$(printf '%s\n' "$output" | sed -n 's/^Ran \([0-9][0-9]*\) tests* in .*/\1/p')"
+test "$status" -eq 0
+test "${count:-0}" -ge 444
 ```
 
-Pass: the run ends with `OK`; record the retained test count. STRICT-LEDGER retires
-the old 704-test floor with the approved deletion of execution/session tests; retained
-ledger tests must still all pass.
+Pass: the run ends with `OK` and the test count is at least the floor written in the
+command (444). STRICT-LEDGER retired the old 704-test floor with the approved deletion of
+execution/session tests; CI-COVERAGE restores a floor at the retained count (David
+2026-10-14, engineering review 2 R16). Lowering the floor needs David's direct
+authorization recorded as a `DAVID_AUTH` line in the task contract.
 
 ### R-005 The generated Strict package has no drift
 Retired (#52, superseded by R-011: untracked task-store design artifacts cause false failures)
@@ -562,3 +569,56 @@ python3 -m unittest discover -s tests -p test_ledger_reports.py
 ```
 
 Pass: OK；四种旧 stage 均只读且不阻断、不调用宿主回调、不写任务库，缺失资料保持 unknown，超预算摘要带诊断，旧交接控制 API 不存在。
+
+### R-043 真实源示例在 macOS 符号链接临时目录下可运行
+
+Added: CI-COVERAGE T1（2026-10-14 第二次工程评审 R18）。
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_distribution.ContextStrictDistributionTests.test_distributed_truth_source_example_executes
+```
+
+Pass: OK。`examples/truth_source_contract.py` 的工作区使用解析后的真实路径，在 macOS（`/tmp`、`/var` 为符号链接）与 Linux 上均能运行；`observe_truth_source` 的符号链接拒绝不变。
+
+### R-044 路由脚本只接受全局规则仍列出的 Strict 触发信号
+
+Added: CI-COVERAGE 路由同步（David 2026-10-14「同步context_skill_router.py 里还留着两个已从规则文字中删除的触发信号」）。
+
+```sh
+PYTHONPATH=src:tests python3 -m unittest tests.test_context_skill_router
+```
+
+Pass: OK。`frozen_acceptance`、`independent_validation` 作为输入字段返回 `ROUTE_UNKNOWN_FIELD`；其余触发信号、风险事实不全与多代理时仍推荐 Strict。
+
+### R-045 CI 全量声明与合并常设授权和 CI 配置一致
+
+Added: CI-COVERAGE T5 与合并常设授权（David 2026-10-14；工程评审 2 R12、R21）。
+
+```sh
+python3 - <<'PY'
+import json, re, sys
+quality = json.load(open('docs/agents/quality-floor.json', encoding='utf-8'))
+grant = json.load(open('docs/agents/standing-authorizations.json', encoding='utf-8'))
+ci = open('.github/workflows/ci.yml', encoding='utf-8').read()
+workflow = re.search(r'^name: (.+)$', ci, re.M).group(1).strip()
+jobs = set(re.findall(r'^    name: (.+)$', ci, re.M))
+coverage = quality['ci_coverage']
+merge = next(item for item in grant['items'] if item['id'] == 'SA-MERGE-PR')
+push = next(item for item in grant['items'] if item['id'] == 'SA-PUSH-DEFAULT')
+text = '\n'.join(merge['conditions'])
+fields = ('question', 'choice', 'date', 'session', 'coordinator', 'covers')
+ok = (coverage['workflow'] == workflow == 'CI' and coverage['full_suite'] is True
+      and coverage['regression_checklist'] is True and len(jobs) >= 2 and set(coverage['jobs']) == jobs
+      and 'python3 scripts/regression_checklist.py' in ci and ci.count('-m unittest discover -s tests') >= 2
+      and 'sys.version_info[:2] == (3, 9)' in ci
+      and all(quality['declared'].get(k) for k in fields) and all(grant['grant'].get(k) for k in fields)
+      and grant['use_by'] == 'coordinator-only' and any('--match-head-commit' in a for a in merge['allow'])
+      and {'--auto', '--admin'} <= set(merge['deny']) and '直接推送默认分支' in push['deny']
+      and all(word in text for word in ('databaseId', '最新 attempt', 'conclusion', 'ci_coverage.jobs',
+                                          '回归清单', 'code_revision.commit', 'David')))
+print('workflow', workflow, 'jobs', sorted(jobs), 'declared', coverage['jobs'], 'ok', ok)
+sys.exit(0 if ok else 1)
+PY
+```
+
+Pass: 退出码 0。`quality-floor.json` 声明的作业与 `.github/workflows/ci.yml` 的全部作业完全一致（至少 2 个），workflow 名为 `CI`；`ci.yml` 仍运行回归清单、macOS 两次全量并断言系统 python3 为 3.9；两份授权原文字段齐全；SA-MERGE-PR 只由协调者使用、用 `--match-head-commit` 合并、禁止 `--auto`、`--admin`，条件含取 `databaseId` 最大一次运行的最新 attempt 且整次 `conclusion` 成功、`ci_coverage.jobs` 全部成功、回归清单全过、验收记录提交号等于 PR 头提交、合并后通知 David；SA-PUSH-DEFAULT 禁止直接推送默认分支。
