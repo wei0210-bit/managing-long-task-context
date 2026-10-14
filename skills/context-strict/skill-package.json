@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "skill_name": "context-strict",
-  "skill_version": "1.0.0",
+  "skill_version": "1.1.0",
   "package_name": "managing-long-task-context",
-  "package_version": "1.0.0",
+  "package_version": "1.1.0",
   "python_module": "managing_long_task_context",
   "payload_roots": [
     "SKILL.md",
@@ -66,7 +66,9 @@
     "tests/test_worker_report.py",
     "src/managing_long_task_context/acceptance.py",
     "tests/test_acceptance_records.py",
-    "tests/test_ledger_reports.py"
+    "tests/test_ledger_reports.py",
+    "scripts/context_search.py",
+    "tests/test_context_search.py"
   ],
   "capabilities": {
     "runtime-identity/v1": {
