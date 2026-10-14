@@ -98,7 +98,8 @@ original file before using a result. Every search refreshes the disposable
 without trigram reports `degraded: like-scan`. `python3 scripts/context_search.py rebuild`
 rebuilds the cache from files. Source files remain read-only: search writes only the
 rebuildable cache under `.prime/search/`, and only that cache file may be deleted. If the
-cache directory is not writable, the CLI returns error JSON without touching another path.
+cache needs to be written and its directory is not writable, the CLI returns error JSON
+without touching another path. An unchanged existing cache remains searchable without writes.
 
 `skill-package.json` declares this package. Build the full package using
 `scripts/skill_package.py`, observe identity using `scripts/context_doctor.py`, and consult

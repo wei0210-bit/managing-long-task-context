@@ -138,10 +138,23 @@ def _item_locations(text):
 
 
 def _ledger_view(path):
-    # Replay validates the original identity, which may differ from its directory.
-    task = context._read_json(path.parent / 'task-contract.json')['task_id']
-    paths = context._paths(task, base_dir=path.parent.parent)
-    return context._load_snapshot(task, paths)
+    # A healthy projection does not depend on decoding the contract or events.
+    try:
+        snapshot = context._read_json(path.parent / 'snapshot.json')
+    except context.ContextError:
+        snapshot = None
+    if snapshot is not None and snapshot != {'rebuild': 'required'}:
+        return snapshot
+    events_path = path.parent / 'events.jsonl'
+    if events_path.exists() and _decode_source(events_path.read_bytes())[1] is not None:
+        # The refresh reports the undecodable event source in skipped; it cannot
+        # supply current items when the snapshot also needs reconstruction.
+        return {'items': {}}
+    events = context._read_events(events_path)
+    # Replay validates the original event identity, which may differ from its
+    # normalized directory, without rereading an unrelated skipped contract.
+    task = events[0]['task_id'] if events else path.parent.name
+    return context._rebuild_snapshot(task, events)
 
 
 def _blocks(root, path, text):

@@ -177,6 +177,48 @@ class SearchTests(unittest.TestCase):
                 self.assertEqual(json.loads(result.stdout)['results'][0]['item_id'], item['id'])
                 self.assertFalse(self.query('normalized task fact', task='REVIEW / 2')['results'])
 
+    def test_cli_skips_non_utf8_ledger_sources_and_recovers(self):
+        task_id = 'REVIEW / 1'
+        base = self.publish(task_id)
+        item = context.record(task_id, statement='healthy ledger fact', item_type='observation',
+            actor='tester', source='file', base_dir=base)
+        paths = context._paths(task_id, base_dir=base)
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        command = [sys.executable, str(ROOT / 'scripts/context_search.py')]
+        originals = {key: paths[key].read_bytes() for key in ('contract', 'snapshot', 'events')}
+        for key, marker in (('contract', False), ('contract', True), ('snapshot', False),
+                            ('events', False), ('events', True)):
+            with self.subTest(source=key, marker=marker):
+                for name, data in originals.items():
+                    paths[name].chmod(0o600)
+                    paths[name].write_bytes(data)
+                if marker:
+                    paths['snapshot'].write_text('{"rebuild":"required"}\n', encoding='utf-8')
+                self.query('healthy')  # Also exercise invalidation of existing healthy chunks.
+                paths[key].write_bytes(b'\xff')
+                before = {p: (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+                          for p in base.rglob('*') if p.is_file()}
+                for args in (['search', 'alpha'], ['rebuild'], ['search', 'alpha'],
+                             ['search', 'healthy', '--task', task_id, '--history']):
+                    result = subprocess.run([*command, *args], cwd=self.root, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    payload = json.loads(result.stdout)
+                    self.assertFalse(payload['index_stale'])
+                    self.assertEqual(payload['skipped'], [{
+                        'path': paths[key].relative_to(self.root).as_posix(),
+                        'reason': 'invalid UTF-8 at byte 0: invalid start byte',
+                    }])
+                    if args[:2] == ['search', 'alpha']:
+                        self.assertEqual(payload['results'][0]['path'], 'docs/facts.md')
+                    elif args[:2] == ['search', 'healthy'] and not (key == 'events' and marker):
+                        self.assertTrue(any(row.get('item_id') == item['id'] for row in payload['results']))
+                self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+                                         for p in base.rglob('*') if p.is_file()})
+                paths[key].write_bytes(originals[key])
+                recovered = self.query('healthy', task=task_id)
+                self.assertEqual(recovered['skipped'], [])
+                self.assertEqual(recovered['results'][0]['item_id'], item['id'])
+
     def test_verified_then_overturned_fact_history_and_read_only_ledger(self):
         base = self.publish()
         old = context.record('T1', statement='先核实 旧事实已经成立', item_type='verified-fact',
@@ -245,6 +287,38 @@ class SearchTests(unittest.TestCase):
             p.relative_to(self.root): (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
             for p in self.root.rglob('*') if p.is_file()
         })
+
+    def _query_unwritable_existing_cache(self, changed):
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        expected = self.query('alpha')
+        if changed:
+            self.doc.write_text('changed alpha fact', encoding='utf-8')
+        cache = self.root / self.search.INDEX_PATH.parent
+        before = {p.relative_to(self.root): (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+                  for p in self.root.rglob('*') if p.is_file()}
+        cache.chmod(0o500)
+        self.addCleanup(cache.chmod, 0o700)
+        self.assertFalse(os.access(cache, os.W_OK))
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/context_search.py'),
+            'search', 'alpha'], cwd=self.root, capture_output=True, text=True)
+        payload = json.loads(result.stdout)
+        if changed:
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertTrue(payload['error'])
+            self.assertTrue(payload['index_stale'])
+        else:
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(payload, expected)
+        self.assertEqual(before, {
+            p.relative_to(self.root): (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+            for p in self.root.rglob('*') if p.is_file()
+        })
+
+    def test_cli_unwritable_existing_cache_with_changed_source_returns_error_json(self):
+        self._query_unwritable_existing_cache(changed=True)
+
+    def test_cli_unwritable_existing_cache_with_unchanged_source_returns_results(self):
+        self._query_unwritable_existing_cache(changed=False)
 
     def test_cli_writes_only_its_index_with_bytecode_environment_unset(self):
         tools = self.root / 'tools'
