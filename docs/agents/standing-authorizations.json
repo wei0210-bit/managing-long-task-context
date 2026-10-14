@@ -22,7 +22,8 @@
         "绕过分支保护"
       ],
       "conditions": [
-        "PR 头提交上 CI workflow「CI」最新一次运行的最新 attempt 已完成，且 docs/agents/quality-floor.json 中 ci_coverage.jobs 列出的全部作业均为 success",
+        "PR 头提交上 CI workflow「CI」按 gh run list --commit <头提交> --workflow CI 取 databaseId 最大的一次运行，其最新 attempt 已完成且整次 conclusion 为 success；该运行的作业集合等于 docs/agents/quality-floor.json 中 ci_coverage.jobs，且每个作业均为 success",
+        "回归清单在 PR 头提交上全过：quality-floor.json 的 ci_coverage 声明成立时以上述 CI 运行的回归步骤为准，否则由协调者在集成提交上复跑一次",
         "PR 内每个任务的独立审核结论为 PASS，或为 PASS_WITH_FINDINGS 且发现均已处理；人工判断类回归条目逐条为通过",
         "每个任务在账本有 decision=pass 且 reproducible=true 的验收记录，其 code_revision.commit 等于 PR 头提交；头提交变化须重新审核与验收",
         "合并后推送一条通知给 David（项目、PR 号、合并提交）"

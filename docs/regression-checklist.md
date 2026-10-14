@@ -599,18 +599,26 @@ python3 - <<'PY'
 import json, re, sys
 quality = json.load(open('docs/agents/quality-floor.json', encoding='utf-8'))
 grant = json.load(open('docs/agents/standing-authorizations.json', encoding='utf-8'))
-jobs = set(re.findall(r'^    name: (.+)$', open('.github/workflows/ci.yml', encoding='utf-8').read(), re.M))
+ci = open('.github/workflows/ci.yml', encoding='utf-8').read()
+workflow = re.search(r'^name: (.+)$', ci, re.M).group(1).strip()
+jobs = set(re.findall(r'^    name: (.+)$', ci, re.M))
 coverage = quality['ci_coverage']
 merge = next(item for item in grant['items'] if item['id'] == 'SA-MERGE-PR')
+push = next(item for item in grant['items'] if item['id'] == 'SA-PUSH-DEFAULT')
 text = '\n'.join(merge['conditions'])
-ok = (coverage['workflow'] == 'CI' and coverage['full_suite'] is True and coverage['regression_checklist'] is True
-      and coverage['jobs'] and set(coverage['jobs']) <= jobs
-      and all(quality['declared'].get(k) for k in ('question', 'choice', 'date', 'session', 'coordinator', 'covers'))
-      and '--auto' in merge['deny'] and '--admin' in merge['deny']
-      and 'ci_coverage.jobs' in text and 'code_revision.commit' in text and 'David' in text)
-print('jobs', sorted(jobs), 'declared', coverage['jobs'], 'ok', ok)
+fields = ('question', 'choice', 'date', 'session', 'coordinator', 'covers')
+ok = (coverage['workflow'] == workflow == 'CI' and coverage['full_suite'] is True
+      and coverage['regression_checklist'] is True and len(jobs) >= 2 and set(coverage['jobs']) == jobs
+      and 'python3 scripts/regression_checklist.py' in ci and ci.count('-m unittest discover -s tests') >= 2
+      and 'sys.version_info[:2] == (3, 9)' in ci
+      and all(quality['declared'].get(k) for k in fields) and all(grant['grant'].get(k) for k in fields)
+      and grant['use_by'] == 'coordinator-only' and any('--match-head-commit' in a for a in merge['allow'])
+      and {'--auto', '--admin'} <= set(merge['deny']) and '直接推送默认分支' in push['deny']
+      and all(word in text for word in ('databaseId', '最新 attempt', 'conclusion', 'ci_coverage.jobs',
+                                          '回归清单', 'code_revision.commit', 'David')))
+print('workflow', workflow, 'jobs', sorted(jobs), 'declared', coverage['jobs'], 'ok', ok)
 sys.exit(0 if ok else 1)
 PY
 ```
 
-Pass: 退出码 0。`quality-floor.json` 声明的作业全部存在于 `.github/workflows/ci.yml`，授权原文字段齐全；`standing-authorizations.json` 的 SA-MERGE-PR 禁止 `--auto`、`--admin`，条件含 `ci_coverage.jobs` 全部作业成功、验收记录提交号等于 PR 头提交、合并后通知 David。
+Pass: 退出码 0。`quality-floor.json` 声明的作业与 `.github/workflows/ci.yml` 的全部作业完全一致（至少 2 个），workflow 名为 `CI`；`ci.yml` 仍运行回归清单、macOS 两次全量并断言系统 python3 为 3.9；两份授权原文字段齐全；SA-MERGE-PR 只由协调者使用、用 `--match-head-commit` 合并、禁止 `--auto`、`--admin`，条件含取 `databaseId` 最大一次运行的最新 attempt 且整次 `conclusion` 成功、`ci_coverage.jobs` 全部成功、回归清单全过、验收记录提交号等于 PR 头提交、合并后通知 David；SA-PUSH-DEFAULT 禁止直接推送默认分支。

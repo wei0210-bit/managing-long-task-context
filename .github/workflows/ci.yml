@@ -129,6 +129,7 @@ jobs:
       - name: Full suite with the system python3
         run: |
           /usr/bin/python3 --version
+          /usr/bin/python3 -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 9) else "system python3 is not 3.9; switch this step to setup-python 3.9 (engineering review 2 R17)")'
           /usr/bin/python3 -m unittest discover -s tests
 
       - name: Set up Python 3.12
