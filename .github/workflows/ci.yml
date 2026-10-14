@@ -37,8 +37,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run all tests, including distribution consistency
-        run: python -m unittest discover -s tests -v
+      - name: Run the regression checklist, including the full test suite (R-004)
+        run: python3 scripts/regression_checklist.py --log-dir "$RUNNER_TEMP/regression-logs"
+
+      - name: Show regression logs after a failure
+        if: failure()
+        run: |
+          for log in "$RUNNER_TEMP"/regression-logs/*; do
+            [ -f "$log" ] || continue
+            echo "::group::$log"
+            cat "$log"
+            echo "::endgroup::"
+          done
 
       - name: Verify complete skill packages outside the checkout
         run: |
@@ -98,3 +108,38 @@ jobs:
 
       - name: Ensure checks did not rewrite tracked files
         run: git diff --exit-code
+
+  macos:
+    name: macOS full suite (system python3 and Python 3.12)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Full suite with the system python3
+        run: |
+          /usr/bin/python3 --version
+          /usr/bin/python3 -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 9) else "system python3 is not 3.9; switch this step to setup-python 3.9 (engineering review 2 R17)")'
+          /usr/bin/python3 -m unittest discover -s tests
+
+      - name: Set up Python 3.12
+        if: ${{ !cancelled() }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Full suite with Python 3.12
+        if: ${{ !cancelled() }}
+        run: |
+          python --version
+          python -m unittest discover -s tests

@@ -1,0 +1,46 @@
+{
+  "schema": "standing-authorizations/v1",
+  "grant": {
+    "question": "（本会话直接消息）",
+    "choice": "standing-authorizations.json 已被 #86 删除，现在每次合并 PR 授权你做；重新设立合并的常设授权",
+    "date": "2026-10-14",
+    "session": "context-skill-for-orca-01",
+    "coordinator": "context-skill-for-orca-01",
+    "covers": "本项目 SA-MERGE-PR 与 SA-PUSH-DEFAULT 两项"
+  },
+  "use_by": "coordinator-only",
+  "merge_authorized": true,
+  "items": [
+    {
+      "id": "SA-MERGE-PR",
+      "allow": [
+        "gh pr merge --squash --match-head-commit <已验收提交>"
+      ],
+      "deny": [
+        "--auto",
+        "--admin",
+        "绕过分支保护"
+      ],
+      "conditions": [
+        "PR 头提交上 CI workflow「CI」按 gh run list --commit <头提交> --workflow CI 取 databaseId 最大的一次运行，其最新 attempt 已完成且整次 conclusion 为 success；该运行的作业集合等于 docs/agents/quality-floor.json 中 ci_coverage.jobs，且每个作业均为 success",
+        "回归清单在 PR 头提交上全过：quality-floor.json 的 ci_coverage 声明成立时以上述 CI 运行的回归步骤为准，否则由协调者在集成提交上复跑一次",
+        "PR 内每个任务的独立审核结论为 PASS，或为 PASS_WITH_FINDINGS 且发现均已处理；人工判断类回归条目逐条为通过",
+        "每个任务在账本有 decision=pass 且 reproducible=true 的验收记录，其 code_revision.commit 等于 PR 头提交；头提交变化须重新审核与验收",
+        "合并后推送一条通知给 David（项目、PR 号、合并提交）"
+      ]
+    },
+    {
+      "id": "SA-PUSH-DEFAULT",
+      "allow": [
+        "默认分支只经 SA-MERGE-PR 合并进入"
+      ],
+      "deny": [
+        "直接推送默认分支",
+        "强推任何分支"
+      ],
+      "conditions": [
+        "只在 SA-MERGE-PR 的条件全部满足时发生"
+      ]
+    }
+  ]
+}
