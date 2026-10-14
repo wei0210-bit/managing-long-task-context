@@ -1,7 +1,9 @@
 """Public searches return source locations and refresh their disposable cache."""
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -150,6 +152,22 @@ class SearchTests(unittest.TestCase):
         after = run('search', '协调者租约')['results'][0]
         self.assertEqual((before['path'], before['line'], before['snippet'], before['score']),
                          (after['path'], after['line'], after['snippet'], after['score']))
+
+    def test_cli_writes_only_its_index_with_bytecode_environment_unset(self):
+        tools = self.root / 'tools'
+        (tools / 'scripts').mkdir(parents=True)
+        shutil.copy2(ROOT / 'scripts/context_search.py', tools / 'scripts/context_search.py')
+        shutil.copytree(ROOT / 'src', tools / 'src', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        before = {p.relative_to(tools): p.read_bytes() for p in tools.rglob('*') if p.is_file()}
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        env = dict(os.environ)
+        env.pop('PYTHONDONTWRITEBYTECODE', None)
+        env.pop('PYTHONPATH', None)
+        result = subprocess.run([sys.executable, str(tools / 'scripts/context_search.py'), 'search', '租约'],
+            cwd=self.root, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertTrue(json.loads(result.stdout)['results'])
+        self.assertEqual(before, {p.relative_to(tools): p.read_bytes() for p in tools.rglob('*') if p.is_file()})
 
 
 if __name__ == '__main__':

@@ -2,6 +2,11 @@
 """Search original context files through a disposable, project-local SQLite cache."""
 from __future__ import annotations
 
+import sys
+
+# The CLI writes only its index, including when the caller has not disabled .pyc files.
+sys.dont_write_bytecode = True
+
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -9,7 +14,6 @@ import json
 from pathlib import Path
 import re
 import sqlite3
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import managing_long_task_context as context
