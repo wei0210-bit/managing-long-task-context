@@ -44,6 +44,8 @@ COPIED_FILES = (
     Path("tests/test_context_skill_router.py"),
     Path("scripts/context_status.py"), Path("tests/test_resume_gate.py"),
     Path("tests/test_ledger_reports.py"),
+    Path("scripts/context_search.py"),
+    Path("tests/test_context_search.py"),
     Path("tests/test_update_item_verified_at.py"),
     Path("tests/test_brief_rendering.py"),
     Path("scripts/package_lineage.py"),

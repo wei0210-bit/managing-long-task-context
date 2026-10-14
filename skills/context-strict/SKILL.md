@@ -88,6 +88,19 @@ commits keep ignored stores separate. Publishing to a remote is an explicit call
 
 ## Package identity and health
 
+Search context on demand with `python3 scripts/context_search.py search "协调者租约"`
+from the project worktree. Optional `--task TASK-001`, `--kind fact|decision|contract|doc`,
+`--limit 20` and explicit `--include /path/to/memory` narrow or extend the search.
+Current ledger items exclude superseded facts; `--history` adds labeled event history.
+Results contain source paths, starting lines, snippets and freshness metadata: read the
+original file before using a result. Every search refreshes the disposable
+`.prime/search/index.sqlite` cache; lock conflicts report `index_stale: true`, and SQLite
+without trigram reports `degraded: like-scan`. `python3 scripts/context_search.py rebuild`
+rebuilds the cache from files. Source files remain read-only: search writes only the
+rebuildable cache under `.prime/search/`, and only that cache file may be deleted. If the
+cache needs to be written and its directory is not writable, the CLI returns error JSON
+without touching another path. An unchanged existing cache remains searchable without writes.
+
 `skill-package.json` declares this package. Build the full package using
 `scripts/skill_package.py`, observe identity using `scripts/context_doctor.py`, and consult
 `references/runtime-identity.md` for details. Identity diagnosis and available ledger context
