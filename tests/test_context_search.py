@@ -95,14 +95,70 @@ class SearchTests(unittest.TestCase):
             result = subprocess.run(['git', 'check-ignore', '.prime/search/index.sqlite'], cwd=ROOT, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def publish(self):
+    def publish(self, task_id='T1'):
         base = self.root / RELATIVE_CONTEXT
-        context.publish_contract({'task_id': 'T1', 'version': 1, 'issued_by': 'tester',
+        context.publish_contract({'task_id': task_id, 'version': 1, 'issued_by': 'tester',
             'issued_at': '2026-10-14T00:00:00Z', 'objective': 'Record facts', 'scope': [],
             'out_of_scope': [], 'constraints': [], 'acceptance_criteria': [
                 {'id': 'AC-1', 'criterion': 'Search source files', 'required_evidence': ['file']}]},
             confirmed_by='tester', base_dir=base)
         return base
+
+    def test_rebuilt_current_facts_have_event_locations_and_history_isolation(self):
+        base = self.publish()
+        old = context.record('T1', statement='original conclusion', item_type='observation',
+            actor='tester', source='file', base_dir=base)
+        new = context.record('T1', statement='current conclusion', item_type='observation',
+            actor='tester', source='file', metadata={'version': 'pending-version'}, supersedes=old['id'], base_dir=base)
+        context.update_item('T1', new['id'], metadata={'version': 'updated conclusion'}, actor='tester', base_dir=base)
+        paths = context._paths('T1', base_dir=base)
+        normal_snapshot = paths['snapshot'].read_bytes()
+        for state in ('marker', 'missing'):
+            with self.subTest(snapshot=state):
+                paths['snapshot'].write_bytes(normal_snapshot)
+                self.assertTrue(self.query('updated')['results'])
+                if state == 'marker':
+                    paths['snapshot'].write_text('{"rebuild": "required"}\n', encoding='utf-8')
+                else:
+                    paths['snapshot'].unlink()
+                before = {p: (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+                          for p in base.rglob('*') if p.is_file()}
+                for rebuilt in (False, True):
+                    if rebuilt:
+                        self.assertFalse(self.search.rebuild(self.root)['index_stale'])
+                    current = self.query('updated', task='T1')['results']
+                    self.assertEqual(len(current), 1)
+                    self.assertEqual(current[0]['item_id'], new['id'])
+                    self.assertFalse(current[0]['history'])
+                    self.assertEqual(current[0]['status'], 'active')
+                    self.assertEqual(current[0]['path'], paths['events'].relative_to(self.root).as_posix())
+                    event = json.loads(paths['events'].read_text(encoding='utf-8').splitlines()[current[0]['line'] - 1])
+                    self.assertEqual(event['payload']['item']['metadata']['version'], 'updated conclusion')
+                    for obsolete in ('original', 'pending-version'):
+                        self.assertFalse(self.query(obsolete, task='T1')['results'])
+                        historical = self.query(obsolete, task='T1', history=True)['results']
+                        self.assertTrue(historical)
+                        self.assertTrue(all(r['history'] and r['status'] == 'superseded' for r in historical))
+                    self.assertTrue(self.query('updated', task='T1', history=True)['results'])
+                self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns, p.stat().st_mode)
+                                         for p in base.rglob('*') if p.is_file()})
+
+    def test_public_search_and_cli_accept_original_normalized_task_id(self):
+        task_id = 'REVIEW / 1'
+        base = self.publish(task_id)
+        item = context.record(task_id, statement='normalized task fact', item_type='observation',
+            actor='tester', source='file', base_dir=base)
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        for marker in (False, True):
+            with self.subTest(marker=marker):
+                if marker:
+                    context._paths(task_id, base_dir=base)['snapshot'].write_text('{"rebuild":"required"}\n')
+                self.assertEqual(self.query('normalized task fact', task=task_id)['results'][0]['item_id'], item['id'])
+                result = subprocess.run([sys.executable, str(ROOT / 'scripts/context_search.py'),
+                    'search', 'normalized task fact', '--task', task_id], cwd=self.root, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertEqual(json.loads(result.stdout)['results'][0]['item_id'], item['id'])
+                self.assertFalse(self.query('normalized task fact', task='REVIEW / 2')['results'])
 
     def test_verified_then_overturned_fact_history_and_read_only_ledger(self):
         base = self.publish()

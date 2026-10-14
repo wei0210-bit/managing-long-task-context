@@ -18,7 +18,7 @@ import sqlite3
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import managing_long_task_context as context
 from managing_long_task_context.project_store import (
-    CONTEXT_PATHS, RELATIVE_CONTEXT, resolve_worktree_root,
+    CONTEXT_PATHS, RELATIVE_CONTEXT, resolve_worktree_root, task_dir,
 )
 
 INDEX_PATH = Path(RELATIVE_CONTEXT).parent / 'search' / 'index.sqlite'
@@ -137,7 +137,8 @@ def _item_locations(text):
 
 
 def _ledger_view(path):
-    task = path.parent.name
+    # Replay validates the original identity, which may differ from its directory.
+    task = context._read_json(path.parent / 'task-contract.json')['task_id']
     paths = context._paths(task, base_dir=path.parent.parent)
     return context._load_snapshot(task, paths)
 
@@ -158,17 +159,31 @@ def _blocks(root, path, text):
     elif ledger and path.name == 'events.jsonl':
         snapshot = _ledger_view(path)
         current = snapshot.get('items', {})
+        try:
+            snapshot_text = (path.parent / 'snapshot.json').read_text(encoding='utf-8')
+            json.loads(snapshot_text)
+            locations = _item_locations(snapshot_text)
+        except (OSError, ValueError):
+            locations = {}
+        event_locations = {}
         events = iter(context._read_events(path))
         for line, raw in enumerate(text.splitlines(), 1):
             if not raw.strip():
                 continue
             event = next(events)
             item = event.get('payload', {}).get('item', {})
+            if item.get('id'):
+                event_locations[item['id']] = line
             metadata = dict(item)
             latest = current.get(item.get('id'), {})
             if latest.get('status') == 'superseded' or (item and item != latest):
                 metadata.update(status='superseded', superseded_by=latest.get('superseded_by'))
             yield line, raw, task, _kind(item) if item else 'contract' if event.get('event_type') == 'contract-published' else 'fact', True, metadata
+        # Current items without snapshot text still have an original event location.
+        # Keep them separate from historical event blocks, without rewriting sources.
+        for identifier, item in current.items():
+            if item.get('status') != 'superseded' and identifier not in locations:
+                yield event_locations[identifier], json.dumps(item, ensure_ascii=False), task, _kind(item), False, item
     else:
         blocks = ((i, line) for i, line in enumerate(text.splitlines(), 1) if line.strip()) if path.suffix == '.jsonl' else _paragraphs(text)
         for line, block in blocks:
@@ -186,6 +201,10 @@ def _refresh(connection, root, sources, force=False):
         initialized = connection.execute("SELECT 1 FROM sqlite_master WHERE name='settings'").fetchone()
         if not initialized:
             _schema(connection)
+        cache_format = connection.execute("SELECT value FROM settings WHERE key='format'").fetchone()
+        if cache_format is None or cache_format[0] != '2':
+            force = True
+            connection.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', ('format', '2'))
         old = {row['path']: row for row in connection.execute('SELECT * FROM files')}
         labels = {_label(root, p): p for p in sources}
         changed = set(old) - set(labels)
@@ -205,8 +224,8 @@ def _refresh(connection, root, sources, force=False):
                 connection.execute('UPDATE chunks SET file_mtime=? WHERE path=?', (stat.st_mtime, label))
         # Historical item labels depend on the current snapshot, and rebuilds depend on events.
         for label in list(changed):
-            path = labels.get(label)
-            if path and (root / RELATIVE_CONTEXT).resolve() in path.resolve().parents:
+            path = labels.get(label, root / label)
+            if (root / RELATIVE_CONTEXT).resolve() in path.resolve().parents:
                 changed.update(_label(root, p) for p in sources if p.parent == path.parent and p.name in ('snapshot.json', 'events.jsonl'))
         mode = connection.execute("SELECT value FROM settings WHERE key='mode'").fetchone()[0]
         for label in sorted(changed):
@@ -279,7 +298,7 @@ def search(root, words, *, task=None, kind=None, include=(), limit=20, history=F
             where.append('c.history=0')
         if task is not None:
             where.append('c.task=?')
-            parameters.append(task)
+            parameters.append(task_dir(task, worktree=root).name)
         if kind is not None:
             where.append('c.kind=?')
             parameters.append(kind)
