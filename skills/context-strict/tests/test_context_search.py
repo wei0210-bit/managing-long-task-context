@@ -162,9 +162,14 @@ class SearchTests(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
         env = dict(os.environ)
         env.pop('PYTHONDONTWRITEBYTECODE', None)
-        env.pop('PYTHONPYCACHEPREFIX', None)
         env.pop('PYTHONPATH', None)
-        result = subprocess.run([sys.executable, str(tools / 'scripts/context_search.py'), 'search', '租约'],
+        # Apple Python has an implicit external pycache prefix. Force normal source-local
+        # caching after interpreter startup so this oracle also catches writes on macOS.
+        env['PYTHONPYCACHEPREFIX'] = str(self.root / 'interpreter-cache')
+        bootstrap = ('import sys, runpy; sys.pycache_prefix=None; '
+                     'sys.dont_write_bytecode=False; sys.argv=sys.argv[1:]; '
+                     'runpy.run_path(sys.argv[0], run_name="__main__")')
+        result = subprocess.run([sys.executable, '-c', bootstrap, str(tools / 'scripts/context_search.py'), 'search', '租约'],
             cwd=self.root, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertTrue(json.loads(result.stdout)['results'])
