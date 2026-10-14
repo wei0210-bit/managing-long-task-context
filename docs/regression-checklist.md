@@ -64,12 +64,19 @@ Pass: the second column (deleted lines) is `0`, or there is no output.
 Added: #39.
 
 ```sh
-python3 -m unittest discover -s tests
+status=0
+output="$(python3 -m unittest discover -s tests 2>&1)" || status=$?
+printf '%s\n' "$output" | tail -n 3
+count="$(printf '%s\n' "$output" | sed -n 's/^Ran \([0-9][0-9]*\) tests* in .*/\1/p')"
+test "$status" -eq 0
+test "${count:-0}" -ge 444
 ```
 
-Pass: the run ends with `OK`; record the retained test count. STRICT-LEDGER retires
-the old 704-test floor with the approved deletion of execution/session tests; retained
-ledger tests must still all pass.
+Pass: the run ends with `OK` and the test count is at least the floor written in the
+command (444). STRICT-LEDGER retired the old 704-test floor with the approved deletion of
+execution/session tests; CI-COVERAGE restores a floor at the retained count (David
+2026-10-14, engineering review 2 R16). Lowering the floor needs David's direct
+authorization recorded as a `DAVID_AUTH` line in the task contract.
 
 ### R-005 The generated Strict package has no drift
 Retired (#52, superseded by R-011: untracked task-store design artifacts cause false failures)
