@@ -589,3 +589,28 @@ PYTHONPATH=src:tests python3 -m unittest tests.test_context_skill_router
 ```
 
 Pass: OK。`frozen_acceptance`、`independent_validation` 作为输入字段返回 `ROUTE_UNKNOWN_FIELD`；其余触发信号、风险事实不全与多代理时仍推荐 Strict。
+
+### R-045 CI 全量声明与合并常设授权和 CI 配置一致
+
+Added: CI-COVERAGE T5 与合并常设授权（David 2026-10-14；工程评审 2 R12、R21）。
+
+```sh
+python3 - <<'PY'
+import json, re, sys
+quality = json.load(open('docs/agents/quality-floor.json', encoding='utf-8'))
+grant = json.load(open('docs/agents/standing-authorizations.json', encoding='utf-8'))
+jobs = set(re.findall(r'^    name: (.+)$', open('.github/workflows/ci.yml', encoding='utf-8').read(), re.M))
+coverage = quality['ci_coverage']
+merge = next(item for item in grant['items'] if item['id'] == 'SA-MERGE-PR')
+text = '\n'.join(merge['conditions'])
+ok = (coverage['workflow'] == 'CI' and coverage['full_suite'] is True and coverage['regression_checklist'] is True
+      and coverage['jobs'] and set(coverage['jobs']) <= jobs
+      and all(quality['declared'].get(k) for k in ('question', 'choice', 'date', 'session', 'coordinator', 'covers'))
+      and '--auto' in merge['deny'] and '--admin' in merge['deny']
+      and 'ci_coverage.jobs' in text and 'code_revision.commit' in text and 'David' in text)
+print('jobs', sorted(jobs), 'declared', coverage['jobs'], 'ok', ok)
+sys.exit(0 if ok else 1)
+PY
+```
+
+Pass: 退出码 0。`quality-floor.json` 声明的作业全部存在于 `.github/workflows/ci.yml`，授权原文字段齐全；`standing-authorizations.json` 的 SA-MERGE-PR 禁止 `--auto`、`--admin`，条件含 `ci_coverage.jobs` 全部作业成功、验收记录提交号等于 PR 头提交、合并后通知 David。

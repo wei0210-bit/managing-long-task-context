@@ -1,0 +1,25 @@
+{
+  "schema": "quality-floor/v1",
+  "ci_coverage": {
+    "workflow": "CI",
+    "jobs": [
+      "Tests and skill packages",
+      "macOS full suite (system python3 and Python 3.12)"
+    ],
+    "full_suite": true,
+    "regression_checklist": true,
+    "interpreters": [
+      "ubuntu-24.04/python3.12",
+      "macos/system-python3",
+      "macos/python3.12"
+    ]
+  },
+  "declared": {
+    "question": "（本会话直接消息）",
+    "choice": "T3 到 T6（改 CI、回归清单、质量底线声明、全局规则）实施时都直接授权",
+    "date": "2026-10-14",
+    "session": "context-skill-for-orca-01",
+    "coordinator": "context-skill-for-orca-01",
+    "covers": "docs/agents/quality-floor.json 的 ci_coverage 声明（工程评审 2 R12）"
+  }
+}
