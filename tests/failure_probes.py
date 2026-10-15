@@ -1,6 +1,6 @@
 """Cold-start failure-path probes, with entry-specific expectations."""
 import argparse
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -225,16 +225,38 @@ def run_variant(entry, variant, temp_dir=None):
                stdout_excerpt='', stderr_excerpt='', baseline={}, argv=[], cwd=None)
     if variant.name in entry.exclude:
         return row
-    root = Path(tempfile.mkdtemp(prefix='failure-probe-', dir=temp_dir)).resolve()
+    restricted = variant.category == 'unreadable' and not variant.name.startswith('normal-')
+    if restricted and os.geteuid() == 0:
+        row.update(verdict='fail' if os.environ.get('CI') == 'true' else 'skipped',
+                   reason='root-can-read-0000')
+        return row
+    workspace = Path(tempfile.mkdtemp(prefix='failure-probe-', dir=temp_dir)).resolve()
+    root = workspace / 'tree'
     try:
+        root.mkdir()
+        decoy = workspace / 'decoy'
+        decoy.mkdir()
+        (decoy / 'hidden.md').write_text('probetoken external\n', encoding='utf-8')
         entry.scaffold(root)
-        target = entry.place(variant, root)
+        # Place the readable fixture first so the snapshot includes locked descendants.
+        target = entry.place(replace(variant, make=lambda path: None) if restricted else variant, root)
         row['target'] = str(target)
-        # scaffold -> place -> snapshot -> run -> baselines -> processed -> expect -> known
-        before = snapshot(root)
-        result = entry.adapter.run(root)
-        after = snapshot(root)
-        changes = changed_paths(before, after, entry.writable)
+        before = snapshot(workspace)
+        mode_changed = False
+        if restricted:
+            original_mode = stat.S_IMODE(target.lstat().st_mode)
+            variant.make(target)
+        # snapshot -> restrict -> run -> restore -> snapshot -> baselines -> expect -> known
+        try:
+            result = entry.adapter.run(root)
+        finally:
+            if restricted and target.exists() and not target.is_symlink():
+                mode_changed = stat.S_IMODE(target.lstat().st_mode) != 0
+                target.chmod(original_mode)
+        after = snapshot(workspace)
+        changes = changed_paths(before, after, tuple('tree/' + path for path in entry.writable))
+        if mode_changed:
+            changes.append(target.relative_to(workspace).as_posix() + ' (permissions)')
         baseline = {'1': TRACEBACK not in result['stdout'] + result['stderr'],
                     '2': not result['timed_out'], '3': not changes}
         row.update(exit_code=result['exit_code'], timed_out=result['timed_out'],
@@ -251,14 +273,15 @@ def run_variant(entry, variant, temp_dir=None):
             if not baseline['3']:
                 reasons.append('baseline 3: changed paths: ' + ', '.join(changes))
             row.update(verdict='fail', reason='; '.join(reasons))
-        elif not processed(target, result, variant.category):
+        elif not (variant.category == 'symlink' and variant.kind == 'link' and target.is_symlink()) \
+                and not processed(target, result, variant.category):
             row.update(verdict='vacuous', reason='target was not processed')
         else:
             verdict, reason = entry.expect(variant, target, result)
             row.update(verdict=verdict, reason=reason)
         return _apply_known(entry, row, result['stdout'], result['stderr'])
     finally:
-        cleanup(root)
+        cleanup(workspace)
 
 
 def run(entry, categories=None, temp_dir=None):
@@ -266,7 +289,10 @@ def run(entry, categories=None, temp_dir=None):
     rows = [run_variant(entry, variant, temp_dir) for category in selected
             for variant in entry.categories[category]]
     return dict(entry=entry.name, created_at=datetime.now(timezone.utc).isoformat(),
-                observation_scope='probe tree final state; external and unreadable contents deferred',
+                observation_scope=('Final state of entire probe tree except declared writable paths, '
+                                   'external decoy contents, and unreadable contents captured before '
+                                   'restriction and checked after restoring permissions; paths outside '
+                                   'this scope and intermediate writes are not observed.'),
                 results=rows, counts={verdict: sum(row['verdict'] == verdict for row in rows)
                                     for verdict in ('pass', 'fail', 'vacuous', 'undecided',
                                                     'adapter_error', 'excluded', 'skipped')})
@@ -362,6 +388,33 @@ def special_chars_variants():
     ]
 
 
+def unreadable_variants():
+    return [
+        Variant('unreadable', 'normal-unreadable', 'file', _bytes(b'probetoken document\n')),
+        Variant('unreadable', 'unreadable-contract', 'file', lambda path: path.chmod(0)),
+        Variant('unreadable', 'unreadable-doc', 'file', lambda path: path.chmod(0)),
+        Variant('unreadable', 'unreadable-subdir', 'dir', lambda path: path.chmod(0)),
+        Variant('unreadable', 'unreadable-root', 'dir', lambda path: path.chmod(0)),
+    ]
+
+
+def symlink_variants():
+    def directory(path):
+        target = path.parent.parent / 'linked-target'
+        target.mkdir()
+        (target / 'hidden.md').write_text('probetoken linked\n', encoding='utf-8')
+        path.symlink_to('../linked-target', target_is_directory=True)
+
+    return [
+        Variant('symlink', 'normal-symlink', 'file', _bytes(b'probetoken document\n')),
+        Variant('symlink', 'symlink-directory', 'link', directory),
+        Variant('symlink', 'symlink-loop', 'link', lambda path: path.symlink_to(path.name)),
+        Variant('symlink', 'symlink-broken', 'link', lambda path: path.symlink_to('missing')),
+        Variant('symlink', 'symlink-external', 'link',
+                lambda path: path.symlink_to('../../decoy', target_is_directory=True)),
+    ]
+
+
 def search_scaffold(root):
     subprocess.run(['git', 'init', '-q', str(root)], check=True, capture_output=True)
     ledger = root / '.prime/context/T'
@@ -386,6 +439,19 @@ def search_place(variant, root):
         target = ledger / ('events.jsonl' if variant.name.endswith('events') else 'snapshot.json')
     elif variant.category == 'special_chars':
         target = ledger / 'snapshot.json' if variant.name == 'json-surrogate' else root / 'docs/a.md'
+    elif variant.category == 'unreadable':
+        if variant.name == 'unreadable-contract':
+            target = ledger / 'task-contract.json'
+        elif variant.name == 'unreadable-subdir':
+            target = root / 'docs/sub'
+            target.mkdir()
+            (target / 'a.md').write_text('probetoken hidden\n', encoding='utf-8')
+        elif variant.name == 'unreadable-root':
+            target = root
+        else:
+            target = root / 'docs/a.md'
+    elif variant.category == 'symlink':
+        target = root / ('docs/probe.md' if variant.kind == 'link' else 'docs/a.md')
     else:
         raise ValueError('no place for ' + variant.category)
     variant.make(target)
@@ -486,6 +552,22 @@ def search_expect(variant, target, result):
     label = target.relative_to(Path(result['cwd'])).as_posix()
     paths = _result_paths(payload)
     skipped = _skipped_reasons(payload)
+    if variant.category == 'unreadable':
+        if variant.name == 'normal-unreadable':
+            if label not in paths:
+                return 'fail', 'expect: readable target must be searchable'
+        elif not skipped.get(label):
+            return 'fail', 'expect: unreadable target must be skipped with reason'
+        if not _others_searchable(paths, label):
+            return 'fail', 'expect: other readable files must remain searchable'
+        return 'pass', 'expect: target handled and other files searchable'
+    if variant.category == 'symlink':
+        if variant.kind == 'link' and any(path == label or path.startswith(label + '/')
+                                          or path not in _SEARCH_CONTROLS for path in paths):
+            return 'fail', 'expect: links and linked contents must not be indexed'
+        if not set(_SEARCH_CONTROLS).issubset(paths):
+            return 'fail', 'expect: other readable files must remain searchable'
+        return 'pass', 'expect: links are not followed; readable controls searchable'
     if variant.category == 'encoding':
         return _expect_encoding(variant, label, paths, skipped)
     if variant.category == 'malformed_json':
@@ -502,6 +584,9 @@ _ISSUE = 'https://github.com/wei0210-bit/managing-long-task-context/issues/'
 
 def context_search_entry(repo=ROOT):
     known = {
+        'unreadable-contract': (_ISSUE + '111', 'expect，exit 1，Permission denied'),
+        'unreadable-doc': (_ISSUE + '112', 'expect，exit 1，Permission denied'),
+        'unreadable-subdir': (_ISSUE + '113', 'expect，exit 0，target was not processed'),
         'truncated-snapshot': (_ISSUE + '98', "expect，exit 1，Expecting ',' delimiter"),
         'toplevel-array': (_ISSUE + '99', 'expect，exit 0，target was not processed'),
         'items-list': (_ISSUE + '100', "底线 1，AttributeError: 'list' object has no attribute 'items'"),
@@ -530,7 +615,11 @@ def context_search_entry(repo=ROOT):
                      'malformed_json': malformed_json_variants(),
                      'deep_nesting': deep_nesting_variants(),
                      'special_chars': special_chars_variants(),
-                 }, known=known, pending={'bom-doc'})
+                     'unreadable': unreadable_variants(),
+                     'symlink': symlink_variants(),
+                 }, exclude={'unreadable-root': '入口形状：根来自工作目录的 git rev-parse；'
+                             '0000 仓库根使子进程无法进入工作目录，入口没有根参数'},
+                 known=known, pending={'bom-doc'})
 
 
 ENTRIES = {'context_search': context_search_entry()}

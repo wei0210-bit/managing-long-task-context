@@ -99,6 +99,31 @@ class FailureProbeTests(unittest.TestCase):
         self.assertTrue(row['unreadable'])
         self.assertNotIn('sha256', row)
 
+    def test_unreadable_and_symlink_snapshots_and_cleanup(self):
+        outside = self.root / 'decoy'
+        outside.mkdir()
+        (outside / 'hidden.md').write_text('probetoken external\n', encoding='utf-8')
+        original = probes.snapshot(outside)
+        for variant in probes.unreadable_variants() + probes.symlink_variants():
+            with self.subTest(variant=variant.name):
+                tree = self.root / variant.name
+                tree.mkdir()
+                try:
+                    probes.search_scaffold(tree)
+                    target = probes.search_place(variant, tree)
+                    before = probes.snapshot(tree)
+                    self.assertEqual(before, probes.snapshot(tree))
+                    row = before[target.relative_to(tree).as_posix()]
+                    if variant.kind == 'link':
+                        self.assertIn('link', row)
+                        self.assertFalse(any(path.startswith('docs/probe.md/') for path in before))
+                    elif not variant.name.startswith('normal-'):
+                        self.assertTrue(row['unreadable'])
+                finally:
+                    probes.cleanup(tree)
+                self.assertFalse(tree.exists())
+                self.assertEqual(probes.snapshot(outside), original)
+
     def test_traceback_is_failure_even_when_pending(self):
         report, row = self.run_fake("raise RuntimeError('broken')\n", pending=True)
         self.assertEqual(row['verdict'], 'fail')
@@ -121,6 +146,145 @@ class FailureProbeTests(unittest.TestCase):
         self.assertIn('baseline 3', row['reason'])
         self.assertIn('target', row['reason'])
         self.assertEqual(probes.exit_code(report), 1)
+
+    def filesystem_entry(self, category, name, body):
+        entry = self.fake_entry(body)
+        real = probes.context_search_entry()
+        variant = next(item for item in real.categories[category] if item.name == name)
+        return replace(entry, scaffold=probes.search_scaffold, place=probes.search_place,
+                       categories={category: [variant]})
+
+    def test_external_decoy_write_is_baseline_3_failure(self):
+        entry = self.filesystem_entry('symlink', 'symlink-external',
+            "from pathlib import Path\nPath('docs/probe.md/hidden.md').write_text('changed')\n")
+        before = set(self.root.iterdir())
+        row = probes.run(entry, temp_dir=self.root)['results'][0]
+        self.assertEqual(row['verdict'], 'fail')
+        self.assertIn('baseline 3', row['reason'])
+        self.assertIn('decoy/hidden.md', row['reason'])
+        self.assertEqual(before, set(self.root.iterdir()))
+
+    def test_sibling_decoy_mutation_cannot_escape_tree_snapshot(self):
+        report, row = self.run_fake(
+            "from pathlib import Path\np=Path('../decoy')\np.mkdir(exist_ok=True)\n"
+            "(p/'hidden.md').write_text('changed')\n"
+            "print('{\"results\": [{\"path\": \"target\"}]}')\n")
+        self.assertEqual(row['verdict'], 'fail')
+        self.assertIn('baseline 3', row['reason'])
+        self.assertEqual(probes.exit_code(report), 1)
+
+    def test_unreadable_internal_write_is_baseline_3_failure(self):
+        for name, path, child in (
+            ('unreadable-subdir', 'docs/sub', 'docs/sub/a.md'),
+            ('unreadable-doc', 'docs/a.md', 'docs/a.md'),
+        ):
+            with self.subTest(name=name):
+                entry = self.filesystem_entry('unreadable', name,
+                    "from pathlib import Path\np=Path(%r)\np.chmod(0o700)\n"
+                    "Path(%r).write_text('changed')\np.chmod(0)\n" % (path, child))
+                before = set(self.root.iterdir())
+                with patch.object(probes.os, 'geteuid', return_value=501):
+                    report = probes.run(entry, temp_dir=self.root)
+                row = report['results'][0]
+                self.assertEqual(row['verdict'], 'fail')
+                self.assertIn('baseline 3', row['reason'])
+                self.assertIn(child, row['reason'])
+                self.assertEqual(probes.exit_code(report), 1)
+                self.assertEqual(before, set(self.root.iterdir()))
+
+    def test_root_unreadable_skip_locally_fails_in_ci(self):
+        entry = self.filesystem_entry('unreadable', 'unreadable-doc',
+                                      "raise RuntimeError('must not run')\n")
+        for ci, verdict, code in (('', 'skipped', 0), ('true', 'fail', 1)):
+            with self.subTest(ci=ci), patch.object(probes.os, 'geteuid', return_value=0), \
+                    patch.dict(os.environ, {'CI': ci}):
+                with patch.object(probes.tempfile, 'mkdtemp', side_effect=AssertionError('created tree')):
+                    report = probes.run(entry, temp_dir=self.root)
+                row = report['results'][0]
+                self.assertEqual(row['verdict'], verdict)
+                self.assertIn('root-can-read-0000', row['reason'])
+                self.assertFalse(row['known'])
+                self.assertEqual(probes.exit_code(report), code)
+
+    def test_unreadable_root_excluded_for_entry_shape_even_in_ci(self):
+        entry = probes.context_search_entry()
+        variant = next(item for item in entry.categories['unreadable'] if item.name == 'unreadable-root')
+        with patch.object(probes.os, 'geteuid', return_value=0), patch.dict(os.environ, {'CI': 'true'}):
+            row = probes.run_variant(entry, variant, self.root)
+        self.assertEqual(row['verdict'], 'excluded')
+        self.assertIn('入口形状', row['reason'])
+        self.assertIn('git rev-parse', row['reason'])
+
+    def test_six_categories_cleanup_and_report_scope(self):
+        before = set(self.root.iterdir())
+        report = probes.run(probes.context_search_entry(), temp_dir=self.root)
+        self.assertEqual(set(row['category'] for row in report['results']), {
+            'encoding', 'malformed_json', 'deep_nesting', 'special_chars', 'unreadable', 'symlink'})
+        self.assertEqual(probes.exit_code(report), 0, [
+            (row['variant'], row['verdict'], row['reason'], row['known'])
+            for row in report['results'] if probes.exit_code({'results': [row]})])
+        self.assertEqual(before, set(self.root.iterdir()))
+        self.assertIn('decoy', report['observation_scope'])
+        self.assertIn('unreadable', report['observation_scope'])
+        self.assertIn('outside this scope', report['observation_scope'])
+        by_name = {row['variant']: row for row in report['results']}
+        for name in ('symlink-directory', 'symlink-loop', 'symlink-broken', 'symlink-external'):
+            self.assertEqual(by_name[name]['verdict'], 'pass', by_name[name])
+        if os.geteuid() != 0:
+            for name in ('unreadable-contract', 'unreadable-doc', 'unreadable-subdir'):
+                self.assertTrue(by_name[name]['known']['matched'], by_name[name])
+                self.assertNotIn(name, probes.context_search_entry().pending)
+
+    def test_permissions_restored_before_snapshot_and_cleanup_after_adapter_error(self):
+        entry = self.filesystem_entry('unreadable', 'unreadable-subdir', 'pass\n')
+        before = set(self.root.iterdir())
+        observations = []
+        snapshot = probes.snapshot
+
+        def capture(root):
+            state = snapshot(root)
+            observations.append(state)
+            return state
+
+        with patch.object(probes.os, 'geteuid', return_value=501), \
+                patch.object(probes, 'snapshot', side_effect=capture):
+            probes.run(entry, temp_dir=self.root)
+        self.assertEqual(len(observations), 2)
+        self.assertIn('sha256', observations[0]['tree/docs/sub/a.md'])
+        self.assertEqual(observations[0], observations[1])
+        self.assertEqual(before, set(self.root.iterdir()))
+        with patch.object(probes.os, 'geteuid', return_value=501), \
+                patch.object(entry.adapter, 'run', side_effect=RuntimeError('adapter broke')):
+            with self.assertRaisesRegex(RuntimeError, 'adapter broke'):
+                probes.run(entry, temp_dir=self.root)
+        self.assertEqual(before, set(self.root.iterdir()))
+
+    def test_symlink_expect_rejects_followed_contents_and_accepts_unreadable_skip(self):
+        entry = probes.context_search_entry()
+        result = {'cwd': str(self.root), 'exit_code': 0, 'stdout': ''}
+        controls = [{'path': path} for path in probes._SEARCH_CONTROLS]
+        for variant in entry.categories['symlink']:
+            if variant.kind != 'link':
+                continue
+            with self.subTest(name=variant.name):
+                target = self.root / 'docs/probe.md'
+                for extra in ('docs/probe.md/hidden.md', '../decoy/hidden.md', 'linked-target/hidden.md'):
+                    result['stdout'] = json.dumps({'results': controls + [{'path': extra}]})
+                    verdict, reason = probes.search_expect(variant, target, result)
+                    self.assertEqual(verdict, 'fail')
+                    self.assertIn('must not be indexed', reason)
+        for variant in entry.categories['unreadable']:
+            if variant.name.startswith('normal-') or variant.name == 'unreadable-root':
+                continue
+            with self.subTest(name=variant.name):
+                label = {'unreadable-contract': '.prime/context/T/task-contract.json',
+                         'unreadable-doc': 'docs/a.md', 'unreadable-subdir': 'docs/sub'}[variant.name]
+                target = self.root / label
+                others = [row for row in controls if row['path'] != label]
+                result['stdout'] = json.dumps({'results': others, 'skipped': [{'path': label, 'reason': 'denied'}]})
+                self.assertEqual(probes.search_expect(variant, target, result)[0], 'pass')
+                result['stdout'] = json.dumps({'results': others, 'skipped': []})
+                self.assertEqual(probes.search_expect(variant, target, result)[0], 'fail')
 
     def test_writable_prefix_has_path_boundary_and_allows_sqlite_sidecars(self):
         before = {'docs/a.md': {'sha256': 'a'}}
