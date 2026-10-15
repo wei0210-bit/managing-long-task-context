@@ -508,7 +508,7 @@ def _expect_malformed(variant, label, paths, skipped):
             return 'fail', 'expect: normal snapshot must be searchable'
     else:
         events = Path(label).with_name('events.jsonl').as_posix()
-        if not (skipped.get(label) or events in paths or label in paths):
+        if not (skipped.get(label) or events in paths):
             return 'fail', 'expect: malformed target must be skipped or rebuilt from events.jsonl'
     if not _others_searchable(paths, label):
         return 'fail', 'expect: other readable files must remain searchable'

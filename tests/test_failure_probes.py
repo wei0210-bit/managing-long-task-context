@@ -446,6 +446,46 @@ class FailureProbeTests(unittest.TestCase):
                 self.assertIn('target was not processed', row['reason'])
                 self.assertEqual(probes.exit_code(report), 1)
 
+    def test_malformed_plain_snapshot_result_is_rejected(self):
+        script = self.root / 'plain_snapshot.py'
+        # Report the bad snapshot as an ordinary hit, without parsing or fallback.
+        script.write_text('import json\nprint(' + repr(json.dumps({
+            'results': [{'path': path} for path in probes._SEARCH_CONTROLS],
+            'skipped': []})) + ')\n', encoding='utf-8')
+        real = probes.context_search_entry()
+        variants = [variant for variant in real.categories['malformed_json']
+                    if variant.name != 'malformed-normal']
+        for variant in variants:
+            with self.subTest(variant=variant.name):
+                entry = replace(real, known={}, pending=set(),
+                    categories={'malformed_json': [variant]},
+                    adapter=probes.CliAdapter(lambda root: [sys.executable, str(script)],
+                                             lambda root: root, {'PATH': os.defpath}, 3))
+                report = probes.run(entry, temp_dir=self.root)
+                row = report['results'][0]
+                self.assertTrue(all(row['baseline'].values()))
+                self.assertEqual(row['verdict'], 'fail')
+                self.assertEqual(row['reason'],
+                    'expect: malformed target must be skipped or rebuilt from events.jsonl')
+                self.assertEqual(probes.exit_code(report), 1)
+
+    def test_malformed_normal_and_all_invalid_variants_allow_skip_or_fallback(self):
+        probes.search_scaffold(self.root)
+        snapshot = self.root / '.prime/context/T/snapshot.json'
+        label = snapshot.relative_to(self.root).as_posix()
+        others = [{'path': path} for path in probes._SEARCH_CONTROLS if path != label]
+        for variant in probes.malformed_json_variants():
+            variant.make(snapshot)
+            accepted = ([{'results': others + [{'path': label}], 'skipped': []}]
+                        if variant.name == 'malformed-normal' else [
+                            {'results': others + [{'path': '.prime/context/T/events.jsonl'}],
+                             'skipped': []},
+                            {'results': others, 'skipped': [{'path': label, 'reason': 'bad json'}]}])
+            for payload in accepted:
+                with self.subTest(variant=variant.name, payload=payload):
+                    result = {'cwd': str(self.root), 'exit_code': 0, 'stdout': json.dumps(payload)}
+                    self.assertEqual(probes.search_expect(variant, snapshot, result)[0], 'pass')
+
     def test_expect_accepts_fallback_skip_and_rejects_shifted_lines(self):
         probes.search_scaffold(self.root)
         snapshot = self.root / '.prime/context/T/snapshot.json'
