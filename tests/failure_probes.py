@@ -66,6 +66,22 @@ class Entry:
     known: dict = field(default_factory=dict)
     pending: set = field(default_factory=set)
 
+    def __post_init__(self):
+        self.pending = set(self.pending)
+        blocked = sorted(name for name, spec in self.known.items()
+                         if isinstance(spec, tuple) and len(spec) == 2
+                         and str(spec[1]).startswith('底线') and name in self.pending)
+        if blocked:
+            raise ValueError('baseline violation cannot be pending: ' + ', '.join(blocked))
+        for name, spec in self.known.items():
+            if not (isinstance(spec, tuple) and len(spec) == 2 and spec[0] and spec[1]):
+                raise ValueError('known entry must be (issue, signature): ' + name)
+            if not str(spec[0]).startswith('https://'):
+                raise ValueError('known issue must be an https link: ' + name)
+        overlap = sorted(set(self.known) & self.pending)
+        if overlap:
+            raise ValueError('variant cannot be both known and pending: ' + ', '.join(overlap))
+
 
 def snapshot(root):
     """Observe final state without traversing links or opening unreadable paths."""
@@ -151,6 +167,57 @@ def processed(target, result, category):
     return label in error or str(target) in error
 
 
+def _parse_signature(signature):
+    if signature.startswith('底线 '):
+        head, fragment = signature.split('，', 1)
+        number = head[len('底线 '):].strip()
+        if number not in ('1', '2', '3') or not fragment:
+            return None
+        return ('baseline', number, fragment)
+    if not signature.startswith('expect，exit '):
+        return None
+    exit_text, fragment = signature[len('expect，'):].split('，', 1)
+    number = exit_text[len('exit '):].strip()
+    if not number.isdigit() or not fragment:
+        return None
+    return ('expect', int(number), fragment)
+
+
+def _signature_matches(row, signature, stdout, stderr):
+    """Exempt a known failure only when the registered baseline or expect fragment is the one observed."""
+    parsed = _parse_signature(signature)
+    if parsed is None or row['verdict'] == 'pass':
+        return False
+    corpus = '\n'.join((row.get('reason') or '', stdout or '', stderr or ''))
+    if parsed[0] == 'baseline':
+        number, fragment = parsed[1], parsed[2]
+        baselines = row['baseline']
+        others_ok = all(baselines.get(key) is True for key in ('1', '2', '3') if key != number)
+        return (row['verdict'] == 'fail' and row['exit_code'] == 1 and fragment in corpus
+                and baselines.get(number) is False and others_ok)
+    exit_code, fragment = parsed[1], parsed[2]
+    return (all(row['baseline'].values()) and row['exit_code'] == exit_code
+            and row['verdict'] in ('fail', 'vacuous') and fragment in corpus)
+
+
+def _known_view(entry, row, stdout, stderr):
+    spec = entry.known.get(row['variant'])
+    if spec is None:
+        return False
+    issue, signature = spec
+    return {'issue': issue, 'signature': signature,
+            'matched': _signature_matches(row, signature, stdout, stderr)}
+
+
+def _apply_known(entry, row, stdout, stderr):
+    row['known'] = _known_view(entry, row, stdout, stderr)
+    known = row['known']
+    if isinstance(known, dict) and row['verdict'] != 'pass' and not known['matched'] and row['verdict'] != 'fail':
+        row['verdict'] = 'fail'
+        row['reason'] = 'known signature mismatch: ' + row['reason']
+    return row
+
+
 def run_variant(entry, variant, temp_dir=None):
     row = dict(category=variant.category, variant=variant.name, target=None,
                verdict='excluded', known=False, pending=variant.name in entry.pending,
@@ -163,7 +230,7 @@ def run_variant(entry, variant, temp_dir=None):
         entry.scaffold(root)
         target = entry.place(variant, root)
         row['target'] = str(target)
-        # scaffold -> place -> snapshot -> run -> baselines -> processed -> expect
+        # scaffold -> place -> snapshot -> run -> baselines -> processed -> expect -> known
         before = snapshot(root)
         result = entry.adapter.run(root)
         after = snapshot(root)
@@ -189,7 +256,7 @@ def run_variant(entry, variant, temp_dir=None):
         else:
             verdict, reason = entry.expect(variant, target, result)
             row.update(verdict=verdict, reason=reason)
-        return row
+        return _apply_known(entry, row, result['stdout'], result['stderr'])
     finally:
         cleanup(root)
 
@@ -205,10 +272,19 @@ def run(entry, categories=None, temp_dir=None):
                                                     'adapter_error', 'excluded', 'skipped')})
 
 
+def _affects_exit(row):
+    known = row['known']
+    if isinstance(known, dict):
+        return row['verdict'] == 'pass' or not known['matched']
+    if row['verdict'] not in ('fail', 'vacuous', 'undecided', 'adapter_error'):
+        return False
+    if not row['pending']:
+        return True
+    return row['verdict'] == 'adapter_error' or not all(row['baseline'].values())
+
+
 def exit_code(report):
-    return int(any(row['verdict'] in ('fail', 'vacuous', 'undecided', 'adapter_error')
-                   and (not row['pending'] or row['verdict'] == 'adapter_error'
-                        or not all(row['baseline'].values())) for row in report['results']))
+    return int(any(_affects_exit(row) for row in report['results']))
 
 
 def encoding_variants():
@@ -221,6 +297,68 @@ def encoding_variants():
         Variant('encoding', 'invalid-utf8-doc', 'file', content(b'probetoken \xff\xfe\n')),
         Variant('encoding', 'cp1252-doc', 'file', content('probetoken \u20ac \u201cquote\u201d\n'.encode('cp1252'))),
         Variant('encoding', 'bom-doc', 'file', content(b'\xef\xbb\xbfprobetoken BOM\n')),
+    ]
+
+
+def _bytes(data):
+    def make(path):
+        path.write_bytes(data if isinstance(data, bytes) else data.encode('utf-8'))
+    return make
+
+
+def _nested(kind, depth=100000):
+    if kind == 'array':
+        return '[' * depth + '"probetoken"' + ']' * depth
+    return '{"k":' * depth + '"probetoken"' + '}' * depth
+
+
+def _write_nested(kind, newline=False):
+    def make(path):
+        text = _nested(kind) + ('\n' if newline else '')
+        path.write_text(text, encoding='utf-8')
+    return make
+
+
+_NORMAL_SNAPSHOT = json.dumps({'items': {'I1': {
+    'id': 'I1', 'type': 'observation', 'status': 'active', 'statement': 'probetoken fact'}}})
+
+
+def malformed_json_variants():
+    return [
+        Variant('malformed_json', 'malformed-normal', 'file', _bytes(_NORMAL_SNAPSHOT)),
+        Variant('malformed_json', 'truncated-snapshot', 'file', _bytes(
+            '{"items": {"I1": {"id": "I1", "type": "observation", "status": "active", "statement": "probetoken"')),
+        Variant('malformed_json', 'toplevel-array', 'file', _bytes('["probetoken"]')),
+        Variant('malformed_json', 'items-list', 'file', _bytes(json.dumps({'items': [{
+            'id': 'I1', 'type': 'observation', 'status': 'active', 'statement': 'probetoken'}]}))),
+        Variant('malformed_json', 'item-string', 'file', _bytes(json.dumps({'items': {'I1': 'probetoken'}}))),
+        Variant('malformed_json', 'empty-snapshot', 'file', _bytes(b'')),
+    ]
+
+
+def deep_nesting_variants():
+    return [
+        Variant('deep_nesting', 'nesting-normal', 'file', _bytes(_NORMAL_SNAPSHOT)),
+        Variant('deep_nesting', 'array-snapshot', 'file', _write_nested('array')),
+        Variant('deep_nesting', 'object-snapshot', 'file', _write_nested('object')),
+        Variant('deep_nesting', 'array-events', 'file', _write_nested('array', newline=True)),
+        Variant('deep_nesting', 'object-events', 'file', _write_nested('object', newline=True)),
+    ]
+
+
+def _marked_doc(mark):
+    return ('alpha' + mark + 'ALPHA\n\nbeta\n\nprobetoken\n').encode('utf-8')
+
+
+def special_chars_variants():
+    return [
+        Variant('special_chars', 'newline-doc', 'file', _bytes(_marked_doc('\n'))),
+        Variant('special_chars', 'doc-u2028', 'file', _bytes(_marked_doc('\u2028'))),
+        Variant('special_chars', 'doc-u0085', 'file', _bytes(_marked_doc('\u0085'))),
+        Variant('special_chars', 'doc-cr', 'file', _bytes(_marked_doc('\r'))),
+        Variant('special_chars', 'json-surrogate', 'file', _bytes(
+            '{"items": {"I1": {"id": "I1", "type": "observation", "status": "active", '
+            '"statement": "probetoken \\ud800"}}}')),
     ]
 
 
@@ -239,36 +377,147 @@ def search_scaffold(root):
 
 
 def search_place(variant, root):
-    target = root / ('.prime/context/T/task-contract.json' if variant.name.endswith('contract')
-                     else 'docs/a.md')
+    ledger = root / '.prime/context/T'
+    if variant.category == 'encoding':
+        target = ledger / 'task-contract.json' if variant.name.endswith('contract') else root / 'docs/a.md'
+    elif variant.category == 'malformed_json':
+        target = ledger / 'snapshot.json'
+    elif variant.category == 'deep_nesting':
+        target = ledger / ('events.jsonl' if variant.name.endswith('events') else 'snapshot.json')
+    elif variant.category == 'special_chars':
+        target = ledger / 'snapshot.json' if variant.name == 'json-surrogate' else root / 'docs/a.md'
+    else:
+        raise ValueError('no place for ' + variant.category)
     variant.make(target)
     return target
 
 
-def search_expect(variant, target, result):
+_SEARCH_CONTROLS = ('CONTEXT.md', 'docs/a.md', '.prime/context/T/task-contract.json',
+                    '.prime/context/T/snapshot.json')
+
+
+def _search_payload(result):
     try:
         payload = json.loads(result['stdout'])
     except ValueError:
-        return 'fail', 'expect: output is not JSON'
+        return None, 'expect: output is not JSON'
     if not isinstance(payload, dict) or result['exit_code'] != 0:
-        return 'fail', 'expect: search must return exit 0 and JSON object'
-    label = target.relative_to(Path(result['cwd'])).as_posix()
-    results = payload.get('results', [])
-    paths = {row['path'] for row in results}
-    skipped = {row.get('path'): row.get('reason') for row in payload.get('skipped', [])}
+        return None, 'expect: search must return exit 0 and JSON object'
+    return payload, None
+
+
+def _result_paths(payload):
+    return {row['path'] for row in payload.get('results', []) if isinstance(row, dict) and 'path' in row}
+
+
+def _skipped_reasons(payload):
+    return {row.get('path'): row.get('reason') for row in payload.get('skipped', []) if isinstance(row, dict)}
+
+
+def _others_searchable(paths, label):
+    return set(_SEARCH_CONTROLS).difference((label,)).issubset(paths)
+
+
+def _newline_line(text, needle='probetoken'):
+    for number, line in enumerate(text.split('\n'), 1):
+        if needle in line:
+            return number
+    return None
+
+
+def _expect_encoding(variant, label, paths, skipped):
     if variant.name.startswith('invalid-utf8') or variant.name == 'cp1252-doc':
         if not skipped.get(label):
             return 'fail', 'expect: invalid UTF-8 target must be skipped with reason'
     elif label not in paths:
         return 'fail', 'expect: normal or BOM target must be searchable'
-    controls = {'CONTEXT.md', 'docs/a.md', '.prime/context/T/task-contract.json',
-                '.prime/context/T/snapshot.json'} - {label}
-    if not controls.issubset(paths):
+    if not _others_searchable(paths, label):
         return 'fail', 'expect: other readable files must remain searchable'
     return 'pass', 'expect: target handled and other files searchable'
 
 
+def _expect_malformed(variant, label, paths, skipped):
+    if variant.name == 'malformed-normal':
+        if label not in paths:
+            return 'fail', 'expect: normal snapshot must be searchable'
+    else:
+        events = Path(label).with_name('events.jsonl').as_posix()
+        if not (skipped.get(label) or events in paths or label in paths):
+            return 'fail', 'expect: malformed target must be skipped or rebuilt from events.jsonl'
+    if not _others_searchable(paths, label):
+        return 'fail', 'expect: other readable files must remain searchable'
+    return 'pass', 'expect: target handled and other files searchable'
+
+
+def _expect_deep(variant, label, paths, skipped):
+    if variant.name == 'nesting-normal':
+        if label not in paths:
+            return 'fail', 'expect: normal snapshot must be searchable'
+    elif label not in paths and not skipped.get(label):
+        return 'fail', 'expect: deep target must be indexed or skipped'
+    if not _others_searchable(paths, label):
+        return 'fail', 'expect: other readable files must remain searchable'
+    return 'pass', 'expect: target handled and other files searchable'
+
+
+def _expect_special(variant, target, label, paths, skipped, payload):
+    if variant.name == 'json-surrogate':
+        if label not in paths and not skipped.get(label):
+            return 'fail', 'expect: surrogate JSON must be indexed or skipped without UnicodeEncodeError'
+    else:
+        # Text mode translates lone CR, which would hide the off-by-one under test.
+        expected = _newline_line(target.read_bytes().decode('utf-8'))
+        reported = [row.get('line') for row in payload.get('results', [])
+                    if isinstance(row, dict) and row.get('path') == label]
+        if reported != [expected]:
+            shown = reported[0] if len(reported) == 1 else reported
+            return 'fail', 'expect: line %s != newline line %s' % (shown, expected)
+    if not _others_searchable(paths, label):
+        return 'fail', 'expect: other readable files must remain searchable'
+    if variant.name == 'json-surrogate':
+        return 'pass', 'expect: surrogate JSON output parsed'
+    return 'pass', 'expect: line number follows newline splits'
+
+
+def search_expect(variant, target, result):
+    payload, failure = _search_payload(result)
+    if payload is None:
+        return 'fail', failure
+    label = target.relative_to(Path(result['cwd'])).as_posix()
+    paths = _result_paths(payload)
+    skipped = _skipped_reasons(payload)
+    if variant.category == 'encoding':
+        return _expect_encoding(variant, label, paths, skipped)
+    if variant.category == 'malformed_json':
+        return _expect_malformed(variant, label, paths, skipped)
+    if variant.category == 'deep_nesting':
+        return _expect_deep(variant, label, paths, skipped)
+    if variant.category == 'special_chars':
+        return _expect_special(variant, target, label, paths, skipped, payload)
+    return 'undecided', 'expect: no contract for ' + variant.name
+
+
+_ISSUE = 'https://github.com/wei0210-bit/managing-long-task-context/issues/'
+
+
 def context_search_entry(repo=ROOT):
+    known = {
+        'truncated-snapshot': (_ISSUE + '98', "expect，exit 1，Expecting ',' delimiter"),
+        'toplevel-array': (_ISSUE + '99', 'expect，exit 0，target was not processed'),
+        'items-list': (_ISSUE + '100', "底线 1，AttributeError: 'list' object has no attribute 'items'"),
+        'item-string': (_ISSUE + '101', "底线 1，AttributeError: 'str' object has no attribute 'get'"),
+        'empty-snapshot': (_ISSUE + '102', 'expect，exit 0，target was not processed'),
+        'array-snapshot': (_ISSUE + '103', 'expect，exit 0，target was not processed'),
+        'object-snapshot': (_ISSUE + '104', 'expect，exit 0，target was not processed'),
+        'array-events': (_ISSUE + '105',
+                         '底线 1，RecursionError: maximum recursion depth exceeded while decoding a JSON array'),
+        'object-events': (_ISSUE + '106',
+                          '底线 1，RecursionError: maximum recursion depth exceeded while decoding a JSON object'),
+        'doc-u2028': (_ISSUE + '107', 'expect，exit 0，line 6 != newline line 5'),
+        'doc-u0085': (_ISSUE + '108', 'expect，exit 0，line 6 != newline line 5'),
+        'doc-cr': (_ISSUE + '109', 'expect，exit 0，line 6 != newline line 5'),
+        'json-surrogate': (_ISSUE + '110', 'expect，exit 1，surrogates not allowed'),
+    }
     return Entry('context_search', search_scaffold, search_place,
                  CliAdapter(lambda root: [sys.executable, str(repo / 'scripts/context_search.py'),
                                           'search', 'probetoken'], lambda root: root,
@@ -276,8 +525,12 @@ def context_search_entry(repo=ROOT):
                                 'PATH': os.environ.get('PATH', os.defpath),
                                 'HOME': os.environ.get('HOME', str(Path.home())),
                                 'PYTHONPATH': str(repo / 'src')}),
-                 ('.prime/search/',), search_expect, {'encoding': encoding_variants()},
-                 pending={'bom-doc'})
+                 ('.prime/search/',), search_expect, {
+                     'encoding': encoding_variants(),
+                     'malformed_json': malformed_json_variants(),
+                     'deep_nesting': deep_nesting_variants(),
+                     'special_chars': special_chars_variants(),
+                 }, known=known, pending={'bom-doc'})
 
 
 ENTRIES = {'context_search': context_search_entry()}
@@ -299,6 +552,9 @@ def main(argv=None) -> int:
     output.write_text(json.dumps(report, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
     print('REPORT ' + str(output))
     print(json.dumps(report['counts'], sort_keys=True))
+    for row in report['results']:
+        if isinstance(row['known'], dict) and row['verdict'] == 'pass':
+            print('KNOWN-NOW-PASSING ' + row['variant'])
     skipped = report['counts']['skipped']
     if skipped:
         print('SKIPPED ' + str(skipped))

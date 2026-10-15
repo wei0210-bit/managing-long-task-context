@@ -202,6 +202,162 @@ class FailureProbeTests(unittest.TestCase):
                                     temp_dir=self.root)
                 self.assertEqual(probes.exit_code(report), 1)
 
+    def test_known_signature_mismatch_fails_and_match_is_exempt(self):
+        body = 'print(\'{"results": [{"path": "target"}]}\')\n'
+        mismatch = ('https://github.com/wei0210-bit/managing-long-task-context/issues/1',
+                    'expect，exit 0，line 6 != newline line 5')
+        entry = replace(self.fake_entry(body), known={'fake': mismatch},
+                        expect=lambda *args: ('fail', 'expect: line 7 != newline line 5'))
+        report = probes.run(entry, temp_dir=self.root)
+        row = report['results'][0]
+        self.assertEqual(row['verdict'], 'fail')
+        self.assertFalse(row['known']['matched'])
+        self.assertEqual(row['known']['signature'], mismatch[1])
+        self.assertEqual(probes.exit_code(report), 1)
+
+        matched = ('https://github.com/wei0210-bit/managing-long-task-context/issues/1',
+                   "底线 1，AttributeError: 'list' object has no attribute 'items'")
+        entry = replace(self.fake_entry(
+            "raise AttributeError(\"'list' object has no attribute 'items'\")\n"), known={'fake': matched})
+        report = probes.run(entry, temp_dir=self.root)
+        row = report['results'][0]
+        self.assertEqual(row['verdict'], 'fail')
+        self.assertTrue(row['known']['matched'], row['stderr_excerpt'])
+        self.assertEqual(probes.exit_code(report), 0)
+
+        entry = replace(self.fake_entry(
+            "from pathlib import Path\nPath('target').write_text('changed')\n"
+            "raise AttributeError(\"'list' object has no attribute 'items'\")\n"), known={'fake': matched})
+        report = probes.run(entry, temp_dir=self.root)
+        self.assertFalse(report['results'][0]['known']['matched'])
+        self.assertEqual(probes.exit_code(report), 1)
+
+    def test_known_now_passing_exits_1_and_pending_does_not(self):
+        known = ('https://github.com/wei0210-bit/managing-long-task-context/issues/1',
+                 'expect，exit 1，surrogates not allowed')
+        entry = replace(self.fake_entry('print(\'{"results": [{"path": "target"}]}\')\n'),
+                        known={'fake': known})
+        stream = io.StringIO()
+        with patch.object(probes, 'ENTRIES', {'fake': entry}), contextlib.redirect_stdout(stream):
+            code = probes.main(['--entry', 'fake', '--output', str(self.root / 'known-pass.json')])
+        self.assertEqual(code, 1)
+        self.assertIn('KNOWN-NOW-PASSING fake', stream.getvalue())
+
+        pending = self.fake_entry('print(\'{"results": [{"path": "target"}]}\')\n', pending=True)
+        stream = io.StringIO()
+        with patch.object(probes, 'ENTRIES', {'fake': pending}), contextlib.redirect_stdout(stream):
+            code = probes.main(['--entry', 'fake', '--output', str(self.root / 'pending-pass.json')])
+        self.assertEqual(code, 0)
+        self.assertNotIn('KNOWN-NOW-PASSING', stream.getvalue())
+
+    def test_baseline_violation_cannot_be_pending(self):
+        entry = self.fake_entry('pass\n')
+        known = {'fake': ('https://github.com/wei0210-bit/managing-long-task-context/issues/1',
+                          '底线 1，AttributeError')}
+        with self.assertRaises(ValueError) as raised:
+            replace(entry, known=known, pending={'fake'})
+        self.assertIn('pending', str(raised.exception))
+
+    def test_silent_ignore_of_malformed_json_and_deep_nesting_fails(self):
+        script = self.root / 'silent.py'
+        script.write_text('print(\'{"results": []}\')\n', encoding='utf-8')
+        for category in ('malformed_json', 'deep_nesting'):
+            with self.subTest(category=category):
+                variant = probes.Variant(category, 'silent', 'file',
+                                         lambda path: path.write_text('{"a":"probetoken"}', encoding='utf-8'))
+
+                def place(ignored, root):
+                    path = root / 'target'
+                    variant.make(path)
+                    return path
+
+                entry = probes.Entry(
+                    'fake', lambda root: (root / 'target').write_text('probetoken', encoding='utf-8'),
+                    place, probes.CliAdapter(lambda root: [sys.executable, str(script)], lambda root: root,
+                                             {'PATH': os.defpath}, 3), (),
+                    lambda *args: ('pass', 'should not be reached'), {category: [variant]})
+                report = probes.run(entry, temp_dir=self.root)
+                row = report['results'][0]
+                self.assertEqual(row['verdict'], 'vacuous')
+                self.assertIn('target was not processed', row['reason'])
+                self.assertEqual(probes.exit_code(report), 1)
+
+    def test_expect_accepts_fallback_skip_and_rejects_shifted_lines(self):
+        probes.search_scaffold(self.root)
+        snapshot = self.root / '.prime/context/T/snapshot.json'
+        label = '.prime/context/T/snapshot.json'
+        others = [{'path': 'CONTEXT.md'}, {'path': 'docs/a.md'},
+                  {'path': '.prime/context/T/task-contract.json'}]
+        malformed = next(item for item in probes.malformed_json_variants() if item.name == 'truncated-snapshot')
+        fallback = {'cwd': str(self.root), 'exit_code': 0, 'stdout': json.dumps({
+            'results': others + [{'path': '.prime/context/T/events.jsonl'}], 'skipped': []})}
+        self.assertEqual(probes.search_expect(malformed, snapshot, fallback)[0], 'pass')
+        skipped = {'cwd': str(self.root), 'exit_code': 0, 'stdout': json.dumps({
+            'results': others, 'skipped': [{'path': label, 'reason': 'bad json'}]})}
+        self.assertEqual(probes.search_expect(malformed, snapshot, skipped)[0], 'pass')
+        deep = next(item for item in probes.deep_nesting_variants() if item.name == 'array-snapshot')
+        self.assertEqual(probes.search_expect(deep, snapshot, skipped)[0], 'pass')
+
+        doc = self.root / 'docs/a.md'
+        doc_rows = [{'path': 'CONTEXT.md'}, {'path': '.prime/context/T/task-contract.json'},
+                    {'path': label}, {'path': 'docs/a.md', 'line': 6}]
+        shifted = next(item for item in probes.special_chars_variants() if item.name == 'doc-u2028')
+        shifted.make(doc)
+        reported = {'cwd': str(self.root), 'exit_code': 0,
+                    'stdout': json.dumps({'results': doc_rows, 'skipped': []})}
+        verdict, reason = probes.search_expect(shifted, doc, reported)
+        self.assertEqual(verdict, 'fail')
+        self.assertIn('line 6 != newline line 5', reason)
+        normal = next(item for item in probes.special_chars_variants() if item.name == 'newline-doc')
+        normal.make(doc)
+        self.assertEqual(probes.search_expect(normal, doc, reported)[0], 'pass')
+
+    def test_new_category_snapshots_and_cleanup(self):
+        groups = (probes.malformed_json_variants(), probes.deep_nesting_variants(),
+                  probes.special_chars_variants())
+        for variants in groups:
+            for variant in variants:
+                with self.subTest(variant=variant.name):
+                    tree = self.root / variant.name
+                    tree.mkdir()
+                    probes.search_scaffold(tree)
+                    target = probes.search_place(variant, tree)
+                    before = probes.snapshot(tree)
+                    self.assertEqual(before, probes.snapshot(tree))
+                    relative = target.relative_to(tree).as_posix()
+                    self.assertIn('sha256', before[relative])
+                    self.assertNotIn(probes.TRACEBACK.encode(), target.read_bytes())
+                    probes.cleanup(tree)
+                    self.assertFalse(tree.exists())
+
+    def test_four_categories_known_baseline_exits_zero(self):
+        report = probes.run(probes.context_search_entry(),
+                            ['encoding', 'malformed_json', 'deep_nesting', 'special_chars'],
+                            temp_dir=self.root)
+        self.assertEqual(probes.exit_code(report), 0, [
+            (row['variant'], row['verdict'], row['reason'], row['known'])
+            for row in report['results'] if probes.exit_code({'results': [row]})])
+        by_name = {row['variant']: row for row in report['results']}
+        self.assertTrue(by_name['bom-doc']['pending'])
+        self.assertEqual(by_name['bom-doc']['verdict'], 'pass')
+        self.assertFalse(by_name['bom-doc']['known'])
+        for name in ('malformed-normal', 'nesting-normal', 'newline-doc'):
+            self.assertEqual(by_name[name]['verdict'], 'pass', name)
+            self.assertFalse(by_name[name]['known'])
+            self.assertFalse(by_name[name]['pending'])
+        entry = probes.context_search_entry()
+        for name in ('items-list', 'item-string', 'array-events', 'object-events'):
+            self.assertTrue(by_name[name]['known']['signature'].startswith('底线 1'), name)
+            self.assertTrue(by_name[name]['known']['matched'], by_name[name])
+            self.assertNotIn(name, entry.pending)
+        for row in report['results']:
+            if row['verdict'] == 'pass':
+                continue
+            self.assertTrue(row['known']['matched'], row)
+            self.assertTrue(str(row['known']['issue']).startswith(
+                'https://github.com/wei0210-bit/managing-long-task-context/issues/'))
+            self.assertFalse(row['pending'])
+
     def test_real_encoding_entry_and_report_fields(self):
         report = probes.run(probes.context_search_entry(), ['encoding'], temp_dir=self.root)
         self.assertEqual(probes.exit_code(report), 0, report)
